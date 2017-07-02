@@ -66,13 +66,13 @@ microservice your needs are very different, different still if you're building a
 is my background). It's also important to me to be able to leverage the substantial body of
 debugging, performance anaylsis and performance tuning tools that have been created for mature
 platforms like the JVM. I'm going to reinvent a lot of wheels with Compose, but I'd like to
-leveragae existing wheels where I can, at least until I get around to reinventing them.
+leverage existing wheels where I can, at least until I get around to reinventing them.
 
-I am confident that I can achieve tolerable semantics with LLVM, and I think the JVM is even on a
-trajectory that will enable the things I want to do without forcing things too much to be modeled
-as objects behind the scenes. JavaScript will always be a problem child, but the main goal there is
-to be able to have interactive playgrounds where you can build and play with programs of modest
-size, so I'm not as worried about performance. I will make every performance sacrifice necessary to
+I am confident that I can achieve tolerable semantics with LLVM, and I think the JVM is on a
+trajectory that will enable the things I want to do without forcing me to model everything as
+objects behind the scenes. JavaScript will always be a problem child, but the main goal there is to
+be able to have interactive playgrounds where you can build and play with programs of modest size,
+so I'm not as worried about performance. I will make every performance sacrifice necessary to
 ensure that JavaScript's "semantics" do not leak through, and that Compose on a JS VM functions
 correctly and without compromise.
 
