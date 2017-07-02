@@ -23,5 +23,5 @@ have some cool demos.
 Compose is being created by Michael Bayne <mdb@samskivert.com>. Feel free to contact me if you like
 to talk about the utter insanity of trying to foist another programming language on the world.
 
-[manifesto]: TODO
-[FAQ]: TODO
+[manifesto]: https://samskivert.github.io/compose/manifesto
+[FAQ]: https://samskivert.github.io/compose/FAQ
