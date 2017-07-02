@@ -44,9 +44,13 @@ it has failed. Let's try some new ideas.
 
 The one thing Cook nails down as fundamentally OO is dynamic disaptch through the `this` pointer.
 That is, you don't know what code is going to run until you follow the vtable pointer and find out
-where you end up. This is something Compute is going to try hard to avoid. I think the other
-benefits of the "OO package" can be achieved via different mechanisms, and this particular bit of
-dynamism/polymorphism can be left by the wayside.
+where you end up. Megamorphic call sites anyone? This is something Compute is going to try hard to
+avoid. I think the other benefits of the "OO package" can be achieved via different mechanisms, and
+this particular bit of dynamism/polymorphism can be left by the wayside.
+
+## Will it have null?
+
+Jesus no! Why would you even ask that question? Are you some kind of anarchist?
 
 ## What will it run on?
 
@@ -71,6 +75,14 @@ to be able to have interactive playgrounds where you can build and play with pro
 size, so I'm not as worried about performance. I will make every performance sacrifice necessary to
 ensure that JavaScript's "semantics" do not leak through, and that Compose on a JS VM functions
 correctly and without compromise.
+
+## Why is this documentation so tongue in cheek?
+
+Programming computers is a defiant raising of the middle finger at the inexorable destructive
+forces of complexity. In the end complexity will win and all of our cute little attempts to tame it
+will blow away like so much dust in the wind. The universe will laugh in its cryptic way and things
+will proceed stonily toward eventual heat death. In the face of that kind of existential terror,
+one needs a little humor to keep the wheels moving.
 
 ## When will it be done?
 
