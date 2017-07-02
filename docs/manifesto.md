@@ -142,20 +142,27 @@ treat like the very important artifact that it is.
 
 No sane person would try to create a new programming language. Fortunately, I don't count myself
 among the ranks of the sane, so that's not a problem for me. But I also have a good lie that I can
-tell myself to keep me toiling in obscurity day after day, year after year. That is that Compose is
-a language designed for teaching computer science. It's also a language designed for making real
-world software. One of my motivations for undertaking this project at all is that I think that
-these two goals need not be at odds, and can in fact support one another.
+tell myself to keep me toiling in obscurity day after day, year after year. Compose is a language
+designed for teaching computer science, and as we know students don't get to choose the language,
+the teacher does.
+
+I aim to educate a new generation of software developers, untainted by the burden of history. And
+not with a language that's obviously pedagogical, one that clearly must be discarded when moving on
+to making "real" software. Compose is a language that scales down to learning the basics of
+computation, and scales up to the challenges and horrors of modern software development.
 
 Making real software is unavoidably complicated. You have to build on platforms that have been
 around for decades and are warty and fragile. Compose will have mechanisms (like external reactive
 state) for adapting and "cleaning up" these crufty platform APIs so that they fit more nicely into
-its programming model. Those same mechanisms can be used to create a series of successively more
-complex "playgrounds" in which to learn fundamental concepts in blissful ignorance of the horrors
-of real software development. By the time you graduate to a context where you have access to, say,
-the entire Java SDK, or all iOS platform SDKs, you will have girded your loins with the creation of
-much civilized software and you can wade into the mire with naught but a wistful sadness at how
-much better it ought to be.
+its programming model. But it can't fix everything, it will simply strive to ease students into the
+complex reality of real APIs and platforms.
+
+I plan to build a series of successively more complex "playgrounds" in which to learn fundamental
+concepts and to build more and more interesting programs. The curtain will be gradually pulled
+back, bit by bit. By the time you graduate to a context where you have access to, say, the entire
+Java SDK, or all iOS platform SDKs, you will have girded your loins with the creation of much
+civilized software and you can wade into the mire with naught but a wistful sadness at how much
+better it ought to be.
 
 ## Yeah, but does it use curly braces?
 
