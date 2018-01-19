@@ -1,0 +1,56 @@
+interface Logic A
+  (!)  a:A      -> A // not
+  (&) a1:A a2:A -> A // and
+  (|) a1:A a2:A -> A // or
+  (^) a1:A a2:A -> A // exclusive or
+
+interface Eq A
+  (==) a1:A a2:A -> Bool
+  (!=) a1:A a2:A -> Bool = if (a1 == a2) false else true
+
+data Ordering = LT | EQ | GT
+
+interface Ord A <= Eq A
+  compare a1:A a2:A -> Ordering
+  (<)  a1:A a2:A -> Bool = compare a1 a2 == LT
+  (>)  a1:A a2:A -> Bool = compare a1 a2 == GT
+  (<=) a1:A a2:A -> Bool = compare a1 a2 != GT
+  (>=) a1:A a2:A -> Bool = compare a1 a2 != LT
+  greater a1:A a2:A -> A = if (a1 < a2) a1 else a2
+  lesser  a1:A a2:A -> A = if (a1 > a2) a1 else a2
+
+interface Show A
+  show a:A -> String
+
+interface Semigroup A
+  append a1:A a2:A -> A
+
+interface Monoid A <= Semigroup A
+  zero -> A
+
+interface Foldable F[A]
+  fold [A:Monoid] as:F[A] -> A
+  foldMap [M:Monoid] f:(A -> M) as:F[A] -> M
+  fold [B] f:(B A -> B) as:F[A] z:B -> B
+  foldRight [B] f:(A B -> B) as:F[A] z:B -> B
+  reduce f:(A A -> A) -> A
+  reduceRight f:(A A -> A) -> A
+  // optimizations?
+  max [A:Ord] as:F[A] -> A = reduce greater // 'greater' gets curried with typeclass arg?
+  min [A:Ord] as:F[A] -> A = reduce lesser
+
+/// Idris
+
+reverse : List a -> List a
+reverse xs = revAcc [] xs where
+  revAcc : List a -> List a -> List a
+  revAcc acc [] = acc
+  revAcc acc (x :: xs) = revAcc (x :: acc) xs
+
+/// Compose
+
+fun reverse xs:List[A] -> List[A] =
+  fun revAcc acc rest =
+    acc [] = acc
+    acc (x :: xs) = revAcc (x :: acc) xs
+  revAcc [] xs

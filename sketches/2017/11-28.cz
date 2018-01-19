@@ -1,0 +1,148 @@
+// Priority queue interface with tree-based implementation
+
+// All types and functions implicitly parameterized over 'A
+interface PrioQueue 'A
+  type Prio = U32
+  type Impl
+  mkEmpty                          -> Impl
+  isEmpty impl:Impl                -> Bool
+  insert  impl:Impl prio:Prio a:'A -> Impl
+  extract impl:Impl                -> (Prio A Impl)?
+
+impl TreePrioQueue 'A : PrioQueue 'A
+  data Tree = Empty | Node[prio:Prio elem:'A left:Tree right:Tree]
+  type Impl = Tree
+
+  mkEmpty = Empty
+
+  isEmpty Empty = true
+          _     = false
+
+  -or-
+  isEmpty tree = tree is Empty
+
+  insert tree prio elem = tree match
+    Empty = Node[prio elem Empty Empty]
+    top   =
+      // top node always has lowest priority
+      // if new priority is lower, new element becomes top node
+      if (prio <= np) Node[prio elem (insert top.right top.prio top.elem) top.left]
+      // otherwise top node stays the same, ...
+      else            top[left=(insert top.right prio elem) right=top.left]
+
+  extract Empty = None
+          top   = Some[[top.prio top.elem (pop top)]]
+  where
+    pop Node[_ _ left right] = cond // if?
+      right is Empty = left
+      left  is Empty = right
+      // follwing requires refinement of left & right type due to above tests
+      // to be known as non-Empty (i.e. Node)
+      else           = right[left=left right=(pop right)]
+
+  -or-
+  extract Empty = None
+          top   = Some[[top.prio top.elem (pop top)]]
+  where
+    pop Empty                 = raise AssertionError // impossible
+        Node[_ _ left  Empty] = left
+        Node[_ _ Empty right] = right
+        Node[_ _ left  right] =
+         if (left.prio <= right.prio) Node[left.prio left.elem (pop left) right]
+         else                         Node[right.prio right.elem left (pop right)]
+
+// Eq and Ord define interfaces that are used as type classes
+
+data Ordering = LT | EQ | GT
+
+class Eq 'A
+  (==) a1:'A a2:'A -> Bool
+  (!=) a1:'A a2:'A -> Bool = if (a1 == a2) false else true
+
+class Eq 'A => Ord 'A
+  compare a1:'A a2:'A -> Ordering
+  (<)  a1:'A a2:'A -> Bool = (compare a1 a2) is LT
+  (>)  a1:'A a2:'A -> Bool = (compare a1 a2) is GT
+  (<=) a1:'A a2:'A -> Bool = !(a1 > a2)
+  (>=) a1:'A a2:'A -> Bool = !(a1 < a2)
+  max  a1:'A a2:'A -> 'A   = if (a1 < a2) a1 else a2
+  min  a1:'A a2:'A -> 'A   = if (a1 > a2) a1 else a2
+
+// Ord instance for I32 uses intrinsic functions
+instance I32Ord : Ord I32
+  compare a1 a2 = if (a1 < a2) LT else if (a1 == a2) EQ else GT
+  (<)     a2 a2 = __ilt32 a1 a2
+  (>)     a2 a2 = __igt32 a1 a2
+  (<=)    a2 a2 = __ilte32 a1 a2
+  (>=)    a2 a2 = __igte32 a1 a2
+
+interface IndSeq 'C['A]
+  type Index = U32 // make abstract? might be annoying due to incomparability
+                   // with other seq indices, or that might be a good thing?
+  length seq:'C['A]           -> Index // U64?
+  (@)    seq:'C['A] idx:Index -> 'A
+
+// Ord instance for IndSeq
+instance IndSeqOrd : 'C[_] => Ord 'A => IndSeq 'C['A] => Ord IndSeq 'C['A]
+  compare s1 s2 =
+    let l1 = s1.length, l2 = s2.length
+    loop 0 where loop ii = cond
+      ii == l1 & ii == l2 = EQ
+      ii == l1            = LT
+      ii == l2            = GT
+      else                = (compare s1@ii s2@ii) match
+        EQ = loop ii+1
+        cc = cc
+
+// Ordered Set interface: element param has Ord class dependency
+interface OrdSet 'E <= Ord 'E
+  type Impl
+  mkEmpty                    -> Impl
+  contains impl:Impl elem:'E -> Bool
+  add      impl:Impl elem:'E -> Impl
+  remove   impl:Impl elem:'E -> Impl
+
+// TODO: I don't like  ↴ that colon; what means "implements" or "provides an instance of"?
+impl ListOrdSet 'E <= Ord 'E : OrdSet 'E
+  type Impl = List
+
+  mkEmpty = []
+
+  contains list elem = list match
+    []   = false
+    h::t = (compare elem h) match
+      LT = false // elem smaller than head, thus not in set
+      EQ = true
+      GT = contains t elem
+
+  add list elem = list match
+    []   = [elem]
+    h::t = (compare elem h) match
+      LT = elem :: list
+      EQ = list // elem equal to head, thus already in set
+      GT = h :: (add t elem)
+
+// Typing out loud about Functor and associated types, type projections, etc.
+
+interface Functor 'T
+  type Elem : Type
+  type Result : Type -> Type
+  // TODO this arg ordering is opposite of what everyone else does; why does everyone
+  // else do things in a way that seems backwards to me?
+  map 'B t:'T f:(Elem -> 'B) -> Result 'B
+
+instance Functor List 'A
+  type Elem = 'A
+  type Result = List
+  map []   f = []
+      h::t f = (f h) :: (map t f)
+
+instance Functor U32
+  type Elem = Bool
+  type Result = _ => U32
+  map v f =
+    loop 0 0 where loop ii nv = cond
+      ii == 32 = nv
+      else     =
+        let mask = 1 << ii, fii = f (v & mask != 0)
+        loop (ii+1) (nv | (if fii mask else 0))

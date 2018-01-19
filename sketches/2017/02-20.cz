@@ -1,0 +1,10 @@
+fib (n :int):
+  match n:
+    0 = 0
+    1 = 1
+    n = fib(n-2) + fib(n-1)
+
+quick_sort [a :comparable] (as :seq[a]):
+  let mm = as.length / 2
+  let mid = as(mm)
+  // ...

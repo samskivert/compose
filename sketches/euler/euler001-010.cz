@@ -1,0 +1,105 @@
+fun euler01 =
+  sum([0 .. 1000].filter(a => (a % 3 == 0 || a % 5 == 0)))
+
+fun euler02 =
+  fun fib (a :I32, b :I32) :I32 =
+    (if (b % 2 == 0) b else 0) + (if (a+b > 1000000) 0 else fib(b, a+b))
+  fib(1, 2)
+
+fun euler03 =
+  fun lpf (divis :I64, divid :I64) :I64 = case
+    (divid % divis == 0)  => lpf(2, divid/divis)
+    (divis > sqrt(divid)) => divid
+    else                  => lpf(divis+1, divid)
+
+  lpf(2, 317584931803)
+
+fun euler04 =
+  fun isPalindrome (value :String) =
+    let front = value[0 .. value.length/2]
+        back = value[value.length/2 ..]
+    front == reverse(back)
+
+  max([a * b where
+       a <- [100 ... 999]
+       b <- [100 ... 999]
+       isPalindrome(show(a * b))])
+
+fun euler05 =
+  fun check (value :I32) :I32 =
+    let divisors = [20, 19, 18, 17, 16, 15, 14, 13, 12, 11]
+    if (divisors.exists(a => (value % a != 0))) check(20+value)
+    else value
+
+  check(20)
+
+fun euler06 =
+  let first100sum = sum([1 ... 100])
+      first100sumsq = [1 ... 100].fold(0, (b, a) => (b + a*a))
+  first100sum * first100sum - first100sumsq
+
+fun euler07 =
+  var numbers = List([2 ... 110000])
+  var primes = List(2)
+  while (primes.length <= 10000)
+    let prime = primes.head
+    numbers = numbers.filter(b => (b % prime != 0))
+    primes = numbers.head :: primes
+  primes.head
+
+fun euler08 =
+  let digits = `
+      73167176531330624919225119674426574742355349194934
+      96983520312774506326239578318016984801869478851843
+      85861560789112949495459501737958331952853208805511
+      12540698747158523863050715693290963295227443043557
+      66896648950445244523161731856403098711121722383113
+      62229893423380308135336276614282806444486645238749
+      30358907296290491560440772390713810515859307960866
+      70172427121883998797908792274921901699720888093776
+      65727333001053367881220235421809751254540594752243
+      52584907711670556013604839586446706324415722155397
+      53697817977846174064955149290862569321978468622482
+      83972241375657056057490261407972968652414535100474
+      82166370484403199890008895243450658541227588666881
+      16427171479924442928230863465674813919123162824586
+      17866458359124566529476545682848912883142607690042
+      24219022671055626321111109370544217506941658960408
+      07198403850962455444362981230987879927244284909188
+      84580156166097919133875499200524063689912560717606
+      05886116467109405077541002256983155200055935729725
+      71636269561882670428252483600823257530420752963450`
+    numbers = digits.replace(regexp("\s"), "").map(#1 - '0')
+    window = 5
+    prod5 = (off :I32) => product(numbers.slice(off, off+window))
+  max([0 .. numbers.length-window].map(prod5))
+
+fun euler09 =
+  [a*b*c where
+   a <- 1 ... 1000
+   b <- a ... 1000
+   c <- b ... 1000
+   a*a + b*b == c*c
+   a+b+c == 1000].head
+
+// TODO: define ArrayBuffer & += operation
+
+/// Folds `f` over all primes less than `range` using zero value `z`.
+fun foldprimes[Z] (range :I32, z :Z, f :(Z, I32) => Z) :Z =
+  var zacc = z
+  let nonprimes = BitSet(range)
+  nonprimes.add(1)
+  var cur = 2
+  while (cur < range)
+    zacc = f(zacc, cur)
+    // add all multiplies of `cur` (up to range) to non-primes
+    for let midx = [cur+cur .. range by cur]
+      nonprimes.add(midx)
+    // now scan successive integers for the next prime
+    do cur = cur+1
+    while (cur < range && nonprimes.contains(cur))
+  zacc
+fun genprimes (range :I32) = foldprimes(range, ArrayBuffer[I32](), #1 += #2)
+
+fun euler10 =
+  sum(genprimes(2000000))
