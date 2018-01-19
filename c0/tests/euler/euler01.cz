@@ -1,0 +1,1 @@
+sum(filter(range(0, 1000), a :Int => (a % 3 == 0 || a % 5 == 0)))

@@ -1,0 +1,6 @@
+fun add (a :I32, b :I32) = {
+  fun loop (ii :I32, acc :I32) = match ii
+    case 0 = acc
+    case p = loop(ii-1, acc+1)
+  loop(a, b)
+}

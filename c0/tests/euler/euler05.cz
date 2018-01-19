@@ -1,0 +1,6 @@
+fun check (value :I32) :I32 = {
+  let divisors = [20, 19, 18, 17, 16, 15, 14, 13, 12, 11]
+  if divisors.exists(a => (value % a != 0)) check(20+value)
+  else value
+}
+check(20)

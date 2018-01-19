@@ -1,0 +1,4 @@
+fun fib (n :I32) = match n
+  case 0 = 0
+  case 1 = 1
+  case n = fib(n-2) + fib(n-1)

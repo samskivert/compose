@@ -1,0 +1,3 @@
+fun fib (a :I32, b :I32) :I32 =
+  (if (b % 2 == 0) b else 0) + (if (a+b > 1000000) 0 else fib(b, a+b))
+fib(1, 2)

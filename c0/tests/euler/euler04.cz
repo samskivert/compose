@@ -1,0 +1,8 @@
+fun isPalindrome (value :String) = {
+  let front = slice(value, 0, value.length/2), back = slice(value, value.length/2)
+  front == reverse(back)
+}
+max([a * b where
+     a <- range(100, 999),
+     b <- range(100, 999),
+     isPalindrome(show(a * b))])

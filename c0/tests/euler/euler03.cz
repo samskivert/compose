@@ -1,0 +1,5 @@
+fun lpf (divis :I64, divid :I64) :I64 = cond
+  (divid % divis == 0)  = lpf(2, divid/divis)
+  (divis > sqrt(divid)) = divid
+  else                  = lpf(divis+1, divid)
+lpf(2, 317584931803)
