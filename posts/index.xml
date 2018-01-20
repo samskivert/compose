@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Posts on Compose</title>
+    <link>https://samskivert.github.io/compose/posts/</link>
+    <description>Recent content in Posts on Compose</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Sun, 02 Jul 2017 00:00:00 +0000</lastBuildDate>
+    
+	<atom:link href="https://samskivert.github.io/compose/posts/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>Manifesto</title>
+      <link>https://samskivert.github.io/compose/posts/manifesto/</link>
+      <pubDate>Sun, 02 Jul 2017 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/posts/manifesto/</guid>
+      <description>When possible, I like to start my projects with a good manifesto. Decry the moral bankruptcy of my peers, chart out a course to utopia, that sort of thing. Here are the things that Compose aims to do that I feel buck the status quo to varying degrees.
+No files, no ASCII This has two major components:
+ Compose programs will not be stored as a sequence of UTF-8 characters that are parsed into an AST.</description>
+    </item>
+    
+  </channel>
+</rss>

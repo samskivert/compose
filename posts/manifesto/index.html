@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manifesto | Compose</title>
+    <link rel="stylesheet" href="/compose/css/style.css" />
+    <link rel="stylesheet" href="/compose/css/fonts.css" />
+    
+  </head>
+
+  <body>
+    <nav>
+    <ul class="menu">
+      
+      <li><a href="/compose/">Overview</a></li>
+      
+      <li><a href="/compose/posts/manifesto/">Manifesto</a></li>
+      
+      <li><a href="/compose/faq/">FAQ</a></li>
+      
+      <li><a href="https://github.com/samskivert/compose">Github</a></li>
+      
+    </ul>
+    </nav>
+    <h1><span class="title">Compose</span></h1>
+    <hr/>
+
+<div class="article-meta">
+
+<div class="date">2017/07/02</div>
+<h1><span class="title">Manifesto</span></h1>
+</div>
+
+<main>
+
+
+<p>When possible, I like to start my projects with a good manifesto. Decry the moral bankruptcy of my
+peers, chart out a course to utopia, that sort of thing. Here are the things that Compose aims to
+do that I feel buck the status quo to varying degrees.</p>
+
+<h2 id="no-files-no-ascii">No files, no ASCII</h2>
+
+<p>This has two major components:</p>
+
+<ol>
+<li>Compose programs will not be stored as a sequence of UTF-8 characters that are parsed into an
+AST. Compose programs will be stored as a serialized AST. That serialization will be moderately
+human readable, but only incidentally.</li>
+</ol>
+
+<p>&ldquo;What?!&rdquo; you say, &ldquo;but what about my command line tools? What about viewing diffs on Github, in
+   email, in my favorite code review tool, in my hex editor while viewing raw disk blocks?&rdquo; Those
+   tools will have to change (maybe not the hex editor). We&rsquo;ll make it as easy as we can to squeeze
+   a pretty printer into the toolchain, but ASCII&rsquo;s time is over. We must stop the madness.</p>
+
+<ol>
+<li>Compose will not use the file as its primary compilation unit. We don&rsquo;t even have files, so it
+would clearly be a weird thing to do. Files as compilation units is a useless legacy from the
+days of the PDP-11 when that was all we could fit into memory. The natural compilation unit is
+the module. A module defines the connection point between separately compiled pieces of code. A
+Compose program is built out of modules, and a module is built out of definitions. There&rsquo;s
+nothing in between. (There is a name for a group of modules, it&rsquo;s a library, but we&rsquo;ll get to
+that later.)</li>
+</ol>
+
+<h2 id="you-create-and-edit-the-ast">You create and edit the AST</h2>
+
+<p>This is sort of a corollary to the &ldquo;No files, no ASCII&rdquo; point. Compose programs are created in a
+smart editor. You don&rsquo;t type in or change characters to create a program. You edit the AST. Just
+like you don&rsquo;t edit the raw curve definitions in an SVG or manually execute Bresenham&rsquo;s line
+algorithm to draw a line in a PNG, you don&rsquo;t change individual characters to edit a Compose
+program. There is no such thing as a syntax error.</p>
+
+<p>&ldquo;What?!&rdquo; you say, &ldquo;but I&rsquo;m a cave programmer. I cannot function without the soothing feels of vi or
+emacs responding to my keyboard caresses.&rdquo; I feel you my friend. I too am a cave programmer. In
+fact, I love the cave so much that I built my <a href="https://github.com/scaled/scaled">own cave</a> and I
+pimped it. I will make accommodations to the cave programmer, as I must, but Compose takes the long
+view. We will soon be dead. And the next generation of programmers will look upon our tools and
+techniques and say &ldquo;Weird. Why would you do that?&rdquo;</p>
+
+<h2 id="module-oriented">Module oriented</h2>
+
+<p>Other useful things fall out of the non-use of files as compilation units and the orientation
+toward modules as the fundamental unit of grouping code. You express your dependencies for a module
+once (i.e. you import things once, not at the top of every goddamned file). You do any
+renaming/aliasing of imported names once.</p>
+
+<p>Visibility and accessibility (think private, protected, public) are simplified. Inside a module
+everything is visible and accessible to everything else. There are no ABI concerns inside a module,
+a module is compiled as a single unit. You don&rsquo;t need to hide things from yourself inside a module.
+You think about one thing: what API does this module export for the rest of the world to use.
+Syntactically, there&rsquo;s module internal, the default, and exported: <code>foo</code> and <code>export foo</code>. That&rsquo;s
+it.</p>
+
+<h2 id="interactive-compilation">Interactive compilation</h2>
+
+<p>The Compose compiler will be built first and foremost to deliver the best interactive code editing,
+testing and execution experience possible. Only secondarily will it provide batch compilation. It
+boggles my mind when new language after new language shows up to the party with a batch compiler
+and zero thought given to interactive code editing. Do these people write computer software? Fast,
+accurate, useful feedback to the programmer is <em>the most important thing!</em> Hello?</p>
+
+<p>Anyway. The Compose compiler will run as a daemon, will load up, type check, and generate code for
+all the code in one or more modules (or hey, maybe all that work will already be done because we
+<em>don&rsquo;t use ASCII files to save our programs!),</em> and then it will wait for your commands. You will
+deliver AST edits to it, or rather the editor will do so on your behalf, and the compiler will
+propagate those changes through its many graphs and trees and update that which changes. It will
+not whack itself over the head with a hammer, forgetting everything it has computed and then
+recompute everything from scratch. Why would you do that?</p>
+
+<p>My metric is not kLOC compiled per second. My metric is how many milliseconds it takes from
+changing code and pressing the &lsquo;test&rsquo; or &lsquo;run&rsquo; button to seeing test results or executing software.</p>
+
+<h2 id="compiler-is-a-library">Compiler is a library</h2>
+
+<p>Since I&rsquo;m complaining about how everyone else builds compilers, here&rsquo;s another mistake Compose is
+not going to make. The compiler will be built from the ground up as a collection of modules that
+are designed to be used by third parties. Want to load a Compose serialized AST? No problem! Use
+<em>the</em> AST loader. Not, &ldquo;Oh, you probably have to use some half broken third party code because the
+compiler is intertwingled with unwanted crap in sixty five ways, and wasn&rsquo;t designed so much as
+regurgitated into files by a series of paper deadline addled grad students.&rdquo;</p>
+
+<p>This will go all the way down. Need a typed AST, can do. Need to generate code, no problem! I also
+have plans for metaprogramming capabilities that will undoubtedly be simpler than using the main
+compiler machinery directly, but not to the unfathomably stark degree that you&rsquo;ll find in most
+non-trivial languages.</p>
+
+<h2 id="editor-and-other-tools-are-also-libraries">Editor and other tools are also libraries</h2>
+
+<p>Compose will come with a powerful editor that is designed to work harmoniously with the way Compose
+programs are constructed. It will come with a build system and means to manage library (aka
+package) dependencies for a project. These components will all be designed as a third party usable
+modules, and the Compose tools will themselves be clients of these modules. Want to write a command
+line tool that does custom crazy stuff: iterates over the library dependency graph, or the AST of
+all code in a project, or over the build graph, you can! And you&rsquo;ll do it in Compose, not Perl or
+Python or heaven forfend, Bash.</p>
+
+<h2 id="code-organization-support">Code organization support</h2>
+
+<p>Most languages give you 1960s state of the art tools for organizing your code: files and
+directories. Thank goodness we nailed that one fifty years ago and have no need whatsoever to
+improve upon it. Compose dispenses with files and directories and brings us at least a few decades
+closer to the present.</p>
+
+<p>Code is a hypertext. Code is a database. Compose and its editor, treat it as such. You can view and
+browse your code in whatever way you find appropriate for your immediate circumstance: view a list
+of modules with nested lists of all the definitions in those modules. Filter just the public
+definitions for modules you&rsquo;re using, see the all definitions for modules you&rsquo;re writing. View all
+the definitions (across modules) potentially touched by following the control flow of a given
+function. View all the definitions that make use of a particular data structure.</p>
+
+<p>The editor is designed to edit definitions, not files. We&rsquo;ll have some pretty pictures elsewhere,
+but you can open definitions at the bottom of your current &lsquo;stack&rsquo;, or open a new stack in a
+separate column, drag things around to arrange them in whatever way works best for your current
+workflow. Have a stack of defs from the module you&rsquo;re working on, and a stack of defs from other
+modules that you&rsquo;re referring to one column to the right. Have five columns and two dozen defs on
+screen at once. Monitors are big.</p>
+
+<h2 id="documentation-is-a-first-class-citizen">Documentation is a first class citizen</h2>
+
+<p>Most programming languages relegate documentation to raw or at best semi-structured comments. Then
+they proceed to mostly ignore them, not even including them in their ASTs in many cases. Maybe they
+give you some half-assed tools to &lsquo;extract&rsquo; that documentation into HTML files, because <em>that&rsquo;s</em> a
+great way to learn about someone else&rsquo;s software.</p>
+
+<p>Guess what guys? Documentation is as important as code, maybe more! Documentation is not a
+<em>comment</em>. A comment is something like &lsquo;Beware of bugs in the above code; I have only proved it
+correct, not tried it.&rsquo; Documentation is an explanation, a transfer of information from human to
+human, a living evolving artifact that coexists with, and complements the code.</p>
+
+<p>In Compose, documentation is a kind of code. You write it with a smart editor, it&rsquo;s checked by the
+compiler. It may contain references to definitions; they&rsquo;re checked. It may contain executable code
+examples, which are type checked and compiled and can be run interactively with the results
+displayed in the documentation. It&rsquo;s in the AST! All the standard tools know about it, process it,
+treat like the very important artifact that it is.</p>
+
+<h2 id="learnability-is-a-primary-goal">Learnability is a primary goal</h2>
+
+<p>No sane person would try to create a new programming language. Fortunately, I don&rsquo;t count myself
+among the ranks of the sane, so that&rsquo;s not a problem for me. But I also have a good lie that I can
+tell myself to keep me toiling in obscurity day after day, year after year. Compose is a language
+designed for teaching computer science, and as we know students don&rsquo;t get to choose the language,
+the teacher does.</p>
+
+<p>I aim to educate a new generation of software developers, untainted by the burden of history. And
+not with a language that&rsquo;s obviously pedagogical, one that clearly must be discarded when moving on
+to making &ldquo;real&rdquo; software. Compose is a language that scales down to learning the basics of
+computation, and scales up to the challenges and horrors of modern software development.</p>
+
+<p>Making real software is unavoidably complicated. You have to build on platforms that have been
+around for decades and are warty and fragile. Compose will have mechanisms (like external reactive
+state) for adapting and &ldquo;cleaning up&rdquo; these crufty platform APIs so that they fit more nicely into
+its programming model. But it can&rsquo;t fix everything, it will simply strive to ease students into the
+complex reality of real APIs and platforms.</p>
+
+<p>I plan to build a series of successively more complex &ldquo;playgrounds&rdquo; in which to learn fundamental
+concepts and to build more and more interesting programs. The curtain will be gradually pulled
+back, bit by bit. By the time you graduate to a context where you have access to, say, the entire
+Java SDK, or all iOS platform SDKs, you will have girded your loins with the creation of much
+civilized software and you can wade into the mire with naught but a wistful sadness at how much
+better it ought to be.</p>
+
+<h2 id="yeah-but-does-it-use-curly-braces">Yeah, but does it use curly braces?</h2>
+
+<p>I have various other goals with the language and environment that are more specific to what is
+traditionally considered the &ldquo;language design&rdquo;. A lot of these are just stolen from existing
+languages, so they&rsquo;re not bucking the status quo, just picking and choosing from it. One major
+component is to incorporate ideas from <a href="http://samskivert.com/blog/2013/11/thinking-aloud-rsp/">reactive state programming</a> that I described a while ago.
+Other ideas have been described on my short-lived <a href="http://samskivert.com/bikeshed/">bikeshed</a> blog. See the <a href="../../faq">FAQ</a> for
+more details on things like the syntax, programming model, implementation plans, etc.</p>
+
+</main>
+
+  <footer>
+  
+  
+  <hr/>
+  &copy; 2018 <a href="http://samskivert.com">Michael Bayne</a>
+  
+  </footer>
+  </body>
+</html>
+

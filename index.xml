@@ -6,9 +6,21 @@
     <description>Recent content in Home on Compose</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
+    <lastBuildDate>Sun, 02 Jul 2017 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://samskivert.github.io/compose/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>Manifesto</title>
+      <link>https://samskivert.github.io/compose/posts/manifesto/</link>
+      <pubDate>Sun, 02 Jul 2017 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/posts/manifesto/</guid>
+      <description>When possible, I like to start my projects with a good manifesto. Decry the moral bankruptcy of my peers, chart out a course to utopia, that sort of thing. Here are the things that Compose aims to do that I feel buck the status quo to varying degrees.
+No files, no ASCII This has two major components:
+ Compose programs will not be stored as a sequence of UTF-8 characters that are parsed into an AST.</description>
+    </item>
     
     <item>
       <title>About</title>
@@ -17,6 +29,16 @@
       
       <guid>https://samskivert.github.io/compose/about/</guid>
       <description>This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at jekyllrb.com</description>
+    </item>
+    
+    <item>
+      <title>FAQ</title>
+      <link>https://samskivert.github.io/compose/faq/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/faq/</guid>
+      <description>Wherein questions which have in fact not been asked with any degree of frequency are misclassified as frequently asked, and then answered.
+What&amp;rsquo;s the programming model? Compose is at its core a strict, pure functional programming language, with ADTs and pattern matching. It is not total. We like big bottoms and we can not lie. It will have a carefully specified (stolen?) semantics. It is in the spirit of SML/OCaml, but with an eye toward more modern syntax, like Reason.</description>
     </item>
     
     <item>

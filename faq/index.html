@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FAQ | Compose</title>
+    <link rel="stylesheet" href="/compose/css/style.css" />
+    <link rel="stylesheet" href="/compose/css/fonts.css" />
+    
+  </head>
+
+  <body>
+    <nav>
+    <ul class="menu">
+      
+      <li><a href="/compose/">Overview</a></li>
+      
+      <li><a href="/compose/posts/manifesto/">Manifesto</a></li>
+      
+      <li><a href="/compose/faq/">FAQ</a></li>
+      
+      <li><a href="https://github.com/samskivert/compose">Github</a></li>
+      
+    </ul>
+    </nav>
+    <h1><span class="title">Compose</span></h1>
+    <hr/>
+
+<div class="article-meta">
+
+
+<h1><span class="title">FAQ</span></h1>
+</div>
+
+<main>
+
+
+<p>Wherein questions which have in fact not been asked with any degree of frequency are misclassified
+as frequently asked, and then answered.</p>
+
+<h2 id="what-s-the-programming-model">What&rsquo;s the programming model?</h2>
+
+<p>Compose is at its core a strict, pure functional programming language, with ADTs and pattern
+matching. It is not total. We like big bottoms and we can not lie. It will have a carefully
+specified (stolen?) semantics. It is in the spirit of <a href="https://en.wikipedia.org/wiki/Standard_ML">SML</a>/<a href="https://en.wikipedia.org/wiki/OCaml">OCaml</a>, but with an eye toward more
+modern syntax, like <a href="https://facebook.github.io/reason/">Reason</a>.</p>
+
+<p>Compose does not handle state with monads, it uses an isolated, mutable, reactive state repository
+(think more &lsquo;fast database inside my program&rsquo; than &lsquo;mutable heap&rsquo;) and a separate class of
+computations that transform that state. <em>Functions</em> are pure computations that take inputs and
+compute outputs, just like God and Leonhard Euler intended. <em>Reactions</em> (name may change) are
+computations that are triggered by a change in reactive state, which may make use of any number of
+functions to compute new values, which are then used to update reactive state.</p>
+
+<p>This description is sketchy because I have not ironed out all the details, but the iron is coming. I
+have more detailed early notes on reactive state in a blog post on <a href="http://samskivert.com/blog/2013/11/thinking-aloud-rsp/">reactive state programming</a>.</p>
+
+<h2 id="does-it-orient-objects">Does it orient objects?</h2>
+
+<p>Compose is not an object oriented language. There are certain things about OO that are nice, and
+Compose will seek to include them (first argument dot function name style calls, for example,
+because they&rsquo;re so tab completable). William R. Cook wrote a great paper <a href="http://www.cs.utexas.edu/~wcook/Drafts/2009/essay.pdf">On Understanding Data
+Abstraction, Revisited</a> which breaks down OOP into its many components and compares and contrasts
+them with alternative approaches.</p>
+
+<p>Compose will likely achieve ad-hoc polymorphism via a mechanism like Haskell&rsquo;s type classes. Some
+languages (like Scala) use classes and objects to obtain modularity and encapsulation, Compose will
+use modules for that. Classes are also used to bundle up a package of state and functions that
+operate on that state. Compose will support this via something more like what I called a &ldquo;system&rdquo;
+in my post on RSP (linked above). Systems have the benefit of making lifecycle a first class
+concept, which is something classes and objects often leave as an exercise to the reader.</p>
+
+<p>Systems also don&rsquo;t come with the poison pill of method overriding. Overriding methods as extension
+points and as a way to customize code is a failed experiment. We can see that written on the walls
+with &ldquo;prefer composition over inheritance&rdquo;. Aspect oriented programming illustrates other ways that
+it has failed. Let&rsquo;s try some new ideas.</p>
+
+<p>The one thing Cook nails down as fundamentally OO is dynamic disaptch through the <code>this</code> pointer.
+That is, you don&rsquo;t know what code is going to run until you follow the vtable pointer and find out
+where you end up. Megamorphic call sites anyone? This is something Compute is going to try hard to
+avoid. I think the other benefits of the &ldquo;OO package&rdquo; can be achieved via different mechanisms, and
+this particular bit of dynamism/polymorphism can be left by the wayside.</p>
+
+<h2 id="will-it-have-null">Will it have null?</h2>
+
+<p>Jesus no! Why would you even ask that question? Are you some kind of anarchist?</p>
+
+<h2 id="what-will-it-run-on">What will it run on?</h2>
+
+<p>Initially Compose will compile to JavaScript (so that I can run in the web browser), and to Java
+bytecode (so that I can run on a mature, high performance VM). But my goal is to eventually
+generate machine code with an LLVM backend or something like it. I&rsquo;ll probably also support
+WebAssembly, why not? That is not to say that the goal is machine code generation and the other
+backends will go away once that is available. My goal is to support different backends for
+different use cases.</p>
+
+<p>If you&rsquo;re building an iOS app, you have certain needs, whereas if you&rsquo;re building a website or
+microservice your needs are very different, different still if you&rsquo;re building a video game (which
+is my background). It&rsquo;s also important to me to be able to leverage the substantial body of
+debugging, performance anaylsis and performance tuning tools that have been created for mature
+platforms like the JVM. I&rsquo;m going to reinvent a lot of wheels with Compose, but I&rsquo;d like to
+leverage existing wheels where I can, at least until I get around to reinventing them.</p>
+
+<p>I am confident that I can achieve tolerable semantics with LLVM, and I think the JVM is on a
+trajectory that will enable the things I want to do without forcing me to model everything as
+objects behind the scenes. JavaScript will always be a problem child, but the main goal there is to
+be able to have interactive playgrounds where you can build and play with programs of modest size,
+so I&rsquo;m not as worried about performance. I will make every performance sacrifice necessary to
+ensure that JavaScript&rsquo;s &ldquo;semantics&rdquo; do not leak through, and that Compose on a JS VM functions
+correctly and without compromise.</p>
+
+<h2 id="why-is-this-documentation-so-tongue-in-cheek">Why is this documentation so tongue in cheek?</h2>
+
+<p>Programming computers is a defiant raising of the middle finger at the inexorable destructive
+forces of complexity. In the end complexity will win and all of our cute little attempts to tame it
+will blow away like so much dust in the wind. The universe will laugh in its cryptic way and things
+will proceed stonily toward eventual heat death. In the face of that kind of existential terror,
+one needs a little humor to keep the wheels moving.</p>
+
+<h2 id="when-will-it-be-done">When will it be done?</h2>
+
+<p>Never! But if you mean when will there be something I can play with, probably not for at least a
+year. I&rsquo;m budgeting a decade, but that&rsquo;s for the full monty. I should hope that I can get a
+self-hosting compiler up and running in a year or so, along side a basic smart editor. It took
+three months to get my (comparatively modest) <a href="https://github.com/scaled/scaled">IDE project</a> to the point where I could work on the
+IDE in the IDE. This will take longer. 2x, 4x, who knows? Plus I can&rsquo;t even start in earnest until
+September.</p>
+
+<p>If you&rsquo;re reading this at all, you&rsquo;re someone I&rsquo;m just hoping to engage in discussion to help
+provide good ideas and bad advice as I embark upon this (new) quixotic journey.</p>
+
+</main>
+
+  <footer>
+  
+  
+  <hr/>
+  &copy; 2018 <a href="http://samskivert.com">Michael Bayne</a>
+  
+  </footer>
+  </body>
+</html>
+
