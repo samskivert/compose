@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Home on Compose</title>
+    <link>https://samskivert.github.io/compose/</link>
+    <description>Recent content in Home on Compose</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    
+	<atom:link href="https://samskivert.github.io/compose/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>About</title>
+      <link>https://samskivert.github.io/compose/about/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/about/</guid>
+      <description>This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at jekyllrb.com</description>
+    </item>
+    
+    <item>
+      <title>Primer</title>
+      <link>https://samskivert.github.io/compose/primer/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/primer/</guid>
+      <description>Literals  Int8: -128 &amp;hellip; 127 Int16: -32768 &amp;hellip; 32767 Int32: -2147483648 &amp;hellip; 2147483647 Int64: -2^63 &amp;hellip; 2^63-1 Nat8: 0 &amp;hellip; 255 Nat16: 0 &amp;hellip; 65535 Nat32: 0 &amp;hellip; 4294967295 Nat64: 0 &amp;hellip; 2^64-1 Float32: -3.4028235E38 &amp;hellip; 3.4028235E38 Float64: -1.7976931348623157E308 &amp;hellip; 1.7976931348623157E308 Boolean: false, true  Infix Operators Arithmetic  unary: + - binary: + - * / %  Bitwise  unary: ~ binary: &amp;amp; ^ | &amp;lt;&amp;lt; &amp;gt;&amp;gt; &amp;gt;&amp;gt;&amp;gt;  Relational  binary: &amp;lt; &amp;gt; &amp;lt;= &amp;gt;= == !</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Primer | Compose</title>
+    <link rel="stylesheet" href="/compose/css/style.css" />
+    <link rel="stylesheet" href="/compose/css/fonts.css" />
+    
+  </head>
+
+  <body>
+    <nav>
+    <ul class="menu">
+      
+      <li><a href="/compose/">Overview</a></li>
+      
+      <li><a href="/compose/posts/manifesto/">Manifesto</a></li>
+      
+      <li><a href="/compose/faq/">FAQ</a></li>
+      
+      <li><a href="https://github.com/samskivert/compose">Github</a></li>
+      
+    </ul>
+    </nav>
+    <h1><span class="title">Compose</span></h1>
+    <hr/>
+
+<div class="article-meta">
+
+
+<h1><span class="title">Primer</span></h1>
+</div>
+
+<main>
+
+
+<h2 id="literals">Literals</h2>
+
+<ul>
+<li>Int8:  -128 &hellip; 127</li>
+<li>Int16: -32768 &hellip; 32767</li>
+<li>Int32: -2147483648 &hellip; 2147483647</li>
+<li>Int64: -2^63 &hellip; 2^63-1</li>
+<li>Nat8:  0 &hellip; 255</li>
+<li>Nat16: 0 &hellip; 65535</li>
+<li>Nat32: 0 &hellip; 4294967295</li>
+<li>Nat64: 0 &hellip; 2^64-1</li>
+<li>Float32: -3.4028235E38 &hellip; 3.4028235E38</li>
+<li>Float64: -1.7976931348623157E308 &hellip; 1.7976931348623157E308</li>
+<li>Boolean: false, true</li>
+</ul>
+
+<h2 id="infix-operators">Infix Operators</h2>
+
+<h3 id="arithmetic">Arithmetic</h3>
+
+<ul>
+<li>unary: + -</li>
+<li>binary: + - * / %</li>
+</ul>
+
+<h3 id="bitwise">Bitwise</h3>
+
+<ul>
+<li>unary: ~</li>
+<li>binary: &amp; ^ | &lt;&lt; &gt;&gt; &gt;&gt;&gt;</li>
+</ul>
+
+<h3 id="relational">Relational</h3>
+
+<ul>
+<li>binary: &lt; &gt; &lt;= &gt;= == !=</li>
+</ul>
+
+<h3 id="logical">Logical</h3>
+
+<ul>
+<li>binary: &amp;&amp; ||</li>
+</ul>
+
+<h3 id="assignment">Assignment</h3>
+
+<ul>
+<li>binary: =</li>
+</ul>
+
+<h2 id="expressions">Expressions</h2>
+
+<p>1 + 1</p>
+
+<h2 id="data">Data</h2>
+
+<p>TODO</p>
+
+<h2 id="functions">Functions</h2>
+
+<p>fun doubleIt (x :Int) =
+  x + x</p>
+
+<p>fun length<a href="l :List[A]">A</a> =
+  l match
+    Nil      = 0
+    Cons v r = 1 + length r</p>
+
+<h2 id="state">State</h2>
+
+<p>TODO</p>
+
+<h2 id="reactors">Reactors</h2>
+
+<p>TODO</p>
+
+<h2 id="systems">Systems</h2>
+
+<p>TODO</p>
+
+</main>
+
+  <footer>
+  
+  
+  <hr/>
+  &copy; 2018 <a href="http://samskivert.com">Michael Bayne</a>
+  
+  </footer>
+  </body>
+</html>
+
