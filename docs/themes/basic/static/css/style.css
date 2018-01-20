@@ -1,0 +1,60 @@
+body {
+  max-width: 800px;
+  margin: auto;
+  padding: 1em;
+  line-height: 1.5em;
+}
+
+/* header and footer areas */
+.menu { padding: 0; float: right; }
+.menu li { display: inline-block; }
+.article-meta, .menu a {
+  position: relative;
+  text-decoration: none;
+  background: #eee;
+  padding: 5px 15px;
+  border-radius: 5px;
+}
+.menu, footer { text-align: center; }
+
+.article-meta .title { font-size: 0.9em; }
+.article-meta .date, .article-meta .author {
+  position: absolute;
+  right: 10px;
+}
+.article-meta .date { bottom: 5px; }
+.article-meta .author { top: 5px; }
+
+footer a { text-decoration: none; }
+hr {
+  border-style: dashed;
+  color: #ddd;
+}
+
+/* code */
+pre {
+  border: 1px solid #ddd;
+  box-shadow: 5px 5px 5px #eee;
+  padding: 1em;
+  overflow-x: auto;
+}
+code { background: #f9f9f9; }
+pre code { background: none; }
+
+/* misc elements */
+img, iframe, video { max-width: 100%; }
+main { hyphens: auto; }
+blockquote {
+  background: #f9f9f9;
+  border-left: 5px solid #ccc;
+  padding: 3px 1em 3px;
+}
+
+table {
+  margin: auto;
+  border-top: 1px solid #666;
+  border-bottom: 1px solid #666;
+}
+table thead th { border-bottom: 1px solid #ddd; }
+th, td { padding: 5px; }
+thead, tfoot, tr:nth-child(even) { background: #eee }

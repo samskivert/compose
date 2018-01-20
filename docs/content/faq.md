@@ -1,5 +1,6 @@
 ---
-title: FAQ
+title: "FAQ"
+draft: true
 ---
 
 Wherein questions which have in fact not been asked with any degree of frequency are misclassified

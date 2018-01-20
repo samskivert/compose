@@ -1,5 +1,7 @@
 ---
-title: Manifesto
+title: "Manifesto"
+date: 2017-07-02
+draft: true
 ---
 
 When possible, I like to start my projects with a good manifesto. Decry the moral bankruptcy of my
@@ -170,8 +172,8 @@ I have various other goals with the language and environment that are more speci
 traditionally considered the "language design". A lot of these are just stolen from existing
 languages, so they're not bucking the status quo, just picking and choosing from it. One major
 component is to incorporate ideas from [reactive state programming] that I described a while ago.
-Other ideas have been described on my short-lived [bikeshed] blog. See the [FAQ](FAQ) for more
-details on things like the syntax, programming model, implementation plans, etc.
+Other ideas have been described on my short-lived [bikeshed] blog. See the [FAQ](../../faq) for
+more details on things like the syntax, programming model, implementation plans, etc.
 
 [reactive state programming]: http://samskivert.com/blog/2013/11/thinking-aloud-rsp/
 [bikeshed]: http://samskivert.com/bikeshed/

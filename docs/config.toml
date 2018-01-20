@@ -1,0 +1,25 @@
+baseURL = "https://samskivert.github.io/compose"
+languageCode = "en-us"
+title = "Compose"
+theme = "basic"
+features = ["blog"]
+
+[[menu.main]]
+    name = "Overview"
+    url = "/"
+    weight = 1
+[[menu.main]]
+    name = "Manifesto"
+    url = "/posts/manifesto/"
+    weight = 2
+[[menu.main]]
+    name = "FAQ"
+    url = "/faq/"
+    weight = 3
+[[menu.main]]
+    name = "Github"
+    url = "https://github.com/samskivert/compose"
+    weight = 4
+
+[params]
+    footer = "&copy; 2018 [Michael Bayne](http://samskivert.com)"

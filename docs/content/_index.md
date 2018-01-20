@@ -1,4 +1,5 @@
 ---
+title: Home
 ---
 
 *Compose* is an experimental programming language. It aims to be:
@@ -10,7 +11,7 @@
 * precise: sane semantics are king, minimize concessions to legacy
 
 Compose also prioritizes a lot of things other programming languages don't even acknolwedge as
-problems. For more details, read the [manifesto](manifesto) and the [FAQ](FAQ).
+problems. For more details, read the [manifesto](posts/manifesto/) and the [FAQ](faq/).
 
 ## Status
 
@@ -29,3 +30,5 @@ world.
 
 Compose is (will be?) [hosted on Github](https://github.com/samskivert/compose), so you can see it
 grow in all its fitful, misdirected glory.
+
+## Blog

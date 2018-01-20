@@ -1,0 +1,12 @@
+{{ partial "header.html" . }}
+<div class="article-meta">
+{{ with .Params.author }}<div class="author">{{ . }}</div>{{ end }}
+{{ if .Params.date }}<div class="date">{{ .Date.Format "2006/01/02" }}</div>{{ end }}
+<h1><span class="title">{{ .Title }}</span></h1>
+</div>
+
+<main>
+{{ .Content }}
+</main>
+
+{{ partial "footer.html" . }}
