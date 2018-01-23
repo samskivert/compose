@@ -8,26 +8,27 @@ import java.nio.file.{Paths, Files}
 import org.junit.Assert._
 import org.junit._
 import fastparse.core.Parsed
+import fastparse.all.P
 
 class ParserTest {
   import AST._
   import Parser._
 
-  def testCode (path :String) = {
+  def testCode[T] (path :String, parser :P[T] = program) :Parsed[T, _, _] = {
     val cwd = Paths.get(System.getProperty("user.dir"))
     val fullPath = cwd.resolve("tests").resolve(path)
     val sb = new java.lang.StringBuilder
     Files.lines(fullPath).forEach(sb.append(_).append("\n"))
-    program.parse(sb.toString)
+    parser.parse(sb.toString)
   }
 
-  def printParse (result :Parsed[AST.Expr, _, _]) = result.fold(
+  def printParse (result :Parsed[AST.Expr, _, _], tree :Boolean = false) = result.fold(
     (p, pos, extra) => {
       extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
       fail(result.toString)
     },
     (res, pos) => {
-      // println(pos + ": " + AST.printTree(res))
+      if (tree) println(pos + ": " + AST.printTree(res))
       AST.printExpr(res)
     }
   )
@@ -37,26 +38,40 @@ class ParserTest {
       extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
       fail(result.toString)
     },
-    (res, pos) => {
-      assertEquals(expect, res)
-    }
+    // TODO: special tree equality assertion for better diffs?
+    (res, pos) => assertEquals(expect, res)
   )
 
   def ident (name :String) = IdentRef(Sym(name))
   def binOp (op :String, e0 :Expr, e1 :Expr) = BinOp(Sym(op), e0, e1)
   def argDef (arg :String) = ArgDef(Sym(arg), None)
-  def lit (value :String) = Literal(value)
+  def intlit (value :String) = Constant(IntLiteral(value))
+  def strlit (value :String) = Constant(StringLiteral(value))
 
   val helloSym = Sym("hello")
   val hello = ident("hello")
   val (a, b, c) = (ident("a"), ident("b"), ident("c"))
 
-  // some simple isolated parses to be sure things aren't totally broken
+  @Test def testLiterals () :Unit = {
+    val expect = Seq(
+      Constant(BoolLiteral(false)),
+      Constant(BoolLiteral(true)),
+      intlit("1"),
+      Constant(FloatLiteral("1f")),
+      Constant(FloatLiteral("32.3f")),
+      Constant(CharLiteral("c")),
+      Constant(CharLiteral("\\u1234")),
+      strlit("hello"),
+      strlit("hello\\n"),
+      strlit("hello"),
+      Constant(RawStringLiteral("hello\\n")),
+      Constant(RawStringLiteral("hello")),
+      ArrayLiteral(Seq(intlit("1"), intlit("2"), intlit("3")))
+    )
+    testParse(Tuple(expect), testCode("literals.cz", parenExpr))
+  }
+
   @Test def testExprs () :Unit = {
-    testParse(lit("1"), literalExpr.parse("1"))
-    testParse(lit("1f"), literalExpr.parse("1f"))
-    testParse(lit("32.3f"), literalExpr.parse("32.3f"))
-    testParse(ArrayLiteral(Seq(lit("1"), lit("2"), lit("3"))), bracketExpr.parse("[1, 2, 3]"))
     testParse(hello, identExpr.parse("hello"))
 
     testParse(binOp("*", binOp("+", a, b), c), parenExpr.parse("((a + b) * c)"))
@@ -73,11 +88,16 @@ class ParserTest {
     }
   }
 
+  @Test def testLet () :Unit = {
+    testParse(LetDef(Seq(Binding(Sym("a"), None, strlit("hello")))),
+              letDef.parse("let a = \"hello\""))
+  }
+
   @Test def testSelect () :Unit = {
     testParse(Select(hello, Sym("thang")), atomExpr.parse("hello.thang"))
   }
 
-  val aEqAPlus1 = Lambda(Seq(argDef("a")), binOp("+", a, lit("1")))
+  val aEqAPlus1 = Lambda(Seq(argDef("a")), binOp("+", a, intlit("1")))
 
   @Test def testLambda () :Unit = {
     testParse(aEqAPlus1, lambdaExpr.parse("a => a + 1"))
@@ -94,7 +114,7 @@ class ParserTest {
   }
 
   @Test def testIf () :Unit = {
-    testParse(If(binOp("<", a, b), binOp("+", a, lit("1")), binOp("-", b, lit("42"))),
+    testParse(If(binOp("<", a, b), binOp("+", a, intlit("1")), binOp("-", b, intlit("42"))),
               ifExpr.parse("if (a < b) a + 1 else b - 42"))
   }
 
@@ -112,8 +132,8 @@ class ParserTest {
   }
 
   @Test def testComp () :Unit = {
-    val range = FunApply(ident("range"), Seq(lit("10"), lit("99")))
-    val filter = binOp("==", binOp("%", binOp("+", a, b), lit("2")), lit("0"))
+    val range = FunApply(ident("range"), Seq(intlit("10"), intlit("99")))
+    val filter = binOp("==", binOp("%", binOp("+", a, b), intlit("2")), intlit("0"))
     // no brackets here because those are handled by bracketExpr
     val code = "a * b where a <- range(10, 99), b <- range(10, 99), (a + b) % 2 == 0"
     val clauses = Seq(Generator(Sym("a"), range), Generator(Sym("b"), range), Filter(filter))
@@ -133,7 +153,7 @@ class ParserTest {
   }
 
   @Test def testNextEuler () :Unit = {
-    printParse(testCode("euler/euler08.cz"))
+    printParse(testCode("euler/euler08.cz"), true)
   }
 
   @Test def testFib () :Unit = {

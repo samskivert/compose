@@ -20,7 +20,25 @@ object AST {
 
   def typeToString (typ :Option[Type]) = typ.map(tp => s" :$tp").getOrElse("")
 
-  // TODO: literal ADT?
+  sealed trait Literal
+  case class BoolLiteral (value :Boolean) extends Literal {
+    override def toString = value.toString
+  }
+  case class IntLiteral (value :String) extends Literal {
+    override def toString = value
+  }
+  case class FloatLiteral (value :String) extends Literal {
+    override def toString = value
+  }
+  case class CharLiteral (value :String) extends Literal {
+    override def toString = s"'$value'"
+  }
+  case class StringLiteral (value :String) extends Literal {
+    override def toString = '"' + value + '"'
+  }
+  case class RawStringLiteral (value :String) extends Literal {
+    override def toString = s"`${value}`"
+  }
 
   //
   // Patterns
@@ -31,8 +49,8 @@ object AST {
   case class IdentPat (ident :Sym) extends Pattern {
     override def toString = ident.toString
   }
-  case class LiteralPat (value :String) extends Pattern {
-    override def toString = value
+  case class LiteralPat (value :Literal) extends Pattern {
+    override def toString = value.toString
   }
   case class DestructPat (ctor :Sym, bindings :Seq[Pattern]) extends Pattern {
     override def toString = s"$ctor(${bindings.mkString(", ")})"
@@ -66,7 +84,7 @@ object AST {
   sealed trait Expr extends Product
 
   // pure
-  case class Literal (value :String) extends Expr
+  case class Constant (value :Literal) extends Expr
   case class ArrayLiteral (values :Seq[Expr]) extends Expr
 
   case class UnOp (op :Sym, expr :Expr) extends Expr
@@ -187,7 +205,7 @@ object AST {
     }
 
     expr match {
-      case Literal(value) => out.print(value)
+      case Constant(value) => out.print(value)
       case ArrayLiteral(values) =>
         out.print("[") ; printSep(", ", values, print0) ; out.print("]")
       case UnOp (op, expr) => out.print(op) ; print0(expr)

@@ -19,16 +19,23 @@ object Lexer {
   val Exp = P( CharIn("Ee") ~ CharIn("+-").? ~ DecNum )
   val FloatType = P( CharIn("fFdD") )
 
-  // Strings (TODO)
-  val UnicodeEscape = P( "u" ~ HexDigit ~ HexDigit ~ HexDigit ~ HexDigit )
+  // Strings
+  val UnicodeEscape = P( "\\u" ~ HexDigit ~ HexDigit ~ HexDigit ~ HexDigit )
+  val CharEscape = P( "\\" ~ AnyChar )
+  def string(delimiter: String) = P( delimiter ~ stringelem(delimiter).rep.! ~ delimiter)
+  def stringelem(quote: String): P0 = P( stringchar(quote) | CharEscape | !quote ~ quote.take(1)  )
+  def stringchar(quote: String): P0 = P( CharsWhile(!s"\\${quote(0)}".contains(_)) )
+  val QuoteString = P( "\"" ~ ( CharsWhile(!"\\\n\"".contains(_)) | CharEscape ).rep.! ~ "\"")
+  val TickString = P( "`" ~ CharsWhile(_ != '`').! ~ "`" )
+  val TripleQuoteString = string("\"\"\"")
+  val TripleTickString = string("```")
 
   // Operators (not currently used)
-  val OpChar = P ( CharPred(isOpChar) )
-  def isOpChar(c: Char) = c match{
-    case '!' | '#' | '%' | '&' | '*' | '+' | '-' | '/' |
-         ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~' => true
-    case _ => isOtherSymbol(c) || isMathSymbol(c)
-  }
+  val OpChar = P ( CharPred(_ match {
+    case '!' | '#' | '%' | '&' | '*' | '+'  | '-' | '/' | ':' |
+         '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~' => true
+    case c => isOtherSymbol(c) || isMathSymbol(c)
+  }) )
   val Op = P( OpChar.rep(1) ).!
 
   // Identifiers
@@ -45,13 +52,16 @@ object Lexer {
   val ws1 = P( whitespace.rep(1) )
 
   // Literals
-  val Int = P( (HexNum | DecNum) ~ CharIn("Ll").? ).!
-
-  val Float = {
+  val BoolLit = P( "false" | "true" ).!
+  val IntLit = P( (HexNum | DecNum) ~ CharIn("Ll").? ).!
+  val FloatLit = {
     def Thing = P( DecNum ~ Exp.? ~ FloatType.? )
     def Thing2 = P( "." ~ Thing | Exp ~ FloatType.? | Exp.? ~ FloatType )
     P( "." ~ Thing | DecNum ~ Thing2 )
   }.!
+  val CharLit :P[String] = P( "'" ~ ( UnicodeEscape | CharEscape | AnyChar ).! ~ "'" )
+  val StringLit :P[String] = P( TripleQuoteString | QuoteString )
+  val RawStringLit :P[String] = P( TripleTickString | TickString )
 
   // Keywords & identifiers
   def mkKeyP (s: String) = s ~ !IdentCont
@@ -66,9 +76,14 @@ object Parser {
   import Lexer._
   import AST._
 
-  val number = P( Float | Int )
+  val literal :P[Literal] = (
+    BoolLit.map(_.toBoolean).map(BoolLiteral) |
+    FloatLit.map(FloatLiteral) |
+    IntLit.map(IntLiteral) |
+    CharLit.map(CharLiteral) |
+    StringLit.map(StringLiteral) |
+    RawStringLit.map(RawStringLiteral) )
   val ident :P[Sym] = P( Name ).map(Sym)
-  // TODO: string literals
 
   // types
   val typeRef :P[Type] = P( ident ).map(Named) // TODO: type constructor application, etc.
@@ -84,14 +99,14 @@ object Parser {
   ).map((FunDef.apply _).tupled)
 
   val binding = P( ws ~ ident ~ optTypeRef ~ ws ~ "=" ~ expr ).map((Binding.apply _).tupled)
-  val letDef = P( Key("let") ~ ws1 ~/ binding.rep(sep=",") ).map(LetDef)
-  val varDef = P( Key("var") ~ ws1 ~/ binding.rep(sep=",") ).map(VarDef)
+  val letDef = P( Key("let") ~ ws1 ~/ binding.rep(1, sep=",") ).map(LetDef)
+  val varDef = P( Key("var") ~ ws1 ~/ binding.rep(1, sep=",") ).map(VarDef)
 
   val defs = P( (ws ~ (funDef | letDef | varDef)).rep )
 
   // patterns
   val identPat = P( ident ).map(IdentPat)
-  val literalPat = P( number ).map(LiteralPat)
+  val literalPat = P( literal ).map(LiteralPat)
   val destructPat = P( ident ~ "[" ~ pattern.rep(sep=",") ~ "]" ).
     map((DestructPat.apply _).tupled)
   val pattern :P[Pattern] = P( identPat | literalPat | destructPat )
@@ -102,10 +117,10 @@ object Parser {
     case (lhs, chunks) => chunks.foldLeft(lhs) { case (lhs, (op, rhs)) => BinOp(op, lhs, rhs) }
   }
 
-  val literalExpr = number.map(Literal)
+  val constExpr = P( literal ).map(Constant)
   val identExpr = P( ident ).map(IdentRef)
 
-  val parenExpr = P( "(" ~/ expr.rep(sep=",") ~ ")" ).map {
+  val parenExpr = P( "(" ~/ expr.rep(sep=",") ~ ws ~ ")" ).map {
     case Seq(expr) => expr
     case exps      => Tuple(exps)
   }
@@ -114,12 +129,12 @@ object Parser {
 
   val selectSuff = ("." ~ ident)
   val applySuff = P( "(" ~ expr.rep(sep=",") ~ ws ~ ")" )
-
-  val atomExpr = P( (literalExpr | identExpr | parenExpr) ~ selectSuff.? ~ applySuff.?).map {
-    case (expr, None,        None) => expr
-    case (expr, Some(ident), None) => Select(expr, ident)
-    case (expr, None,        Some(args)) => FunApply(expr, args)
-    case (expr, Some(ident), Some(args)) => FunApply(Select(expr, ident), args)
+  val atomSuffs = P( selectSuff | applySuff ).rep
+  val atomExpr = P( (constExpr | identExpr | parenExpr) ~ atomSuffs).map { es =>
+    es._2.foldLeft(es._1)((expr, suff) => suff match {
+      case ident :Sym   => Select(expr, ident)
+      case args :Seq[_] => FunApply(expr, args.asInstanceOf[Seq[Expr]])
+    })
   }
 
   val unaryExpr :P[UnOp] = P( (op("+") | op("-") | op("~") | op("!")) ~ atomExpr ).
