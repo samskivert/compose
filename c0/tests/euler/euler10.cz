@@ -1,0 +1,20 @@
+/// Folds `f` over all primes less than `range` using zero value `z`.
+fun foldprimes[Z] (range :I32, z :Z, f :(Z, I32) => Z) :Z = {
+  var zacc = z
+  let nonprimes = BitSet(range)
+  nonprimes.add(1)
+  var cur = 2
+  while cur < range {
+    zacc = f(zacc, cur)
+    // add all multiples of `cur` (up to range) to non-primes
+    for midx <- range(cur+cur, range, cur)
+      nonprimes.add(midx)
+    // now scan successive integers for the next prime
+    do cur = cur+1
+    while (cur < range && nonprimes.contains(cur))
+  }
+  zacc
+}
+fun genprimes (range :I32) = foldprimes(range, ArrayBuffer[I32](), (buf, p) => buf.append(p))
+
+sum(genprimes(2000000))

@@ -16,7 +16,12 @@ object AST {
   case class Named (name :Sym) extends Type {
     override def toString = name.toString
   }
-  case class TypeApply (args :Seq[Type]) extends Type
+  case class Arrow (args :Seq[Type], ret :Type) extends Type {
+    override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
+  }
+  case class Construct (ctor :Sym, args :Seq[Type]) extends Type {
+    override def toString = s"$ctor${args.mkString("[", ", ", "]")}"
+  }
 
   def typeToString (typ :Option[Type]) = typ.map(tp => s" :$tp").getOrElse("")
 
@@ -63,18 +68,22 @@ object AST {
   sealed trait Def
 
   // TODO: destructuring argument bindings
-  case class ArgDef (name :Sym, typ :Option[Type]) {
+  case class ArgDef (docs :Seq[String], name :Sym, typ :Option[Type]) {
     override def toString = s"$name${typeToString(typ)}"
   }
-  case class FunDef (name :Sym, args :Seq[ArgDef], rtype :Option[Type], body :Expr) extends Def
+  case class TypeArgDef (name :Sym, bound :Option[Type]) { // TODO: separate AST for bounds?
+    override def toString = s"$name${typeToString(bound)}"
+  }
+  case class FunDef (docs :Seq[String], name :Sym, typeArgs :Seq[TypeArgDef],
+                     args :Seq[ArgDef], retType :Option[Type], body :Expr) extends Def
 
   // TODO: destructuring bindings
   case class Binding (name :Sym, typ :Option[Type], value :Expr)
   case class LetDef (bindings :Seq[Binding]) extends Def
   case class VarDef (bindings :Seq[Binding]) extends Def
 
-  case class Ctor (name :Sym, args :Seq[ArgDef])
-  case class DataDef (name :Sym, variants :Seq[Ctor]) extends Def
+  case class Ctor (docs :Seq[String], name :Sym, args :Seq[ArgDef])
+  case class DataDef (docs :Seq[String], name :Sym, variants :Seq[Ctor]) extends Def
 
   // case class TypeDef (name :Sym, TODO)
 
@@ -98,7 +107,7 @@ object AST {
 
   case class Lambda (args :Seq[ArgDef], body :Expr) extends Expr
 
-  case class FunApply (fun :Expr, args :Seq[Expr]) extends Expr
+  case class FunApply (fun :Expr, typeArgs :Seq[Type], args :Seq[Expr]) extends Expr
 
   case class If (cond :Expr, ifTrue :Expr, ifFalse :Expr) extends Expr
   // TODO: if+let? or maybe "let Ctor(arg) = expr" is a LetExpr which evaluates to true/false?
@@ -115,7 +124,8 @@ object AST {
   case class Filter (expr :Expr) extends CompClause
   case class MonadComp (elem :Expr, clauses :Seq[CompClause]) extends Expr
 
-  case class Block (defs :Seq[Def], exprs :Seq[Expr]) extends Expr
+  case class DefExpr (df :Def) extends Expr
+  case class Block (exprs :Seq[Expr]) extends Expr
 
   // naughty
   case class Assign (ident :Sym, value :Expr) extends Expr
@@ -178,13 +188,17 @@ object AST {
       }
     }
     df match {
-      case FunDef(name, args, rtype, body) =>
-        out.print("fun ") ; out.print(name) ; out.print(args.mkString(" (", ", ", ")"))
-        printOptType(rtype) ; out.print(" = ")
+      case DataDef(docs, name, variants) =>
+        docs.foreach { doc => out.print(s"/// $doc") }
+        out.print(s"$name = ${variants.mkString(" | ")}") // TODO
+      case FunDef(docs, name, typeArgs, args, ret, body) =>
+        docs.foreach { doc => out.println(s"/// $doc") }
+        out.print("fun ") ; out.print(name)
+        if (!typeArgs.isEmpty) out.print(typeArgs.mkString("[", ", ", "]"))
+        out.print(args.mkString(" (", ", ", ")")) ; printOptType(ret) ; out.print(" = ")
         printExpr(out, indent)(body)
       case LetDef(bindings) => out.print("let ") ; printBindings(bindings)
       case VarDef(bindings) => out.print("var ") ; printBindings(bindings)
-      case DataDef(name, variants) => out.print(s"$name = ${variants.mkString(" | ")}") // TODO
     }
   }
 
@@ -192,22 +206,21 @@ object AST {
     def nindent = indent + " "
     def print0 (expr :Expr) = printExpr(out, indent)(expr)
     def print1 (expr :Expr) = printExpr(out, nindent)(expr)
-    def printSep[T] (sep :String, ts :Seq[T], printT :T => Unit) = {
+    def printSep[T] (ts :Seq[T], printT :T => Unit, open :String, sep :String, close :String) = {
       var first = true
+      out.print(open)
       ts foreach { t =>
         if (!first) out.print(sep)
         printT(t)
         first = false
       }
+      out.print(close)
     }
-    def printTuple (exprs :Seq[Expr]) = {
-      out.print("(") ; printSep(", ", exprs, print0) ; out.print(")")
-    }
+    def printTuple (exprs :Seq[Expr]) = printSep(exprs, print0, "(", ", ", ")")
 
     expr match {
       case Constant(value) => out.print(value)
-      case ArrayLiteral(values) =>
-        out.print("[") ; printSep(", ", values, print0) ; out.print("]")
+      case ArrayLiteral(values) => printSep(values, print0, "[", ", ", "]")
       case UnOp (op, expr) => out.print(op) ; print0(expr)
       case BinOp (op, left, right) =>
         out.print("(") ; print0(left)
@@ -220,7 +233,10 @@ object AST {
         if (args.size == 1) out.print(args(0))
         else out.print(args.mkString("(", ", ", ")"))
         out.print(" => ") ; print0(body)
-      case FunApply (ident, args) => print0(ident) ; printTuple(args)
+      case FunApply (ident, typeArgs, args) =>
+        print0(ident)
+        if (!typeArgs.isEmpty) printSep(typeArgs, printType(out, indent), "[", ", ", "]")
+        printTuple(args)
       case If (cond, ifTrue, ifFalse) =>
         out.print("if (") ; print0(cond) ; out.print(") ") ; print0(ifTrue)
         out.print(" else ") ; print0(ifFalse)
@@ -237,16 +253,15 @@ object AST {
         }
         out.println() ; out.print(nindent) ; out.print("else = ") ; print1(elseResult)
       case MonadComp(elem, clauses) =>
-        out.print("[") ; print0(elem) ; out.print(" where ")
-        printSep[CompClause](", ", clauses, _ match {
+        out.print("[") ; print0(elem)
+        printSep[CompClause](clauses, _ match {
           case Generator(name, expr) => out.print(name) ; out.print(" <- ") ; print0(expr)
           case Filter(expr) => print0(expr)
-        })
-        out.print("]")
-      case Block (defs, exprs) =>
+        }, " where ", ", ", "]")
+      case DefExpr(df) => printDef(out, indent)(df)
+      case Block (exprs) =>
         out.print("{")
         def printSep () = { out.println() ; out.print(nindent) }
-        defs foreach { df => printSep() ; printDef(out, nindent)(df) }
         exprs foreach { expr => printSep() ; printExpr(out, nindent)(expr) }
         out.println() ; out.print(indent) ; out.print("}")
 
@@ -256,10 +271,10 @@ object AST {
         out.print("do ") ; print0(body)
         out.print(" while ") ; print0(cond)
       case For (gens, body) =>
-        out.print("for ") ; printSep[Generator](", ", gens, {
+        printSep[Generator](gens, {
           case Generator(name, expr) => out.print(name) ; out.print(" <- ") ; print0(expr)
-        })
-        out.print(" ") ; print0(body)
+        }, "for ", ", ", " ")
+        print0(body)
     }
   }
 

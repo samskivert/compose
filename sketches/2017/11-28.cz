@@ -102,7 +102,7 @@ interface OrdSet 'E <= Ord 'E
   add      impl:Impl elem:'E -> Impl
   remove   impl:Impl elem:'E -> Impl
 
-// TODO: I don't like  ↴ that colon; what means "implements" or "provides an instance of"?
+// TODO: I don't like that   ↴ colon; what means "implements" or "provides an instance of"?
 impl ListOrdSet 'E <= Ord 'E : OrdSet 'E
   type Impl = List
 
