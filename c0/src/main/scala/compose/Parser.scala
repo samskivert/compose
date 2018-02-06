@@ -73,7 +73,8 @@ object Lexer {
 
 object Parser {
   import Lexer._
-  import AST._
+  import Trees._
+  import Names._
 
   val literal :P[Literal] = (
     BoolLit.map(_.toBoolean).map(BoolLiteral) |
@@ -83,22 +84,22 @@ object Parser {
     StringLit.map(StringLiteral) |
     RawStringLit.map(RawStringLiteral) )
   val arrayLiteral = P( expr.rep(sep=",") ).map(ArrayLiteral)
-  val ident :P[Sym] = P( Name ).map(Sym)
+  val ident :P[Name] = P( Name ).map(termName)
 
   // types
   val typeApplySuff = P( "[" ~ (ws ~ typeRef).rep(1, ",") ~ ws ~ "]" )
-  val namedOrApply :P[Type] = P( ident ~ typeApplySuff.? ).map {
+  val namedOrApply :P[TypeTree] = P( ident ~ typeApplySuff.? ).map {
     case (ident, None) => Named(ident)
-    case (ident, Some(args)) => Construct(ident, args)
+    case (ident, Some(args)) => TypeApply(ident, args)
   }
   val funTypeSuff = P( hs ~ "=> " ~ hs ~ typeRef )
-  val namedOrApplyOrFun :P[Type] = P( namedOrApply ~ funTypeSuff.? ).map {
+  val namedOrApplyOrFun :P[TypeTree] = P( namedOrApply ~ funTypeSuff.? ).map {
     case (pref, None) => pref
     case (pref, Some(ret)) => Arrow(Seq(pref), ret)
   }
   val parenFun = P( "(" ~ (ws ~ typeRef).rep(1, ",") ~ ws ~ ")" ~ hs ~ "=>" ~ hs ~ typeRef ).
-    map(Arrow.tupled)
-  val typeRef :P[Type] = P( namedOrApplyOrFun | parenFun )
+    map((Arrow.apply _).tupled)
+  val typeRef :P[TypeTree] = P( namedOrApplyOrFun | parenFun )
   val optTypeRef = P( (ws ~ ":" ~ typeRef ).? )
   val optBounds = P( (ws ~ ":" ~ namedOrApply ).? )
 
@@ -127,11 +128,11 @@ object Parser {
   val identPat = P( ident ).map(IdentPat)
   val literalPat = P( literal ).map(LiteralPat)
   val destructPat = P( ident ~ "[" ~ pattern.rep(sep=",") ~ "]" ).map(DestructPat.tupled)
-  val pattern :P[Pattern] = P( identPat | literalPat | destructPat )
+  val pattern :P[PatTree] = P( identPat | literalPat | destructPat )
 
   // expressions
-  def op (glyph :String) :P[Sym] = ws ~ glyph.!.map(Sym)
-  def binOp (term: P[Expr], op: P[Sym]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
+  def op (glyph :String) :P[Name] = ws ~ glyph.!.map(termName)
+  def binOp (term: P[Expr], op: P[Name]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
     case (lhs, chunks) => chunks.foldLeft(lhs) { case (lhs, (op, rhs)) => BinOp(op, lhs, rhs) }
   }
 
@@ -153,9 +154,10 @@ object Parser {
   val atomSuffs = P( selectSuff | applySuff ).rep
   val atomExpr = P( (constExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map { es =>
     es._2.foldLeft(es._1)((expr, suff) => suff match {
-      case ident :Sym   => Select(expr, ident)
+      case ident :Name   => Select(expr, ident)
       case (typeArgs :Option[_], args :Seq[_]) => FunApply(
-        expr, (typeArgs getOrElse Seq()).asInstanceOf[Seq[Type]], args.asInstanceOf[Seq[Expr]])
+        expr, (typeArgs getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
+        args.asInstanceOf[Seq[Expr]])
     })
   }
 
@@ -220,5 +222,5 @@ object Parser {
   val program :P[Seq[Expr]] = P( stmt.rep )
 
   def trace[A <: Expr] (p :fastparse.all.P[A], id :String) =
-    p.map(e => { AST.printExpr(e) ; e }).log(id)
+    p.map(e => { Trees.printExpr(e) ; e }).log(id)
 }

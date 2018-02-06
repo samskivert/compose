@@ -6,26 +6,71 @@ package compose
 
 import java.io.PrintWriter
 
-object AST {
+object Trees {
+  import Names._
+  import Types._
 
-  case class Sym (name :String) {
-    override def toString = name
+  class UntypedTreeException (tree :Tree) extends RuntimeException {
+    override def getMessage :String = s"Type of $tree is not assigned"
   }
 
-  sealed trait Type
-  case class Named (name :Sym) extends Type {
+  /** A node in the AST. The type parameter reflects whether a type has been assigned to the tree
+    * node.
+    */
+  abstract class Tree extends Cloneable {
+    private[this] var treeType :Type = _
+    private def setType (tpe :Type) :this.type = { treeType = tpe ; this }
+
+    /** The type  constructor at the root of the tree */
+    type ThisTree <: Tree
+
+    /** Returns the type of this tree. Throws an exception if called on an untyped tree. */
+    def tpe :Type = {
+      if (treeType == null) throw new UntypedTreeException(this)
+      treeType
+    }
+
+    /** Returns a typed tree isomorphic to `this` with the given `tpe`. */
+    def withType (tpe :Type) :ThisTree = {
+      val tree = if (treeType == null || treeType == tpe) this else clone
+      tree.asInstanceOf[ThisTree].setType(tpe)
+    }
+
+    /** Does this tree represent a type? */
+    def isType: Boolean = false
+
+    /** Does this tree represent a term? */
+    def isTerm: Boolean = false
+
+    /** Is this a legal part of a pattern which is not at the same time a term? */
+    def isPattern: Boolean = false
+
+    /** Does this tree define a new symbol that is not defined elsewhere? */
+    def isDef: Boolean = false
+  }
+
+  sealed trait TypeTree extends Tree {
+    type ThisTree <: TypeTree
+    override def isType = true
+  }
+  case class Named (name :Name) extends TypeTree {
     override def toString = name.toString
   }
-  case class Arrow (args :Seq[Type], ret :Type) extends Type {
+  case class Arrow (args :Seq[TypeTree], ret :TypeTree) extends TypeTree {
     override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
   }
-  case class Construct (ctor :Sym, args :Seq[Type]) extends Type {
+  case class TypeApply (ctor :Name, args :Seq[TypeTree]) extends TypeTree {
     override def toString = s"$ctor${args.mkString("[", ", ", "]")}"
   }
 
-  def typeToString (typ :Option[Type]) = typ.map(tp => s" :$tp").getOrElse("")
+  def typeToString (typ :Option[TypeTree]) = typ.map(tp => s" :$tp").getOrElse("")
 
-  sealed trait Literal
+  trait TermTree extends Tree {
+    type ThisTree <: TermTree
+    override def isTerm = true
+  }
+
+  sealed trait Literal extends TermTree
   case class BoolLiteral (value :Boolean) extends Literal {
     override def toString = value.toString
   }
@@ -48,16 +93,19 @@ object AST {
   //
   // Patterns
 
-  sealed trait Pattern
+  sealed trait PatTree extends Tree {
+    type ThisTree <: PatTree
+    override def isPattern = true
+  }
 
   // TODO: optional type annotation? (needed for destructuring funargs)
-  case class IdentPat (ident :Sym) extends Pattern {
+  case class IdentPat (ident :Name) extends PatTree {
     override def toString = ident.toString
   }
-  case class LiteralPat (value :Literal) extends Pattern {
+  case class LiteralPat (value :Literal) extends PatTree {
     override def toString = value.toString
   }
-  case class DestructPat (ctor :Sym, bindings :Seq[Pattern]) extends Pattern {
+  case class DestructPat (ctor :Name, bindings :Seq[PatTree]) extends PatTree {
     override def toString = s"$ctor(${bindings.mkString(", ")})"
   }
   // TODO: named destructors? (i.e. Node[left @ Node[ll lr], right])
@@ -65,70 +113,73 @@ object AST {
   //
   // Definitions
 
-  sealed trait Def
+  sealed trait DefTree extends Tree {
+    type ThisTree <: DefTree
+    override def isDef = true
+  }
 
   // TODO: destructuring argument bindings
-  case class ArgDef (docs :Seq[String], name :Sym, typ :Option[Type]) {
+  case class ArgDef (docs :Seq[String], name :Name, typ :Option[TypeTree]) {
     override def toString = s"$name${typeToString(typ)}"
   }
-  case class TypeArgDef (name :Sym, bound :Option[Type]) { // TODO: separate AST for bounds?
+  case class TypeArgDef (name :Name, bound :Option[TypeTree]) { // TODO: separate AST for bounds?
     override def toString = s"$name${typeToString(bound)}"
   }
-  case class FunDef (docs :Seq[String], name :Sym, typeArgs :Seq[TypeArgDef],
-                     args :Seq[ArgDef], retType :Option[Type], body :Expr) extends Def
+  case class FunDef (docs :Seq[String], name :Name, typeArgs :Seq[TypeArgDef],
+                     args :Seq[ArgDef], retType :Option[TypeTree], body :Expr) extends DefTree
 
   // TODO: destructuring bindings
-  case class Binding (name :Sym, typ :Option[Type], value :Expr)
-  case class LetDef (bindings :Seq[Binding]) extends Def
-  case class VarDef (bindings :Seq[Binding]) extends Def
+  case class Binding (name :Name, typ :Option[TypeTree], value :Expr)
+  case class LetDef (bindings :Seq[Binding]) extends DefTree
+  case class VarDef (bindings :Seq[Binding]) extends DefTree
 
-  case class Ctor (docs :Seq[String], name :Sym, args :Seq[ArgDef])
-  case class DataDef (docs :Seq[String], name :Sym, variants :Seq[Ctor]) extends Def
+  case class Ctor (docs :Seq[String], name :Name, args :Seq[ArgDef])
+  case class DataDef (docs :Seq[String], name :Name, variants :Seq[Ctor]) extends DefTree
 
-  // case class TypeDef (name :Sym, TODO)
+  // case class TypeDef (name :Name, TODO)
 
   //
   // Expressions
 
-  sealed trait Expr extends Product
+  sealed trait Expr extends TermTree with Product
 
   // pure
   case class Constant (value :Literal) extends Expr
   case class ArrayLiteral (values :Seq[Expr]) extends Expr
 
-  case class UnOp (op :Sym, expr :Expr) extends Expr
-  case class BinOp (op :Sym, left :Expr, right :Expr) extends Expr
+  case class UnOp (op :Name, expr :Expr) extends Expr
+  case class BinOp (op :Name, left :Expr, right :Expr) extends Expr
 
-  case class IdentRef (ident :Sym) extends Expr
+  case class IdentRef (ident :Name) extends Expr
 
-  case class Select (expr :Expr, field :Sym) extends Expr
+  case class Select (expr :Expr, field :Name) extends Expr
 
   case class Tuple (exprs :Seq[Expr]) extends Expr
 
   case class Lambda (args :Seq[ArgDef], body :Expr) extends Expr
 
-  case class FunApply (fun :Expr, typeArgs :Seq[Type], args :Seq[Expr]) extends Expr
+  case class FunApply (fun :Expr, typeArgs :Seq[TypeTree], args :Seq[Expr]) extends Expr
 
   case class If (cond :Expr, ifTrue :Expr, ifFalse :Expr) extends Expr
   // TODO: if+let? or maybe "let Ctor(arg) = expr" is a LetExpr which evaluates to true/false?
   // latter might be fiddly due to having to affect the naming environment
 
-  case class Case (pattern :Pattern, guard :Option[Expr], result :Expr)
+  case class Case (pattern :PatTree, guard :Option[Expr], result :Expr)
   case class Match (cond :Expr, cases :Seq[Case]) extends Expr
 
   case class Condition (guard :Expr, result :Expr)
   case class Cond (conds :Seq[Condition], elseResult :Expr) extends Expr
 
   sealed trait CompClause
-  case class Generator (name :Sym, expr :Expr) extends CompClause
+  case class Generator (name :Name, expr :Expr) extends CompClause
   case class Filter (expr :Expr) extends CompClause
   case class MonadComp (elem :Expr, clauses :Seq[CompClause]) extends Expr
 
-  case class DefExpr (df :Def) extends Expr
+  case class DefExpr (df :DefTree) extends Expr
   case class Block (exprs :Seq[Expr]) extends Expr
 
   // naughty
-  case class Assign (ident :Sym, value :Expr) extends Expr
+  case class Assign (ident :Name, value :Expr) extends Expr
 
   case class While (cond :Expr, body :Expr) extends Expr
   case class DoWhile (body :Expr, cond :Expr) extends Expr
@@ -172,12 +223,12 @@ object AST {
     sb.toString
   }
 
-  def printType (out :PrintWriter, indent :String = "")(typ :Type) :Unit = {
+  def printType (out :PrintWriter, indent :String = "")(typ :TypeTree) :Unit = {
     out.print(typ) // TODO
   }
 
-  def printDef (out :PrintWriter, indent :String = "")(df :Def) :Unit = {
-    def printOptType (optType :Option[Type]) = optType.foreach {
+  def printDef (out :PrintWriter, indent :String = "")(df :DefTree) :Unit = {
+    def printOptType (optType :Option[TypeTree]) = optType.foreach {
       typ => out.print(" :") ; printType(out, indent)(typ) }
     def printBindings (bindings :Seq[Binding]) = {
       var first = true
