@@ -1,0 +1,30 @@
+// Data type definitions
+
+/// Inductively defined linked list (a cons list for the lispers)
+data List[A] =
+  /// The empty list.
+  Nil |
+  /// The head of a list and its remainder.
+  Cons (head :A, tail :List[A])
+
+/// I like to reduce people to three pieces of data.
+data Person (
+  /// The sound people make when they first see this person.
+  firstName :String,
+  /// The sound people make when they see this person for the last time.
+  lastName :String,
+  /// The number of years this person has been spinning around the sun.
+  age :Int
+)
+
+data Tree[A] = Leaf (value :A) | Node (left :Tree[A], right :Tree[A])
+
+data MapEntry[K, V] (key :K, value :V, next :Option[MapEntry[K, V]])
+
+data HashMap[K, V] (size :Int, buckets :MapEntry[K, V])
+
+data FunTimes[A, B] (
+  fwd  :A => B,
+  back :B => A,
+  swap :(A, B) => Pair[B, A]
+)

@@ -38,11 +38,15 @@ object Names {
     override def isTermName = false
     override def toTypeName = this
     override def toTermName = term
+
+    override def toString = term.toString
   }
 
   class SimpleName (raw :String) extends TermName {
     override def toString = raw
   }
+
+  private val names = new HashMap[String, SimpleName]()
 
   // poor man's interning: will fancy up later if needed
   def termName (raw :String) :TermName = names.get(raw) match {
@@ -52,6 +56,7 @@ object Names {
       name
     case name => name
   }
+  def typeName (raw :String) = termName(raw).toTypeName
 
-  private val names = new HashMap[String, SimpleName]()
+  val NoName = termName("")
 }

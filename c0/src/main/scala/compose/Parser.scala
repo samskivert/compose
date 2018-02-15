@@ -50,22 +50,23 @@ object Lexer {
   val hs = P( hspace.rep )
   val ws = P( ( hspace | newline | comment ).rep )
 
-  // Literals
-  val BoolLit = P( "false" | "true" ).!
-  val IntLit = P( (HexNum | DecNum) ~ CharIn("Ll").? ).!
-  val FloatLit = {
+  // Constants
+  val BoolConst = P( "false" | "true" ).!
+  val IntConst = P( (HexNum | DecNum) ~ CharIn("Ll").? ).!
+  val FloatConst = {
     def Thing = P( DecNum ~ Exp.? ~ FloatType.? )
     def Thing2 = P( "." ~ Thing | Exp ~ FloatType.? | Exp.? ~ FloatType )
     P( "." ~ Thing | DecNum ~ Thing2 )
   }.!
-  val CharLit :P[String] = P( "'" ~ ( UnicodeEscape | CharEscape | AnyChar ).! ~ "'" )
-  val StringLit :P[String] = P( TripleQuoteString | QuoteString )
-  val RawStringLit :P[String] = P( TripleTickString | TickString )
+  val CharConst :P[String] = P( "'" ~ ( UnicodeEscape | CharEscape | AnyChar ).! ~ "'" )
+  val StringConst :P[String] = P( TripleQuoteString | QuoteString )
+  val RawStringConst :P[String] = P( TripleTickString | TickString )
 
   // Keywords & identifiers
   def mkKeyP (s: String) = s ~ !IdentCont
   val Key = Map() ++ Seq(
-    "let", "var", "fun", "do", "while", "if", "else", "cond", "for", "match", "case", "where"
+    "case", "cond", "data", "do", "else", "for", "fun", "if", "let", "match", "var", "where",
+    "while"
   ).map(id => (id, mkKeyP(id)))
 
   val Name = P( IdentStart ~ IdentCont.rep ).!.filter(id => !Key.contains(id))
@@ -75,68 +76,83 @@ object Parser {
   import Lexer._
   import Trees._
   import Names._
+  import Constants._
 
-  val literal :P[Literal] = (
-    BoolLit.map(_.toBoolean).map(BoolLiteral) |
-    FloatLit.map(FloatLiteral) |
-    IntLit.map(IntLiteral) |
-    CharLit.map(CharLiteral) |
-    StringLit.map(StringLiteral) |
-    RawStringLit.map(RawStringLiteral) )
+  val constant :P[Constant] = (
+    BoolConst.map(Constants.bool) |
+    FloatConst.map(Constants.float) |
+    IntConst.map(Constants.int) |
+    CharConst.map(Constants.char) |
+    StringConst.map(Constants.string) |
+    RawStringConst.map(Constants.rawString) )
   val arrayLiteral = P( expr.rep(sep=",") ).map(ArrayLiteral)
-  val ident :P[Name] = P( Name ).map(termName)
+  val ident :P[TermName] = P( Name ).map(termName)
+  val typeIdent :P[TypeName] = P( ident.map(_.toTypeName) )
 
   // types
   val typeApplySuff = P( "[" ~ (ws ~ typeRef).rep(1, ",") ~ ws ~ "]" )
-  val namedOrApply :P[TypeTree] = P( ident ~ typeApplySuff.? ).map {
-    case (ident, None) => Named(ident)
+  val namedOrApply :P[TypeTree] = P( typeIdent ~ typeApplySuff.? ).map {
+    case (ident, None) => TypeRef(ident)
     case (ident, Some(args)) => TypeApply(ident, args)
   }
   val funTypeSuff = P( hs ~ "=> " ~ hs ~ typeRef )
   val namedOrApplyOrFun :P[TypeTree] = P( namedOrApply ~ funTypeSuff.? ).map {
     case (pref, None) => pref
-    case (pref, Some(ret)) => Arrow(Seq(pref), ret)
+    case (pref, Some(ret)) => TypeArrow(Seq(pref), ret)
   }
   val parenFun = P( "(" ~ (ws ~ typeRef).rep(1, ",") ~ ws ~ ")" ~ hs ~ "=>" ~ hs ~ typeRef ).
-    map((Arrow.apply _).tupled)
+    map((TypeArrow.apply _).tupled)
   val typeRef :P[TypeTree] = P( namedOrApplyOrFun | parenFun )
   val optTypeRef = P( (ws ~ ":" ~ typeRef ).? )
   val optBounds = P( (ws ~ ":" ~ namedOrApply ).? )
 
   // comments: doc comments are part of AST, other comments are whitespace
-  val docComment = P( "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
-  val docComments = P( hs ~ docComment.rep(sep="\n") )
+  val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
+  val docComments = P( ws ~ docComment.rep(sep="\n") )
 
   // definitions
   val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
-  val typeArgDef = P( ws ~ ident ~ optBounds ).map(TypeArgDef.tupled)
+  val typeArgDef = P( ws ~ typeIdent ~ optBounds ).map(TypeArgDef.tupled)
 
   val funArgs :P[Seq[ArgDef]] = P( "(" ~ argDef.rep(sep=",") ~ ws ~ ")" )
   val optFunArgs = P( ws ~ funArgs.?.map(_ getOrElse Seq()) )
   val typeArgs = P( "[" ~ typeArgDef.rep(1, sep=",") ~ ws ~ "]" )
   val optTypeArgs = P( hs ~ typeArgs.?.map(_ getOrElse Seq()) )
-  val funDef :P[FunDef] = P(docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optTypeArgs ~ optFunArgs ~
-                            optTypeRef ~ ws ~ "=" ~/ ws ~ expr).map(FunDef.tupled)
+  val funDef :P[FunDef] = P(docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optTypeArgs ~
+                            optFunArgs ~ optTypeRef ~ ws ~ "=" ~/ ws ~ expr).map(FunDef.tupled)
 
   val binding = P( ws ~ ident ~ optTypeRef ~ ws ~ "=" ~ expr ).map(Binding.tupled)
   val letDef = P( Key("let") ~ hs ~/ binding.rep(1, sep=",") ).map(LetDef)
   val varDef = P( Key("var") ~ hs ~/ binding.rep(1, sep=",") ).map(VarDef)
 
-  val defExpr = P( (funDef | letDef | varDef) ).map(DefExpr)
+  val fieldDef = P( docComments ~ ws ~ ident ~ hs ~ ":" ~ typeRef ).map(FieldDef.tupled)
+  val fieldDefs = P( "(" ~/ fieldDef.rep(sep=",") ~ ws ~ ")" )
+  val recordDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optTypeArgs ~ ws ~
+                    fieldDefs ).map(RecordDef.tupled)
+
+  val caseDef = P( docComments ~ ws ~ typeIdent ~ optTypeArgs ~ ws ~
+                  fieldDefs.?.map(_ getOrElse Seq()) ~ ws ).map(RecordDef.tupled)
+  val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optTypeArgs ~ ws ~ "=" ~/
+                   // TODO: do we want/need to allow unions with a single case?
+                   caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
+
+  val defExpr = P( (funDef | letDef | varDef | unionDef | recordDef ) ).map(DefExpr)
 
   // patterns
   val identPat = P( ident ).map(IdentPat)
-  val literalPat = P( literal ).map(LiteralPat)
-  val destructPat = P( ident ~ "[" ~ pattern.rep(sep=",") ~ "]" ).map(DestructPat.tupled)
+  val literalPat = P( constant ).map(LiteralPat)
+  val destructPat = P( ident ~ "(" ~ pattern.rep(sep=",") ~ ")" ).map(DestructPat.tupled)
   val pattern :P[PatTree] = P( identPat | literalPat | destructPat )
 
   // expressions
-  def op (glyph :String) :P[Name] = ws ~ glyph.!.map(termName)
-  def binOp (term: P[Expr], op: P[Name]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
-    case (lhs, chunks) => chunks.foldLeft(lhs) { case (lhs, (op, rhs)) => BinOp(op, lhs, rhs) }
+  def op (glyph :String) :P[TermName] = ws ~ glyph.!.map(termName)
+  def binOp (term: P[Expr], op: P[TermName]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
+    case (lhs, chunks) => chunks.foldLeft(lhs) {
+      case (lhs, (op, rhs)) => FunApply(BinOp, IdentRef(op), Seq(), Seq(lhs, rhs))
+    }
   }
 
-  val constExpr = P( literal ).map(Constant)
+  val literalExpr = P( constant ).map(Literal)
   val identExpr = P( ident ).map(IdentRef)
 
   val parenExpr = P( "(" ~/ expr.rep(sep=",") ~ ws ~ ")" ).map {
@@ -152,16 +168,18 @@ object Parser {
   val selectSuff = ("." ~ ident)
   val applySuff = P( ("[" ~ typeRef.rep(1, ",") ~ "]").? ~ "(" ~ expr.rep(sep=",") ~ ws ~ ")" )
   val atomSuffs = P( selectSuff | applySuff ).rep
-  val atomExpr = P( (constExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map { es =>
+  val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map { es =>
     es._2.foldLeft(es._1)((expr, suff) => suff match {
-      case ident :Name   => Select(expr, ident)
+      case ident :TermName => Select(expr, ident)
       case (typeArgs :Option[_], args :Seq[_]) => FunApply(
-        expr, (typeArgs getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
+        Normal, expr, (typeArgs getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
         args.asInstanceOf[Seq[Expr]])
     })
   }
 
-  val unaryExpr :P[UnOp] = P( (op("+") | op("-") | op("~") | op("!")) ~ atomExpr ).map(UnOp.tupled)
+  val unaryExpr = P( (op("+") | op("-") | op("~") | op("!")) ~ atomExpr ).map {
+    case (op, expr) => FunApply(UnOp, IdentRef(op), Seq(), Seq(expr))
+  }
 
   val termExpr = P( atomExpr | unaryExpr )
   val multiExpr = P( binOp(termExpr, op("*") | op("/") | op("%")) )
@@ -198,7 +216,7 @@ object Parser {
   val condExpr = P( Key("cond") ~ condClause.rep(1) ~ elseClause ).map(Cond.tupled)
 
   val generator = P( ident ~ hs ~ "<-" ~ expr ).map(Generator.tupled)
-  val compClause :P[CompClause] = P( ws ~ (generator | expr.map(Filter)) )
+  val compClause :P[CompTree] = P( ws ~ (generator | expr.map(Filter)) )
   val compExpr = P( expr ~ hs ~ Key("where") ~ compClause.rep(sep = ",") ).map(MonadComp.tupled)
 
   val pureExpr = lambdaExpr | pureOpExpr | blockExpr | ifExpr | matchExpr | condExpr
@@ -221,6 +239,9 @@ object Parser {
   // a program is a sequence of expressions
   val program :P[Seq[Expr]] = P( stmt.rep )
 
-  def trace[A <: Expr] (p :fastparse.all.P[A], id :String) =
-    p.map(e => { Trees.printExpr(e) ; e }).log(id)
+  def trace[A] (p :fastparse.all.P[A], id :String) =
+    p.map(e => { println(e) ; e }).log(id)
+
+  def traceExpr[A <: Expr] (p :fastparse.all.P[A], id :String) =
+    p.map(e => { Trees.print(e) ; e }).log(id)
 }
