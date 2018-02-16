@@ -15,10 +15,10 @@ problems. For more details, read the [manifesto](posts/manifesto/) and the [FAQ]
 
 ## Status
 
-Compose is currently a twinkle in the eye of its creator and a pile of long harbored
-dissatisfactions with the status quo. Though I hope to make swift progress toward useful
-functionality, this is a marathon not a sprint. Check back in six months or a year and maybe I'll
-have some cool demos.
+Work is currently underway on [C0](https://github.com/samskivert/compose/tree/master/c0), the
+Compose Mark Zero compiler. Multiple marathons remain to be run before I get anywhere close to the
+lofty ideals in the manifesto, but I've hopefully got a few more decades before I die, so I feel
+good about my chances of achieving them.
 
 ## Contact
 
@@ -28,7 +28,7 @@ world.
 
 ## Code
 
-Compose is (will be?) [hosted on Github](https://github.com/samskivert/compose), so you can see it
-grow in all its fitful, misdirected glory.
+Compose is [hosted on Github](https://github.com/samskivert/compose), so you can see it grow in all
+its fitful, misdirected glory.
 
 ## Blog

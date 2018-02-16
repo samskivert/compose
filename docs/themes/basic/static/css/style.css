@@ -5,19 +5,30 @@ body {
   line-height: 1.5em;
 }
 
+a { color: #003366; }
+a:hover { color: #006699; }
+
+.title {
+  font-size: 1.3em;
+}
+
 /* header and footer areas */
-.menu { padding: 0; float: right; }
+.menu {
+  padding: 0;
+  margin: 0;
+  float: right;
+}
 .menu li { display: inline-block; }
+.menu a { padding: 0px 15px; }
+
 .article-meta, .menu a {
   position: relative;
   text-decoration: none;
-  background: #eee;
-  padding: 5px 15px;
-  border-radius: 5px;
 }
+
 .menu, footer { text-align: center; }
 
-.article-meta .title { font-size: 0.9em; }
+.article-meta .title { font-size: 1em; }
 .article-meta .date, .article-meta .author {
   position: absolute;
   right: 10px;
