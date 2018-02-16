@@ -12,22 +12,23 @@ do that I feel buck the status quo to varying degrees.
 
 This has two major components:
 
-1. Compose programs will not be stored as a sequence of UTF-8 characters that are parsed into an
-   AST. Compose programs will be stored as a serialized AST. That serialization will be moderately
-   human readable, but only incidentally.
+01. Compose programs will not be stored as a sequence of UTF-8 characters that are parsed into an
+    AST. Compose programs will be stored as a serialized AST. That serialization will be moderately
+    human readable, but only incidentally.
 
-   "What?!" you say, "but what about my command line tools? What about viewing diffs on Github, in
-   email, in my favorite code review tool, in my hex editor while viewing raw disk blocks?" Those
-   tools will have to change (maybe not the hex editor). We'll make it as easy as we can to squeeze
-   a pretty printer into the toolchain, but ASCII's time is over. We must stop the madness.
+    "What?!" you say, "but what about my command line tools? What about viewing diffs on Github, in
+    email, in my favorite code review tool, in my hex editor while viewing raw disk blocks?" Those
+    tools will have to change (maybe not the hex editor). We'll make it as easy as we can to
+    squeeze a pretty printer into the toolchain, but ASCII's time is over. We must stop the
+    madness.
 
-2. Compose will not use the file as its primary compilation unit. We don't even have files, so it
-   would clearly be a weird thing to do. Files as compilation units is a useless legacy from the
-   days of the PDP-11 when that was all we could fit into memory. The natural compilation unit is
-   the module. A module defines the connection point between separately compiled pieces of code. A
-   Compose program is built out of modules, and a module is built out of definitions. There's
-   nothing in between. (There is a name for a group of modules, it's a library, but we'll get to
-   that later.)
+02. Compose will not use the file as its primary compilation unit. We don't even have files, so it
+    would clearly be a weird thing to do. Files as compilation units is a useless legacy from the
+    days of the PDP-11 when that was all we could fit into memory. The natural compilation unit is
+    the module. A module defines the connection point between separately compiled pieces of code. A
+    Compose program is built out of modules, and a module is built out of definitions. There's
+    nothing in between. (There is a name for a group of modules, it's a library, but we'll get to
+    that later.)
 
 ## You create and edit the AST
 
