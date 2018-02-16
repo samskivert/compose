@@ -23,15 +23,6 @@ No files, no ASCII This has two major components:
     </item>
     
     <item>
-      <title>About</title>
-      <link>https://samskivert.github.io/compose/about/</link>
-      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
-      
-      <guid>https://samskivert.github.io/compose/about/</guid>
-      <description>This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at jekyllrb.com</description>
-    </item>
-    
-    <item>
       <title>FAQ</title>
       <link>https://samskivert.github.io/compose/faq/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
