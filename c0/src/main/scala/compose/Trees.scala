@@ -19,7 +19,7 @@ object Trees {
   /** A node in the AST. The type parameter reflects whether a type has been assigned to the tree
     * node.
     */
-  abstract class Tree extends Cloneable {
+  abstract class Tree extends Cloneable with Product {
     private[this] var treeType :Type = _
     private def setType (tpe :Type) :this.type = { treeType = tpe ; this }
 
@@ -31,6 +31,8 @@ object Trees {
       if (treeType == null) throw new UntypedTreeException(this)
       treeType
     }
+
+    def isTyped = treeType != null
 
     /** Returns a typed tree isomorphic to `this` with the given `tpe`. */
     def withType (tpe :Type) :ThisTree = {
@@ -58,6 +60,9 @@ object Trees {
     type ThisTree <: TypeTree
     override def isType = true
   }
+  case object OmittedType extends TypeTree {
+    override def toString = ""
+  }
   case class TypeRef (name :TypeName) extends TypeTree {
     override def toString = name.toString
   }
@@ -69,8 +74,6 @@ object Trees {
     override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
   }
 
-  def optTypeString (typ :Option[TypeTree]) = typ.map(tp => s" :$tp").getOrElse("")
-
   //
   // Definitions
 
@@ -80,21 +83,27 @@ object Trees {
   }
 
   // TODO: destructuring fun arg bindings
-  case class ArgDef (docs :Seq[String], name :TermName, typ :Option[TypeTree]) extends DefTree
-  case class TypeArgDef (name :TypeName, bound :Option[TypeTree]) extends DefTree
-  case class FunDef (docs :Seq[String], name :TermName, params :Seq[TypeArgDef],
-                     args :Seq[ArgDef], result :Option[TypeTree], body :Expr) extends DefTree
+  case class ArgDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
+    type ThisTree <: ArgDef
+  }
+  case class ParamDef (name :TypeName, bound :TypeTree) extends DefTree {
+    type ThisTree <: ParamDef
+  }
+  case class FunDef (docs :Seq[String], name :TermName, params :Seq[ParamDef],
+                     args :Seq[ArgDef], result :TypeTree, body :TermTree) extends DefTree {
+    type ThisTree <: FunDef
+  }
 
   // TODO: destructuring let/var bindings
-  case class Binding (name :TermName, typ :Option[TypeTree], value :Expr) extends DefTree
+  case class Binding (name :TermName, typ :TypeTree, value :TermTree) extends DefTree
   case class LetDef (bindings :Seq[Binding]) extends DefTree
   case class VarDef (bindings :Seq[Binding]) extends DefTree
 
   case class FieldDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree
-  case class RecordDef (docs :Seq[String], name :TypeName, args :Seq[TypeArgDef],
+  case class RecordDef (docs :Seq[String], name :TypeName, params :Seq[ParamDef],
                         fields :Seq[FieldDef]) extends DefTree
 
-  case class UnionDef (docs :Seq[String], name :TypeName, args :Seq[TypeArgDef],
+  case class UnionDef (docs :Seq[String], name :TypeName, params :Seq[ParamDef],
                        cases :Seq[DefTree]) extends DefTree
 
   // case class TypeDef (name :TypeName, TODO)
@@ -118,8 +127,12 @@ object Trees {
     override def toString = s"$ctor(${bindings.mkString(", ")})"
   }
   // TODO: named destructors? (i.e. Node[left @ Node[ll lr], right])
-  case class Case (pattern :PatTree, guard :Option[Expr], result :Expr) extends PatTree
-  case class Condition (guard :Expr, result :Expr) extends PatTree
+  case class Case (pattern :PatTree, guard :Option[TermTree], result :TermTree) extends PatTree {
+    type ThisTree <: Case
+  }
+  case class Condition (guard :TermTree, result :TermTree) extends PatTree {
+    type ThisTree <: Condition
+  }
 
   //
   // Comprehensions
@@ -129,59 +142,52 @@ object Trees {
     override def isComprehension = true
   }
 
-  case class Generator (name :TermName, expr :Expr) extends CompTree
-  case class Filter (expr :Expr) extends CompTree
+  case class Generator (name :TermName, expr :TermTree) extends CompTree
+  case class Filter (expr :TermTree) extends CompTree
 
   //
-  // Expressions
+  // Terms / expressions
 
-  trait TermTree extends Tree {
+  sealed trait TermTree extends Tree {
     type ThisTree <: TermTree
     override def isTerm = true
   }
 
-  sealed trait Expr extends TermTree with Product {
-    type ThisTree <: Expr
-  }
-
   // pure
-  case class Literal (const :Constant) extends Expr
-  case class ArrayLiteral (values :Seq[Expr]) extends Expr
+  case class Literal (const :Constant) extends TermTree
+  case class ArrayLiteral (values :Seq[TermTree]) extends TermTree
 
-  // case class UnOp (op :Name, expr :Expr) extends Expr
-  // case class BinOp (op :Name, left :Expr, right :Expr) extends Expr
+  case class IdentRef (ident :TermName) extends TermTree
 
-  case class IdentRef (ident :TermName) extends Expr
+  case class Select (expr :TermTree, field :TermName) extends TermTree
 
-  case class Select (expr :Expr, field :TermName) extends Expr
+  case class Tuple (exprs :Seq[TermTree]) extends TermTree
 
-  case class Tuple (exprs :Seq[Expr]) extends Expr
-
-  case class Lambda (args :Seq[ArgDef], body :Expr) extends Expr
+  case class Lambda (args :Seq[ArgDef], body :TermTree) extends TermTree
 
   final val Normal = 0
   final val UnOp = 1
   final val BinOp = 2
   final val Method = 3
-  case class FunApply (kind :Int, fun :Expr, params :Seq[TypeTree], args :Seq[Expr]) extends Expr
+  case class FunApply (kind :Int, fun :TermTree, params :Seq[TypeTree], args :Seq[TermTree]) extends TermTree
 
-  case class If (cond :Expr, ifTrue :Expr, ifFalse :Expr) extends Expr
-  // TODO: if+let? or maybe "let Ctor(arg) = expr" is a LetExpr which evaluates to true/false?
+  case class If (cond :TermTree, ifTrue :TermTree, ifFalse :TermTree) extends TermTree
+  // TODO: if+let? or maybe "let Ctor(arg) = expr" is a LetTermTree which evaluates to true/false?
   // latter might be fiddly due to it being an expr that introduces defs in a scope up the AST
 
-  case class Match (cond :Expr, cases :Seq[Case]) extends Expr
-  case class Cond (conds :Seq[Condition], elseResult :Expr) extends Expr
-  case class MonadComp (elem :Expr, clauses :Seq[CompTree]) extends Expr
+  case class Match (cond :TermTree, cases :Seq[Case]) extends TermTree
+  case class Cond (conds :Seq[Condition], elseResult :TermTree) extends TermTree
+  case class MonadComp (elem :TermTree, clauses :Seq[CompTree]) extends TermTree
 
-  case class DefExpr (df :DefTree) extends Expr
-  case class Block (exprs :Seq[Expr]) extends Expr
+  case class DefExpr (df :DefTree) extends TermTree
+  case class Block (exprs :Seq[TermTree]) extends TermTree
 
   // naughty
-  case class Assign (ident :TermName, value :Expr) extends Expr
+  case class Assign (ident :TermName, value :TermTree) extends TermTree
 
-  case class While (cond :Expr, body :Expr) extends Expr
-  case class DoWhile (body :Expr, cond :Expr) extends Expr
-  case class For (gens :Seq[Generator], body :Expr) extends Expr
+  case class While (cond :TermTree, body :TermTree) extends TermTree
+  case class DoWhile (body :TermTree, cond :TermTree) extends TermTree
+  case class For (gens :Seq[Generator], body :TermTree) extends TermTree
 
   //
   // Traversals
@@ -198,11 +204,15 @@ object Trees {
 
     /** Folds this accumulator over the children of `tree`. */
     def foldOver (t :T, tree :Tree)(implicit ctx :Context) :T = tree match {
+      // type trees
+      case OmittedType => t
       case TypeRef(name) => t
       case TypeApply(ctor, args) => apply(t, args)
       case TypeArrow(args, ret) => apply(apply(t, args), ret)
+
+      // def trees
       case ArgDef(docs, name, typ) => apply(t, typ)
-      case TypeArgDef(name, bound) => apply(t, bound)
+      case ParamDef(name, bound) => apply(t, bound)
       case FunDef(docs, name, params, args, result, body) =>
         apply(apply(apply(apply(t, params), args), result), body)
       case Binding (name, typ, value) => apply(apply(t, typ), value)
@@ -211,6 +221,8 @@ object Trees {
       case FieldDef(docs, name, typ) => apply(t, typ)
       case RecordDef(docs, name, args, fields) => apply(apply(t, args), fields)
       case UnionDef(docs, name, args, cases) => apply(apply(t, args), cases)
+
+      // term trees
       case Literal (const) => t
       case ArrayLiteral (values) => apply(t, values)
       case IdentRef(ident) => t
@@ -219,8 +231,6 @@ object Trees {
       case Lambda (args, body) => apply(apply(t, args), body)
       case FunApply (kind, fun, params, args) => apply(apply(apply(t, fun), params), args)
       case If (cond, ifTrue, ifFalse) => apply(apply(apply(t, cond), ifTrue), ifFalse)
-      case Case (pattern, guard, result) => apply(apply(apply(t, pattern), guard), result)
-      case Condition (guard, result) => apply(apply(t, guard), result)
       case Match(cond, cases) => apply(apply(t, cond), cases)
       case Cond (conds, elseResult) => apply(apply(t, conds), elseResult)
       case Generator (name, expr) => apply(t, expr)
@@ -232,6 +242,13 @@ object Trees {
       case While (cond, body) => apply(apply(t, cond), body)
       case DoWhile(body, cond) => apply(apply(t, body), cond)
       case For(gens, body) => apply(apply(t, gens), body)
+
+      // pat trees
+      case IdentPat (ident) => t
+      case LiteralPat (const) => t
+      case DestructPat (ctor, bindings) => apply(t, bindings)
+      case Case (pattern, guard, result) => apply(apply(apply(t, pattern), guard), result)
+      case Condition (guard, result) => apply(apply(t, guard), result)
     }
   }
 
@@ -265,13 +282,16 @@ object Trees {
   def printType (typ :TypeTree)(implicit pr :Printer) :Unit = {
     pr.print(typ) // TODO
   }
+  def printOptType (typ :TypeTree)(implicit pr :Printer) = typ match {
+    case OmittedType => // nothing
+    case _ => pr.print(" :") ; printType(typ)
+  }
+
+  def printMemberDef (df :DefTree)(implicit pr :Printer) = printDef(df, true)(pr.nest)
+  def printDefList (defs :Seq[DefTree], open :String, close :String)(implicit pr :Printer) =
+    if (!defs.isEmpty) printSep(defs, printMemberDef, open, ", ", close)
 
   def printDef (df :DefTree, member :Boolean = false)(implicit pr :Printer) :Printer = {
-    def printOptType (optType :Option[TypeTree]) = optType.foreach {
-      typ => pr.print(" :") ; printType(typ) }
-    def printMemberDef (df :DefTree) = printDef(df, true)(pr.nest)
-    def printDefList (args :Seq[DefTree], open :String, close :String) =
-      printSep(args, printMemberDef, open, ", ", close)
     df match {
       case Binding(name, typ, value) =>
         pr.print(name) ; printOptType(typ) ; pr.print(" = ") ; printExpr(value)
@@ -288,22 +308,22 @@ object Trees {
         if (!docs.isEmpty) pr.printIndent("")
         if (!member) pr.print("data ")
         pr.print(name)
-        if (!args.isEmpty) printDefList(args, "[", "]")
-        if (!fields.isEmpty) printDefList(fields, "(", ")")
+        printDefList(args, "[", "]")
+        printDefList(fields, "(", ")")
       case UnionDef(docs, name, args, cases) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("data ", name)
-        if (!args.isEmpty) printDefList(args, "[", "]")
+        printDefList(args, "[", "]")
         if (!cases.isEmpty) {
           pr.print(" = ")
           printSep(cases, printMemberDef, "", " | ", "")
         }
       case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
-      case TypeArgDef(name, bounds) => pr.print(name) ; printOptType(bounds)
+      case ParamDef(name, bounds) => pr.print(name) ; printOptType(bounds)
       case FunDef(docs, name, params, args, ret, body) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("fun ", name)
-        if (!params.isEmpty) printDefList(params, "[", "]")
+        printDefList(params, "[", "]")
         printDefList(args, " (", ")")
         printOptType(ret) ; pr.print(" = ") ; printExpr(body)
     }
@@ -326,9 +346,9 @@ object Trees {
     case Filter(expr) => printExpr(expr)
   }
 
-  def printExpr (expr :Expr)(implicit pr :Printer) :Printer = {
-    def print1 (expr :Expr) = printExpr(expr)(pr.nest)
-    def printTuple (exprs :Seq[Expr]) = printSep(exprs, printExpr, "(", ", ", ")")
+  def printExpr (expr :TermTree)(implicit pr :Printer) :Printer = {
+    def print1 (expr :TermTree) = printExpr(expr)(pr.nest)
+    def printTuple (exprs :Seq[TermTree]) = printSep(exprs, printExpr, "(", ", ", ")")
 
     expr match {
       case Literal(const) => pr.print(const)
@@ -398,42 +418,118 @@ object Trees {
     pr.print(close)
   }
 
-  def printTree (root :Product) :String = {
+  def showTree (root :Product) :String = {
     import java.lang.{StringBuilder => JStringBuilder}
     val sb = new JStringBuilder
 
-    def print (indent :String, node :Any) :Unit = node match {
+    def show (indent :String, node :Any) :Unit = node match {
       case pnode :Product =>
         sb.append(pnode.productPrefix).append("(")
         val nindent = indent + " "
         pnode.productArity match {
           case 0 => sb.append(")")
           case 1 =>
-            print(nindent, pnode.productElement(0))
+            show(nindent, pnode.productElement(0))
             sb.append(")")
           case n =>
             sb.append("\n").append(nindent)
-            print(nindent, pnode.productIterator)
+            show(nindent, pnode.productIterator)
             sb.append("\n").append(indent).append(")")
         }
       case iter :Iterator[_] =>
         var first = true
         iter.foreach { elem =>
           if (!first) sb.append("\n").append(indent)
-          print(indent, elem)
+          show(indent, elem)
           first = false
         }
       case iter :Iterable[_] =>
         if (iter.isEmpty) sb.append("<empty>")
-        else print(indent, iter.iterator)
+        else show(indent, iter.iterator)
       case _ => sb.append(node)
     }
 
-    print("", root)
+    show("", root)
     sb.toString
   }
 
-  def print (expr :Expr) :Unit = {
+  def debugTree (out :PrintWriter)(tree :Tree) :Unit = {
+    val acc = new Accumulator[Printer]() {
+      override def apply (pr :Printer, tree :Tree)(implicit ctx :Context) = {
+        def treeType = if (tree.isTyped) tree.tpe else Prim.Missing
+        tree match {
+          case DefExpr(dt) => apply(pr, dt)
+          case FunDef(docs, name, params, args, result, body) =>
+            pr.printIndent("fun ", name, " ")
+            printDefList(params, "[", "]")(pr)
+            printDefList(args, "(", ")")(pr)
+            pr.print(" :", result)
+            pr.println()
+            apply(pr.nest, body)
+            pr
+          case Literal (const) =>
+            pr.printIndent(const).println(" :", treeType)
+          case IdentRef(ident) =>
+            pr.printIndent(ident).println(" :", treeType)
+          case FunApply (kind, fun, params, args) =>
+            pr.printIndent("<apply>").println(" :", treeType)
+            apply(pr.nest, fun)
+            apply(pr.nest, args)
+            pr
+          case Case (pattern, guard, result) =>
+            pr.printIndent("<case>").println(" :", treeType)
+            foldOver(pr.nest, tree)
+            pr
+          case Match(cond, cases) =>
+            pr.printIndent("<match>").println(" :", treeType)
+            apply(pr.nest, cond)
+            apply(pr.nest, cases)
+            pr
+          case Tuple (exprs) =>
+            pr.printIndent(s"<tuple${exprs.size}>").println(" :", treeType)
+            apply(pr.nest, exprs)
+            pr
+          case _ =>
+            pr.printIndent(tree).println(" :", treeType)
+            foldOver(pr.nest, tree)
+            pr
+        }
+        // tree match {
+        //   case TypeRef(name) => pr.print(name)
+        //   case TypeApply(ctor, args) => pr.print(out.println()
+        //   case TypeArrow(args, ret) => 
+        //   case ArgDef(docs, name, typ) => 
+        //   case ParamDef(name, bound) => 
+        //   case Binding (name, typ, value) => 
+        //   case LetDef(bindings) => 
+        //   case VarDef(bindings) => 
+        //   case FieldDef(docs, name, typ) => 
+        //   case RecordDef(docs, name, args, fields) => 
+        //   case UnionDef(docs, name, args, cases) => 
+        //   case Literal (const) => 
+        //   case ArrayLiteral (values) => 
+        //   case Select (expr, field) => 
+        //   case Lambda (args, body) => 
+        //   case If (cond, ifTrue, ifFalse) => 
+        //   case Condition (guard, result) => 
+        //   case Cond (conds, elseResult) => 
+        //   case Generator (name, expr) => 
+        //   case Filter (expr) => 
+        //   case MonadComp(elem, clauses) => 
+        //   case DefExpr(df) => 
+        //   case Block(exprs) => 
+        //   case Assign(ident, value) => 
+        //   case While (cond, body) => 
+        //   case DoWhile(body, cond) => 
+        //   case For(gens, body) => 
+        // }
+      }
+    }
+    acc.apply(new Printer(out), tree)(moduleContext(termName("debugTree")))
+    out.flush()
+  }
+
+  def print (expr :TermTree) :Unit = {
     val out = new PrintWriter(System.out)
     printExpr(expr)(new Printer(out))
     out.println()

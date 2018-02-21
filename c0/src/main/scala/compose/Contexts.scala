@@ -7,17 +7,18 @@ package compose
 object Contexts {
   import Scopes._
   import Symbols._
+  import Names._
 
   /** Contains things we need to keep track of during indexing and attribution. */
-  case class Context (owner :Symbol, scope :MutableScope) {
+  case class Context (owner :Symbol) {
+
+    /** Returns the scope of the owner of this context. */
+    def scope :Scope = owner.scope
 
     /** Clones this context with a new owner. */
     def withOwner (owner :Symbol) = if (this.owner == owner) this else copy(owner = owner)
-
-    /** Clones this context with a fresh nested scope. */
-    def enterScope () :Context = copy(scope = scope.nestedScope)
-
-    /** Clones this context with a fresh nested scope and new owner. */
-    def enterScope (owner :Symbol) :Context = copy(owner = owner, scope = scope.nestedScope)
   }
+
+  /** Creates a context for a module named `name`. */
+  def moduleContext (name :TermName) = new Context(newModuleSymbol(name))
 }

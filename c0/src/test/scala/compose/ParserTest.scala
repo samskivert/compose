@@ -4,33 +4,24 @@
 
 package compose
 
-import java.nio.file.{Paths, Files}
 import org.junit.Assert._
 import org.junit._
 import fastparse.core.Parsed
-import fastparse.all.P
 
 class ParserTest {
   import Trees._
   import Parser._
   import Names._
+  import TestCode._
 
-  def testCode[T] (path :String, parser :P[T] = program) :Parsed[T, _, _] = {
-    val cwd = Paths.get(System.getProperty("user.dir"))
-    val fullPath = cwd.resolve("tests").resolve(path)
-    val sb = new java.lang.StringBuilder
-    Files.lines(fullPath).forEach(sb.append(_).append("\n"))
-    parser.parse(sb.toString)
-  }
-
-  def printParse (result :Parsed[Seq[Expr], _, _], tree :Boolean = false) = result.fold(
+  def printParse (result :Parsed[Seq[TermTree], _, _], tree :Boolean = false) = result.fold(
     (p, pos, extra) => {
       extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
       fail(result.toString)
     },
     (res, pos) => res.foreach { expr =>
-      if (tree) println(pos + ": " + printTree(expr))
-      printExpr(expr)
+      if (tree) println(pos + ": " + showTree(expr))
+      print(expr)
     }
   )
 
@@ -44,9 +35,9 @@ class ParserTest {
   )
 
   def ident (name :String) = IdentRef(termName(name))
-  def binOp (op :String, e0 :Expr, e1 :Expr) =
+  def binOp (op :String, e0 :TermTree, e1 :TermTree) =
     FunApply(BinOp, IdentRef(termName(op)), Seq(), Seq(e0, e1))
-  def argDef (arg :String) = ArgDef(Seq(), termName(arg), None)
+  def argDef (arg :String) = ArgDef(Seq(), termName(arg), OmittedType)
   def intlit (value :String) = Literal(Constants.int(value))
   def strlit (value :String) = Literal(Constants.string(value))
 
@@ -70,7 +61,7 @@ class ParserTest {
       Literal(Constants.rawString("hello")),
       ArrayLiteral(Seq(intlit("1"), intlit("2"), intlit("3")))
     )
-    testParse(Tuple(expect), testCode("literals.cz", parenExpr))
+    testParse(Tuple(expect), parseCode("literals.cz", parenExpr))
   }
 
   @Test def testExprs () :Unit = {
@@ -91,12 +82,12 @@ class ParserTest {
   }
 
   @Test def testLet () :Unit = {
-    testParse(LetDef(Seq(Binding(termName("a"), None, strlit("hello")))),
+    testParse(LetDef(Seq(Binding(termName("a"), OmittedType, strlit("hello")))),
               letDef.parse("let a = \"hello\""))
   }
 
   @Test def testData () :Unit = {
-    val aVar = TypeArgDef(typeName("A"), None)
+    val aVar = ParamDef(typeName("A"), OmittedType)
     val nilCase = RecordDef(Seq(), typeName("Nil"), Seq(), Seq())
     val consCase = RecordDef(Seq(), typeName("Cons"), Seq(), Seq(
       FieldDef(Seq(), termName("head"), TypeRef(typeName("A"))),
@@ -173,24 +164,24 @@ class ParserTest {
     1 to 10 foreach { ii =>
       val num = String.format("%02d", ii.asInstanceOf[AnyRef])
       println(s"-- Euler $num --------------")
-      printParse(testCode(s"euler/euler$num.cz"))
+      printParse(parseCode(s"euler/euler$num.cz"))
     }
   }
 
   @Test def testDataDefs () :Unit = {
-    printParse(testCode("data.cz"))
+    printParse(parseCode("data.cz"))
   }
 
   @Test def testNextEuler () :Unit = {
-    // printParse(testCode("euler/euler11.cz"), false)
+    // printParse(parseCode("euler/euler11.cz"), false)
   }
 
   @Test def testFib () :Unit = {
-    printParse(testCode("fib.cz"))
+    printParse(parseCode("fib.cz"))
   }
 
   @Test def testNestedFun () :Unit = {
-    printParse(testCode("nested.cz"))
+    printParse(parseCode("nested.cz"))
   }
 
   @Test def testRando () :Unit = {

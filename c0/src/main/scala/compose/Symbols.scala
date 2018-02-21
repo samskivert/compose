@@ -7,37 +7,89 @@ package compose
 object Symbols {
   import Names._
   import Types._
+  import Scopes._
 
-  abstract class Symbol (val owner :Symbol) {
+  abstract class Symbol (val owner :Symbol, val scope :Scope) {
     def name :Name
-    def info :Type
+
+    def exists :Boolean = true
     def isType :Boolean = false
     def isTerm :Boolean = false
     def asType :TypeSymbol = throw new ClassCastException(s"Not a type symbol: $this")
     def asTerm :TermSymbol = throw new ClassCastException(s"Not a term symbol: $this")
+
+    def map[T] (f :Symbol => T) :Option[T] = if (exists) Some(f(this)) else None
+
+    def info :Type = {
+      if (_type == null) {
+        if (typeCompleter == null) _type = Error(s"Missing completer: $name")
+        else {
+          _type = typeCompleter()
+          typeCompleter = null
+        }
+      }
+      _type
+    }
+
+    def initInfo (info :Type) :Unit = {
+      _type = info
+    }
+    def initInfoLazy (completer :() => Type) :Unit = {
+      if (typeCompleter != null) throw new AssertionError("Symbol already initialized: $this")
+      typeCompleter = completer
+    }
+
+    /** Creates a type symbol owned by this symbol, with a newly nested scope and enters it into
+      * this symbol's scope. */
+    def defineType (name :TypeName) :TypeSymbol =
+      scope.enter(new TypeSymbol(this, scope.nestedScope, name))
+
+    /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
+      * this symbol's scope. */
+    def defineTerm (name :TermName) :TermSymbol =
+      scope.enter(new TermSymbol(this, scope.nestedScope, name))
+
+    /** Creates a term symbol owned by this symbol, with a newly nested scope, but does not enter
+      * it into this symbol's scope. */
+    def createTerm (name :TermName) :TermSymbol = new TermSymbol(this, scope.nestedScope, name)
+
+    override def toString = {
+      val what = if (isTerm) "term" else "type"
+      val tpe = if (_type == null) "<uncompleted>" else _type.toString
+      s"$what $name :$tpe"
+    }
+
+    private[this] var _type :Type = _
+    private[this] var typeCompleter :() => Type = _
   }
 
-  abstract class TypeSymbol (owner :Symbol, val name :TypeName) extends Symbol(owner) {
+  class TypeSymbol (owner :Symbol, scope :Scope, val name :TypeName) extends Symbol(owner, scope) {
     override def isType :Boolean = true
     override def asType = this
-    override def toString = s"type $name" // TODO: more debug info
   }
 
-  abstract class TermSymbol (owner :Symbol, val name :TermName) extends Symbol(owner) {
+  class TermSymbol (owner :Symbol, scope :Scope, val name :TermName) extends Symbol(owner, scope) {
     override def isTerm :Boolean = true
     override def asTerm = this
-    override def toString = s"term $name" // TODO: more debug info
   }
 
-  def newModuleSymbol (name :TermName) :Symbol = new TermSymbol(NoTerm, name) {
-    override def info = Prims.Unit // TODO: module types
+  val NoType = new TypeSymbol(null, newReadOnlyScope, NoName.toTypeName) {
+    override def exists :Boolean = false
   }
-
-  val NoType = new TypeSymbol(null, NoName.toTypeName) {
-    override def info = Prims.Void
-  }
-  val NoTerm = new TermSymbol(null, NoName) {
-    override def info = Prims.Void
+  val NoTerm = new TermSymbol(null, newReadOnlyScope, NoName) {
+    override def exists :Boolean = false
     override def asType = NoType
   }
+
+  val rootSymbol = {
+    val root = new TermSymbol(NoTerm, newScope, termName("<root>"))
+    Prim.Types foreach { tpe =>
+      val sym = new TypeSymbol(root, root.scope.nestedScope, tpe.name)
+      sym.initInfo(tpe)
+      root.scope.enter(sym)
+    }
+    root
+  }
+
+  def newModuleSymbol (name :TermName) :Symbol = rootSymbol.createTerm(name)
 }

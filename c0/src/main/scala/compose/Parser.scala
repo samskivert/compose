@@ -103,8 +103,8 @@ object Parser {
   val parenFun = P( "(" ~ (ws ~ typeRef).rep(1, ",") ~ ws ~ ")" ~ hs ~ "=>" ~ hs ~ typeRef ).
     map((TypeArrow.apply _).tupled)
   val typeRef :P[TypeTree] = P( namedOrApplyOrFun | parenFun )
-  val optTypeRef = P( (ws ~ ":" ~ typeRef ).? )
-  val optBounds = P( (ws ~ ":" ~ namedOrApply ).? )
+  val optTypeRef = P( (ws ~ ":" ~ typeRef ).? ).map(_ getOrElse OmittedType)
+  val optBounds = P( (ws ~ ":" ~ namedOrApply ).? ).map(_ getOrElse OmittedType)
 
   // comments: doc comments are part of AST, other comments are whitespace
   val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
@@ -112,13 +112,13 @@ object Parser {
 
   // definitions
   val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
-  val typeArgDef = P( ws ~ typeIdent ~ optBounds ).map(TypeArgDef.tupled)
+  val paramDef = P( ws ~ typeIdent ~ optBounds ).map(ParamDef.tupled)
 
   val funArgs :P[Seq[ArgDef]] = P( "(" ~ argDef.rep(sep=",") ~ ws ~ ")" )
   val optFunArgs = P( ws ~ funArgs.?.map(_ getOrElse Seq()) )
-  val typeArgs = P( "[" ~ typeArgDef.rep(1, sep=",") ~ ws ~ "]" )
-  val optTypeArgs = P( hs ~ typeArgs.?.map(_ getOrElse Seq()) )
-  val funDef :P[FunDef] = P(docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optTypeArgs ~
+  val params = P( "[" ~ paramDef.rep(1, sep=",") ~ ws ~ "]" )
+  val optParams = P( hs ~ params.?.map(_ getOrElse Seq()) )
+  val funDef :P[FunDef] = P(docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optParams ~
                             optFunArgs ~ optTypeRef ~ ws ~ "=" ~/ ws ~ expr).map(FunDef.tupled)
 
   val binding = P( ws ~ ident ~ optTypeRef ~ ws ~ "=" ~ expr ).map(Binding.tupled)
@@ -127,12 +127,12 @@ object Parser {
 
   val fieldDef = P( docComments ~ ws ~ ident ~ hs ~ ":" ~ typeRef ).map(FieldDef.tupled)
   val fieldDefs = P( "(" ~/ fieldDef.rep(sep=",") ~ ws ~ ")" )
-  val recordDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optTypeArgs ~ ws ~
+  val recordDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optParams ~ ws ~
                     fieldDefs ).map(RecordDef.tupled)
 
-  val caseDef = P( docComments ~ ws ~ typeIdent ~ optTypeArgs ~ ws ~
+  val caseDef = P( docComments ~ ws ~ typeIdent ~ optParams ~ ws ~
                   fieldDefs.?.map(_ getOrElse Seq()) ~ ws ).map(RecordDef.tupled)
-  val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optTypeArgs ~ ws ~ "=" ~/
+  val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optParams ~ ws ~ "=" ~/
                    // TODO: do we want/need to allow unions with a single case?
                    caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
 
@@ -146,7 +146,7 @@ object Parser {
 
   // expressions
   def op (glyph :String) :P[TermName] = ws ~ glyph.!.map(termName)
-  def binOp (term: P[Expr], op: P[TermName]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
+  def binOp (term: P[TermTree], op: P[TermName]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
     case (lhs, chunks) => chunks.foldLeft(lhs) {
       case (lhs, (op, rhs)) => FunApply(BinOp, IdentRef(op), Seq(), Seq(lhs, rhs))
     }
@@ -171,9 +171,9 @@ object Parser {
   val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map { es =>
     es._2.foldLeft(es._1)((expr, suff) => suff match {
       case ident :TermName => Select(expr, ident)
-      case (typeArgs :Option[_], args :Seq[_]) => FunApply(
-        Normal, expr, (typeArgs getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
-        args.asInstanceOf[Seq[Expr]])
+      case (params :Option[_], args :Seq[_]) => FunApply(
+        Normal, expr, (params getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
+        args.asInstanceOf[Seq[TermTree]])
     })
   }
 
@@ -220,7 +220,7 @@ object Parser {
   val compExpr = P( expr ~ hs ~ Key("where") ~ compClause.rep(sep = ",") ).map(MonadComp.tupled)
 
   val pureExpr = lambdaExpr | pureOpExpr | blockExpr | ifExpr | matchExpr | condExpr
-  val expr :P[Expr] = P( ws ~ pureExpr )
+  val expr :P[TermTree] = P( ws ~ pureExpr )
 
   // side effecting operations
   val assignEffect = P( ident ~ hs ~ "=" ~ ws ~ expr ).map(Assign.tupled)
@@ -231,17 +231,17 @@ object Parser {
   val forEffect = P( Key("for") ~ (ws ~ generator).rep(1, sep=",") ~ impureExpr ).map(For.tupled)
 
   val effect = (assignEffect | whileEffect | doWhileEffect | forEffect )
-  val impureExpr :P[Expr] = P( ws ~ (effect | pureExpr) )
+  val impureExpr :P[TermTree] = P( ws ~ (effect | pureExpr) )
 
   // a "statement" is either a def, an effect (assignments, etc.) or an expression
-  val stmt :P[Expr] = P( ws ~ (defExpr | effect | pureExpr) )
+  val stmt :P[TermTree] = P( ws ~ (defExpr | effect | pureExpr) )
 
   // a program is a sequence of expressions
-  val program :P[Seq[Expr]] = P( stmt.rep )
+  val program :P[Seq[TermTree]] = P( stmt.rep )
 
   def trace[A] (p :fastparse.all.P[A], id :String) =
     p.map(e => { println(e) ; e }).log(id)
 
-  def traceExpr[A <: Expr] (p :fastparse.all.P[A], id :String) =
+  def traceExpr[A <: TermTree] (p :fastparse.all.P[A], id :String) =
     p.map(e => { Trees.print(e) ; e }).log(id)
 }

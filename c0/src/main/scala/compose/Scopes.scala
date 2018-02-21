@@ -9,37 +9,17 @@ object Scopes {
   import Names._
   import Symbols._
 
-  /** Maps names to symbols for a scope.
-    * Includes mappings from all outer scopes that contain this one. */
-  abstract class Scope {
-
-    /** Returns the type symbol with `name` in this (or a parent) scope, or `NoType`. */
-    def lookup (name :TypeName) :TypeSymbol = lookup(name, _.isType).asType
-
-    /** Returns the term symbol with `name` in this (or a parent) scope, or `NoTerm`. */
-    def lookup (name :TermName) :TermSymbol = lookup(name, _.isTerm).asTerm
-
-    /** Looks up a symbol named `name` matching `pred`. Returns `NoTerm` if no match. */
-    def lookup (name :Name, pred :Symbol => Boolean) :Symbol
-
-    // TODO: lookupAll that returns all overloads for a symbol (only for termname)
-
-    /** Creates a new scope nested under this scope. */
-    def nestedScope () :MutableScope
-  }
-
   private val MinHashedScopeSize = 8
   private val FillFactor = 0.7
   private val MaxRecursions = 512
+  private var scopeId = 0
 
-  // TODO: track outer scopes explicitly: we want nested scopes to see names entered after the
-  // nested scope was created
-
-  /** A scope into which mappings may be entered. */
-  class MutableScope private[Scopes] (initLast :ScopeEntry, initSize :Int, val nestingLevel :Int)
-      extends Scope {
-    private var last :ScopeEntry = initLast
-    private var size = initSize
+  /** Maps names to symbols for a scope.
+    * Includes mappings from all outer scopes that contain this one. */
+  class Scope private[Scopes] (parent :Scope, val nestingLevel :Int) {
+    private val id = { scopeId += 1 ; scopeId }
+    private var last :ScopeEntry = _
+    private var size = 0
     private var buckets :Array[ScopeEntry] = null
 
     private def ensureCapacity (tableSize :Int) :Unit =
@@ -75,24 +55,33 @@ object Scopes {
       }
     }
 
-    override def lookup (name :Name, pred :Symbol => Boolean) :Symbol = {
+    /** Returns the type symbol with `name` in this (or a parent) scope, or `NoType`. */
+    def lookup (name :TypeName) :TypeSymbol = lookup(name, _.isType).asType
+
+    /** Returns the term symbol with `name` in this (or a parent) scope, or `NoTerm`. */
+    def lookup (name :TermName) :TermSymbol = lookup(name, _.isTerm).asTerm
+
+    /** Looks up a symbol named `name` matching `pred`. Returns `NoTerm` if no match. */
+    def lookup (name :Name, pred :Symbol => Boolean) :Symbol = {
+      var ent :ScopeEntry = null
       if (buckets != null) {
         val idx = name.hashCode & (buckets.length-1)
-        var ent = buckets(idx)
-        while (ent != null && ent.name != name && !pred(ent.sym)) ent = ent.tail
-        if (ent == null) NoTerm else ent.sym
+        ent = buckets(idx)
+        while (ent != null && (ent.name != name || !pred(ent.sym))) ent = ent.tail
       } else {
-        var ent = last
-        while (ent != null && ent.name != name && !pred(ent.sym)) ent = ent.prev
-        if (ent == null) NoTerm else ent.sym
+        ent = last
+        while (ent != null && (ent.name != name || !pred(ent.sym))) ent = ent.prev
       }
+      // println(s"$this lookup $name => $ent")
+      if (ent != null) ent.sym
+      else if (parent != null) parent.lookup(name, pred)
+      else NoTerm
     }
 
-    override def nestedScope () :MutableScope = {
-      val scope = new MutableScope(last, size, nestingLevel+1)
-      scope.ensureCapacity(MinHashedScopeSize)
-      scope
-    }
+    // TODO: lookupAll that returns all overloads for a symbol (only for termname)
+
+    /** Creates a new scope nested under this scope. */
+    def nestedScope () :Scope = new Scope(this, nestingLevel+1)
 
     /** Enters `sym` into this scope (via its intrinsic `name`). */
     def enter (sym :Symbol) :sym.type = enter(sym.name, sym)
@@ -104,17 +93,28 @@ object Scopes {
       ent.prev = last
       last = ent
       if (buckets != null) enterInHash(ent)
+      println(s"$this entered: $name => $sym")
       size += 1
       sym
     }
+
+    override def toString = s"Scope($id, $nestingLevel)"
+  }
+
+  /** Creates a new top-level scope. */
+  def newScope :Scope = new Scope(null, 0)
+
+  /** Creates an empty read-only scope. Read-only scopes are used by `NoTerm` and `NoType` to
+    * prevent nested symbols from unintentionally being entered into their scopes. */
+  def newReadOnlyScope :Scope = new Scope(null, 0) {
+    override def enter (name :Name, sym :Symbol) =
+      throw new UnsupportedOperationException("Cannot enter symbol in read-only scope.")
   }
 
   private class ScopeEntry (val owner :Scope, val name :Name, _sym :Symbol) {
     var sym :Symbol = _sym
     var tail :ScopeEntry = null
     var prev :ScopeEntry = null
+    override def toString = s"$name :: $sym"
   }
-
-  /** Creates a new top-level mutable scope. */
-  def newScope :MutableScope = new MutableScope(null, 0, 0)
 }
