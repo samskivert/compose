@@ -14,6 +14,7 @@ data Person (
   /// The sound people make when they see this person for the last time.
   lastName :String,
   /// The number of years this person has been spinning around the sun.
+  /// What do you think about multiline doc comments?
   age :Int
 )
 

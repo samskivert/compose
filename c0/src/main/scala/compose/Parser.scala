@@ -65,8 +65,8 @@ object Lexer {
   // Keywords & identifiers
   def mkKeyP (s: String) = s ~ !IdentCont
   val Key = Map() ++ Seq(
-    "case", "cond", "data", "do", "else", "for", "fun", "if", "let", "match", "var", "where",
-    "while"
+    "case", "cond", "data", "do", "else", "for", "fun", "if", "interface", "impl", "let", "match",
+    "var", "where", "while"
   ).map(id => (id, mkKeyP(id)))
 
   val Name = P( IdentStart ~ IdentCont.rep ).!.filter(id => !Key.contains(id))
@@ -104,22 +104,23 @@ object Parser {
     map((TypeArrow.apply _).tupled)
   val typeRef :P[TypeTree] = P( namedOrApplyOrFun | parenFun )
   val optTypeRef = P( (ws ~ ":" ~ typeRef ).? ).map(_ getOrElse OmittedType)
-  val optBounds = P( (ws ~ ":" ~ namedOrApply ).? ).map(_ getOrElse OmittedType)
+  val optConstraint = P( (ws ~ ":" ~ namedOrApply ).? ).map(_ getOrElse OmittedType)
 
   // comments: doc comments are part of AST, other comments are whitespace
   val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
-  val docComments = P( ws ~ docComment.rep(sep="\n") )
+  val docComments = P( ws ~ docComment.rep )
 
   // definitions
   val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
-  val paramDef = P( ws ~ typeIdent ~ optBounds ).map(ParamDef.tupled)
+  val paramDef = P( ws ~ typeIdent ~ optConstraint ).map(ParamDef.tupled)
 
   val funArgs :P[Seq[ArgDef]] = P( "(" ~ argDef.rep(sep=",") ~ ws ~ ")" )
   val optFunArgs = P( ws ~ funArgs.?.map(_ getOrElse Seq()) )
   val params = P( "[" ~ paramDef.rep(1, sep=",") ~ ws ~ "]" )
   val optParams = P( hs ~ params.?.map(_ getOrElse Seq()) )
-  val funDef :P[FunDef] = P(docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optParams ~
-                            optFunArgs ~ optTypeRef ~ ws ~ "=" ~/ ws ~ expr).map(FunDef.tupled)
+  val optFunBody = P( (ws ~ "=" ~/ ws ~ expr).?.map(_ getOrElse OmittedBody) )
+  val funDef :P[FunDef] = P( docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optParams ~
+                             optFunArgs ~ optTypeRef ~ optFunBody).map(FunDef.tupled)
 
   val binding = P( ws ~ ident ~ optTypeRef ~ ws ~ "=" ~ expr ).map(Binding.tupled)
   val letDef = P( Key("let") ~ hs ~/ binding.rep(1, sep=",") ).map(LetDef)
@@ -131,12 +132,20 @@ object Parser {
                     fieldDefs ).map(RecordDef.tupled)
 
   val caseDef = P( docComments ~ ws ~ typeIdent ~ optParams ~ ws ~
-                  fieldDefs.?.map(_ getOrElse Seq()) ~ ws ).map(RecordDef.tupled)
+                   fieldDefs.?.map(_ getOrElse Seq()) ~ ws ).map(RecordDef.tupled)
   val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optParams ~ ws ~ "=" ~/
-                   // TODO: do we want/need to allow unions with a single case?
-                   caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
+                    // TODO: do we want/need to allow unions with a single case?
+                    caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
 
-  val defExpr = P( (funDef | letDef | varDef | unionDef | recordDef ) ).map(DefExpr)
+  val xtends = P( ws ~ ":" ~/ hs ~ typeRef.rep(1, sep=",") )
+  val optExtends = P( xtends.? ).map(_ getOrElse Seq())
+  val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optParams ~ ws ~ optExtends ~
+                   ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
+  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optParams ~ hs ~ ":" ~ hs ~ typeRef ~
+                   ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(ImplDef.tupled)
+
+  val defExpr = P( funDef | letDef | varDef | unionDef | recordDef | faceDef | implDef ).
+    map(DefExpr)
 
   // patterns
   val identPat = P( ident ).map(IdentPat)
@@ -165,15 +174,19 @@ object Parser {
   // TODO: .. and ... ranges?
   val bracketExpr = P( "[" ~ ( compExpr | arrayLiteral ) ~ ws ~ "]" )
 
-  val selectSuff = ("." ~ ident)
-  val applySuff = P( ("[" ~ typeRef.rep(1, ",") ~ "]").? ~ "(" ~ expr.rep(sep=",") ~ ws ~ ")" )
-  val atomSuffs = P( selectSuff | applySuff ).rep
-  val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map { es =>
-    es._2.foldLeft(es._1)((expr, suff) => suff match {
-      case ident :TermName => Select(expr, ident)
-      case (params :Option[_], args :Seq[_]) => FunApply(
-        Normal, expr, (params getOrElse Seq()).asInstanceOf[Seq[TypeTree]],
-        args.asInstanceOf[Seq[TermTree]])
+  val selectSuff = P( "." ~ ident ).map(Select(OmittedBody, _))
+  val indexSuff = P( "@" ~ expr ).map(Index(OmittedBody, _))
+  val applyParams = P( ("[" ~ typeRef.rep(1, ",") ~ "]").? ).map(_ getOrElse Seq())
+  val applySuff = P( applyParams ~ "(" ~ expr.rep(sep=",") ~ ws ~ ")" ).map {
+    case (params, args) => FunApply(Normal, OmittedBody, params, args)
+  }
+  val atomSuffs = P( selectSuff | indexSuff | applySuff ).rep
+  val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map {
+    case (expr, suffs) => suffs.foldLeft(expr)((expr, suff) => suff match {
+      case Select(_, ident) => Select(expr, ident)
+      case Index(_, index) => Index(expr, index)
+      case FunApply(kind, _, params, args) => FunApply(kind, expr, params, args)
+      case _ => throw new AssertionError() // not reachable, but scalac can't prove it
     })
   }
 
@@ -219,7 +232,7 @@ object Parser {
   val compClause :P[CompTree] = P( ws ~ (generator | expr.map(Filter)) )
   val compExpr = P( expr ~ hs ~ Key("where") ~ compClause.rep(sep = ",") ).map(MonadComp.tupled)
 
-  val pureExpr = lambdaExpr | pureOpExpr | blockExpr | ifExpr | matchExpr | condExpr
+  val pureExpr = P( lambdaExpr | pureOpExpr | blockExpr | ifExpr | matchExpr | condExpr )
   val expr :P[TermTree] = P( ws ~ pureExpr )
 
   // side effecting operations

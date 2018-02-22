@@ -1,0 +1,39 @@
+/// The `Eq` interface enables equality comparisons for types for which support it.
+interface Eq[A] {
+
+  /// Compares `a1` and `a2` for equality.
+  /// @return `true` if they are equal, `false` otherwise.
+  fun eq (a1 :A, a2 :A) :Bool
+
+  /// Computes the inverse of `eq` on `a1` and `a2`.
+  /// @return `false` if they are equal, `true` otherwise.
+  fun notEq (a1 :A, a2 :A) :Bool = !eq(a1, a2)
+}
+
+impl eqVoid : Eq[Void] {
+  fun eq (v1, v2) = true
+}
+
+impl eqUnit : Eq[Unit] {
+  fun eq (u1, u2) = true
+}
+
+impl eqBool : Eq[Bool] {
+  fun eq (b1, b2) = boolEq(b1, b2)
+}
+fun boolEq (a :Bool, b :Bool) :Bool = foreign
+
+impl eqI32 : Eq[I32] {
+  fun eq (i1, i2) = i32Eq(i1, i2)
+}
+fun i32Eq (a :I32, b :I32) :Bool = foreign
+
+impl arrayEq[A:Eq] : Eq[Array[A]] {
+  fun eq (a1, a2) = {
+    fun loop (ii :I32) :Bool =
+      if (ii == a1.length) true
+      else if (notEq(a1@ii, a2@ii)) false
+      else loop(ii+1)
+    if (a1.length == a2.length) loop(0) else false
+  }
+}

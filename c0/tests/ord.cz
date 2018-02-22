@@ -1,0 +1,29 @@
+
+data Ordering = LT | EQ | GT
+
+/// Defines an ordering relationship on elements of a type. This allows one to compare two elements
+/// to determine which is the _lesser_ and _greater_ element, or whether they are _equal_.
+interface Ord[A] : Eq[A] {
+
+  /// Compares a1 and a2.
+  /// @return an indication of their relative ordering.
+  fun compare (a1 :A, a2 :A) :Ordering
+
+  /// @return `true` if `a1` is less than `a2`, `false` otherwise.
+  fun lessThan (a1 :A, a2 :A) :Bool = compare(a1, a2) == LT
+
+  /// @return `true` if `a1` is greater than `a2`, `false` otherwise.
+  fun greaterThan (a1 :A, a2 :A) :Bool = compare(a1, a2) == GT
+
+  /// @return `true` if `a1` is less than or equal to `a2`, `false` otherwise.
+  fun lessThanEq (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == GT)
+
+  /// @return `true` if `a1` is greater than or equal to `a2`, `false` otherwise.
+  fun greaterThanEq (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == LT)
+
+  /// @return whichever of `a1` or `a2` is greater, or `a1` if they are equal.
+  fun max (a1 :A, a2 :A) :A = if (a1 < a2) a2 else a1
+
+  /// @return whichever of `a1` or `a2` is lesser, or `a1` if they are equal.
+  fun min (a1 :A, a2 :A) :A = if (a1 > a2) a2 else a1
+}

@@ -86,7 +86,7 @@ object Trees {
   case class ArgDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: ArgDef
   }
-  case class ParamDef (name :TypeName, bound :TypeTree) extends DefTree {
+  case class ParamDef (name :TypeName, constraint :TypeTree) extends DefTree {
     type ThisTree <: ParamDef
   }
   case class FunDef (docs :Seq[String], name :TermName, params :Seq[ParamDef],
@@ -105,6 +105,12 @@ object Trees {
 
   case class UnionDef (docs :Seq[String], name :TypeName, params :Seq[ParamDef],
                        cases :Seq[DefTree]) extends DefTree
+
+  case class FaceDef (docs :Seq[String], name :TypeName, params :Seq[ParamDef],
+                      parents :Seq[TypeTree], funs :Seq[FunDef]) extends DefTree
+
+  case class ImplDef (docs :Seq[String], name :TermName, params :Seq[ParamDef],
+                      face :TypeTree, funs :Seq[FunDef]) extends DefTree
 
   // case class TypeDef (name :TypeName, TODO)
 
@@ -152,6 +158,7 @@ object Trees {
     type ThisTree <: TermTree
     override def isTerm = true
   }
+  case object OmittedBody extends TermTree
 
   // pure
   case class Literal (const :Constant) extends TermTree
@@ -160,6 +167,7 @@ object Trees {
   case class IdentRef (ident :TermName) extends TermTree
 
   case class Select (expr :TermTree, field :TermName) extends TermTree
+  case class Index (expr :TermTree, index :TermTree) extends TermTree
 
   case class Tuple (exprs :Seq[TermTree]) extends TermTree
 
@@ -212,7 +220,7 @@ object Trees {
 
       // def trees
       case ArgDef(docs, name, typ) => apply(t, typ)
-      case ParamDef(name, bound) => apply(t, bound)
+      case ParamDef(name, constraint) => apply(t, constraint)
       case FunDef(docs, name, params, args, result, body) =>
         apply(apply(apply(apply(t, params), args), result), body)
       case Binding (name, typ, value) => apply(apply(t, typ), value)
@@ -223,10 +231,12 @@ object Trees {
       case UnionDef(docs, name, args, cases) => apply(apply(t, args), cases)
 
       // term trees
+      case OmittedBody => t
       case Literal (const) => t
       case ArrayLiteral (values) => apply(t, values)
       case IdentRef(ident) => t
       case Select (expr, field) => apply(t, expr)
+      case Index (expr, index) => apply(apply(t, expr), index)
       case Tuple (exprs) => apply(t, exprs)
       case Lambda (args, body) => apply(apply(t, args), body)
       case FunApply (kind, fun, params, args) => apply(apply(apply(t, fun), params), args)
@@ -269,7 +279,7 @@ object Trees {
   // Printing, pretty and otherwise
 
   class Printer (out :PrintWriter, indent :String = "") {
-    def nest = new Printer(out, indent + " ")
+    def nest = new Printer(out, indent + "  ")
     def print (value :Any) = { out.print(value) ; this }
     def print (v0 :Any, v1 :Any, rest :Any*) = {
       out.print(v0) ; out.print(v1) ; rest.foreach(out.print) ; this
@@ -291,55 +301,72 @@ object Trees {
   def printDefList (defs :Seq[DefTree], open :String, close :String)(implicit pr :Printer) =
     if (!defs.isEmpty) printSep(defs, printMemberDef, open, ", ", close)
 
-  def printDef (df :DefTree, member :Boolean = false)(implicit pr :Printer) :Printer = {
-    df match {
-      case Binding(name, typ, value) =>
-        pr.print(name) ; printOptType(typ) ; pr.print(" = ") ; printExpr(value)
-      case LetDef(bindings) => pr.print("let ") ; printDefList(bindings, "", "")
-      case VarDef(bindings) => pr.print("var ") ; printDefList(bindings, "", "")
-      case FieldDef(docs, name, typ) =>
-        if (!docs.isEmpty) pr.println()
-        docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
-        if (!docs.isEmpty) pr.printIndent("")
-        pr.print(name, " :") ; printType(typ)
-      case RecordDef(docs, name, args, fields) =>
-        if (!docs.isEmpty) pr.println()
-        docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
-        if (!docs.isEmpty) pr.printIndent("")
-        if (!member) pr.print("data ")
-        pr.print(name)
-        printDefList(args, "[", "]")
-        printDefList(fields, "(", ")")
-      case UnionDef(docs, name, args, cases) =>
-        docs.foreach { doc => pr.println(s"/// $doc") }
-        pr.print("data ", name)
-        printDefList(args, "[", "]")
-        if (!cases.isEmpty) {
-          pr.print(" = ")
-          printSep(cases, printMemberDef, "", " | ", "")
-        }
-      case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
-      case ParamDef(name, bounds) => pr.print(name) ; printOptType(bounds)
-      case FunDef(docs, name, params, args, ret, body) =>
-        docs.foreach { doc => pr.println(s"/// $doc") }
-        pr.print("fun ", name)
-        printDefList(params, "[", "]")
-        printDefList(args, " (", ")")
-        printOptType(ret) ; pr.print(" = ") ; printExpr(body)
+    def printDef (df :DefTree, member :Boolean = false)(implicit pr :Printer) :Printer = {
+      df match {
+        case Binding(name, typ, value) =>
+          pr.print(name) ; printOptType(typ) ; pr.print(" = ") ; printExpr(value)
+        case LetDef(bindings) => pr.print("let ") ; printDefList(bindings, "", "")
+        case VarDef(bindings) => pr.print("var ") ; printDefList(bindings, "", "")
+        case FieldDef(docs, name, typ) =>
+          if (!docs.isEmpty) pr.println()
+          docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
+          if (!docs.isEmpty) pr.printIndent("")
+          pr.print(name, " :") ; printType(typ)
+        case RecordDef(docs, name, args, fields) =>
+          if (!docs.isEmpty) pr.println()
+          docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
+          if (!docs.isEmpty) pr.printIndent("")
+          if (!member) pr.print("data ")
+          pr.print(name)
+          printDefList(args, "[", "]")
+          printDefList(fields, "(", ")")
+        case UnionDef(docs, name, args, cases) =>
+          docs.foreach { doc => pr.println(s"/// $doc") }
+          pr.print("data ", name)
+          printDefList(args, "[", "]")
+          if (!cases.isEmpty) {
+            pr.print(" = ")
+            printSep(cases, printMemberDef, "", " | ", "")
+          }
+        case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
+        case ParamDef(name, constraints) => pr.print(name) ; printOptType(constraints)
+        case FunDef(docs, name, params, args, ret, body) =>
+          docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
+          pr.printIndent("fun ", name)
+          printDefList(params, "[", "]")
+          printDefList(args, " (", ")")
+          printOptType(ret)
+          if (body != OmittedBody) { pr.print(" = ") ; printExpr(body) }
+        case FaceDef(docs, name, params, parents, funs) =>
+          docs.foreach { doc => pr.println(s"/// $doc") }
+          pr.print("interface ", name)
+          printDefList(params, "[", "]")
+          if (!parents.isEmpty) printSep(parents, printType, " : ", ", ", "")
+          pr.print(" {")
+          funs foreach { fun => printDef(fun)(pr.println().nest) }
+          pr.println().printIndent("}")
+        case ImplDef(docs, name, params, parent, funs) =>
+          docs.foreach { doc => pr.println(s"/// $doc") }
+          pr.print("impl ", name)
+          printDefList(params, "[", "]")
+          pr.print(" : ") ; printType(parent)
+          pr.print(" {")
+          funs foreach { fun => printDef(fun)(pr.println().nest) }
+          pr.println().printIndent("}")
+      }
+      pr
     }
-    pr
-  }
 
-  def printPat (pat :PatTree)(implicit pr :Printer) :Printer = pat match {
-    case IdentPat(ident) => pr.print(ident)
-    case LiteralPat(const) => pr.print(const)
-    case DestructPat(ctor, bindings) =>
-      pr.print(ctor) ; printSep(bindings, printPat, "", ", ", "")
-    case Case(pattern, guard, result) =>
-      pr.printIndent("case ", pattern, " = ") ; printExpr(result)(pr.nest)
-    case Condition(guard, result) =>
-      pr.printIndent("") ; printExpr(guard) ; pr.print(" = ") ; printExpr(result)(pr.nest)
-  }
+    def printPat (pat :PatTree)(implicit pr :Printer) :Printer = pat match {
+      case IdentPat(ident) => pr.print(ident)
+      case LiteralPat(const) => pr.print(const)
+      case DestructPat(ctor, bindings) =>
+        pr.print(ctor) ; printSep(bindings, printPat, "", ", ", "")
+      case Case(pattern, guard, result) =>
+        pr.printIndent("case ", pattern, " = ") ; printExpr(result)(pr.nest)
+      case Condition(guard, result) =>
+        pr.printIndent("") ; printExpr(guard) ; pr.print(" = ") ; printExpr(result)(pr.nest)
+    }
 
   def printComp (comp :CompTree)(implicit pr :Printer) :Printer = comp match {
     case Generator(name, expr) => pr.print(name, " <- ") ; printExpr(expr)
@@ -354,10 +381,12 @@ object Trees {
       case Literal(const) => pr.print(const)
       case ArrayLiteral(values) => printSep(values, printExpr, "[", ", ", "]")
       case IdentRef (ident) => pr.print(ident)
-      case Select(lhs, field) => printExpr(lhs).print(".", field)
+      case OmittedBody => // nada
+      case Select(expr, field) => printExpr(expr).print(".", field)
+      case Index(expr, index) => printExpr(expr).print("@") ; printExpr(index)
       case Tuple(exprs) => printTuple(exprs)
       case Lambda(args, body) =>
-        if (args.size == 1) pr.print(args(0))
+        if (args.size == 1) printDef(args(0))
         else printSep[DefTree](args, printDef(_, false), " (", ", ", ")")
         pr.print(" => ") ; printExpr(body)
       case FunApply(kind, ident, params, args) => kind match {
@@ -499,7 +528,7 @@ object Trees {
         //   case TypeApply(ctor, args) => pr.print(out.println()
         //   case TypeArrow(args, ret) => 
         //   case ArgDef(docs, name, typ) => 
-        //   case ParamDef(name, bound) => 
+        //   case ParamDef(name, constraint) => 
         //   case Binding (name, typ, value) => 
         //   case LetDef(bindings) => 
         //   case VarDef(bindings) => 
@@ -509,6 +538,7 @@ object Trees {
         //   case Literal (const) => 
         //   case ArrayLiteral (values) => 
         //   case Select (expr, field) => 
+        //   case Index (expr, index) => 
         //   case Lambda (args, body) => 
         //   case If (cond, ifTrue, ifFalse) => 
         //   case Condition (guard, result) => 

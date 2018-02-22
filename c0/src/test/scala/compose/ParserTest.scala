@@ -172,6 +172,11 @@ class ParserTest {
     printParse(parseCode("data.cz"))
   }
 
+  @Test def testInterfaceDefs () :Unit = {
+    printParse(parseCode("eq.cz"))
+    printParse(parseCode("ord.cz"))
+  }
+
   @Test def testNextEuler () :Unit = {
     // printParse(parseCode("euler/euler11.cz"), false)
   }
