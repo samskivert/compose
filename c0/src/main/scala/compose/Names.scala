@@ -51,6 +51,7 @@ object Names {
   // poor man's interning: will fancy up later if needed
   def termName (raw :String) :TermName = names.get(raw) match {
     case null =>
+      assert(!raw.isEmpty, "Symbol must have non-empty name")
       val name = new SimpleName(raw)
       names.put(raw, name)
       name
@@ -58,5 +59,20 @@ object Names {
   }
   def typeName (raw :String) = termName(raw).toTypeName
 
-  val NoName = termName("")
+  val NoName = termName("<noname>")
+
+  // TEMP: magic built-in name for arrays... meh
+  val ArrayName = typeName("Array")
+
+  // hacky approach to having functions implement operators
+  val Synonyms :Map[Name, Name] = {
+    def syn (from :String, to :String) = (termName(from), termName(to))
+    Map(syn("not",   "!"),
+        syn("eq",    "=="),
+        syn("notEq", "!="),
+        syn("add",   "+"),
+        syn("sub",   "-"),
+        syn("mul",   "*"),
+        syn("div",   "/"))
+  }
 }

@@ -27,3 +27,25 @@ interface Ord[A] : Eq[A] {
   /// @return whichever of `a1` or `a2` is lesser, or `a1` if they are equal.
   fun min (a1 :A, a2 :A) :A = if (a1 > a2) a2 else a1
 }
+
+fun boolCompare (a :Bool, b :Bool) = cond
+  !a && b = LT
+  a && !b = GT
+  else    = EQ
+impl ordBool = Ord[Bool](compare=boolCompare)
+
+fun i32LessThan (a :I32, b :I32) :Bool = foreign
+fun i32LessThanEq (a :I32, b :I32) :Bool = foreign
+fun i32GreaterThan (a :I32, b :I32) :Bool = foreign
+fun i32GreatherThanEq (a :I32, b :I32) :Bool = foreign
+fun i32Compare (a :I32, b :I32) = cond
+  i32LessThan(a, b)    = LT
+  i32GreaterThan(a, b) = GT
+  else                 = EQ
+impl ordI32 = Ord[I32](
+  compare=i32Compare,
+  lessThan=i32LessThan,
+  lessThanEq=i32LessThanEq,
+  greaterThan=i32GreaterThan,
+  greaterThanEq=i32GreaterThanEq
+)

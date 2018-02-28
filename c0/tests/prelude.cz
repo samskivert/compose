@@ -1,0 +1,20 @@
+// Defines built-in and foundational types, funs and interfaces.
+
+fun not (a :Bool) :Bool = foreign
+
+fun id[A] (a :A) = a
+
+fun length[A] (as :Array[A]) :I32 = foreign
+
+interface Semiring[A] {
+  fun zero () :A
+  fun add (a1 :A, a2 :A) :A
+  fun one () :A
+  fun mul (a1 :A, a2 :A) :A
+}
+
+interface Ring[A] : Semiring[A] {
+  fun sub (a1 :A, a2 :A) :A
+}
+
+fun negate[A:Ring] (a :A) = zero() - a

@@ -27,7 +27,7 @@ class TyperTest {
     (res, pos) => res
   )
 
-  def testContext (name :String) = moduleContext(termName(name))
+  def testContext (name :String) = moduleContext(termName(s"${name}.cz"))
 
   val out = new PrintWriter(System.out)
 
@@ -70,6 +70,31 @@ class TyperTest {
   @Test def testLiterals () :Unit = {
     val trees = extract(parseCode("literals.cz"))
     implicit val ctx = testContext("literals")
+    trees foreach index
+    trees foreach { tree =>
+      val typedTree = typed(tree)
+      debugTree(out)(typedTree)
+    }
+  }
+
+  @Test def testData () :Unit = {
+    val data = """
+    data Ordering = LT | EQ | GT
+    """
+    val trees = extract(program.parse(data))
+    implicit val ctx = testContext("data")
+    trees foreach index
+    println(ctx.scope.lookup(typeName("Ordering")).info)
+    trees foreach { tree =>
+      val typedTree = typed(tree)
+      debugTree(out)(typedTree)
+    }
+  }
+
+  @Test def testInterface () :Unit = {
+    val trees = extract(parseCode("prelude.cz")) ++
+      extract(parseCode("eq.cz"))
+    implicit val ctx = testContext("eq.cz")
     trees foreach index
     trees foreach { tree =>
       val typedTree = typed(tree)

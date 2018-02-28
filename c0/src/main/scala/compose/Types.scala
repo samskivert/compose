@@ -23,11 +23,25 @@ object Types {
     override def toString = name.toString
   }
 
+  // TODO: can we model array as something else? data carries no parameters, but record has
+  // unnecessary fields... will we need "name + params" for any other kind of type?
+  case class Array (elem :Type) extends Type {
+    override def toString = s"Array[$elem]"
+  }
+
   // record type: "data Foo (bar :Int, baz :String)"
   case class Record (name :TypeName, params :Seq[Type], fields :Seq[Field]) extends Type {
     override def toString = name + params.mkString("[", ", ", "]") + fields.mkString("(", ", ", ")")
   }
   case class Field (name :TermName, tpe :Type) {
+    override def toString = s"$name :$tpe"
+  }
+
+  // interface type: "interface Eq[A] { fun eq (a :A, b :A) :Bool }"
+  case class Interface (name :TypeName, params :Seq[Type], methods :Seq[Method]) extends Type {
+    override def toString = name + params.mkString("[", ", ", "]")
+  }
+  case class Method (name :TermName, tpe :Type) {
     override def toString = s"$name :$tpe"
   }
 
@@ -89,23 +103,31 @@ object Types {
     }
     def tuple (rank :Int) = Tuples(rank-2)
 
-    // TODO: array type constructor
-
     // TEMP: the type of trees that have no type (e.g. defs)
-    val None   = primitive("None",   0)
+    val None = primitive("None",   0)
 
     // TEMP: for debugging trees
-    val Missing   = Error("Missing")
+    val Missing = Error("Missing")
 
     // TEMP: the type of type trees
-    val Star   = primitive("Star",   0)
+    val Star = primitive("Star",   0)
 
     def primitive (name :String, bitWidth :Int) = Data(termName(name).toTypeName, bitWidth)
   }
 
-  // TODO: implement type unification! or something...
-  def unify (types :Seq[Type]) :Type = ???
+  // TODO: should this be called 'meet'? maybe unify has a different technical meaning...
+  def unify (types :Seq[Type]) :Type =
+    // TODO:
+    //
+    // - unify constant types with their associated primitives (widening integral and float types
+    // as necessary)
+    //
+    // - unify integral types via widening? (and F32 to F64?)
+    //
+    // - unify union cases to the union type
+    if (types.isEmpty) ??? else types.head
 
   // TODO: implement type application!
-  def apply (ctor :Type, args :Seq[Type]) :Type = if (args.isEmpty) ctor else ???
+  def applyType (ctor :Type, args :Seq[Type]) :Type =
+    if (args.isEmpty) ctor else ???
 }

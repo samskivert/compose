@@ -16,7 +16,7 @@ object Scopes {
 
   /** Maps names to symbols for a scope.
     * Includes mappings from all outer scopes that contain this one. */
-  class Scope private[Scopes] (parent :Scope, val nestingLevel :Int) {
+  class Scope private[Scopes] (parent :Scope, val name :Name, val nestingLevel :Int) {
     private val id = { scopeId += 1 ; scopeId }
     private var last :ScopeEntry = _
     private var size = 0
@@ -81,7 +81,7 @@ object Scopes {
     // TODO: lookupAll that returns all overloads for a symbol (only for termname)
 
     /** Creates a new scope nested under this scope. */
-    def nestedScope () :Scope = new Scope(this, nestingLevel+1)
+    def nestedScope (name :Name) :Scope = new Scope(this, name, nestingLevel+1)
 
     /** Enters `sym` into this scope (via its intrinsic `name`). */
     def enter (sym :Symbol) :sym.type = enter(sym.name, sym)
@@ -93,20 +93,23 @@ object Scopes {
       ent.prev = last
       last = ent
       if (buckets != null) enterInHash(ent)
-      println(s"$this entered: $name => $sym")
+      // new Exception(s"$this entered: $name => $sym").printStackTrace(System.out)
+      // println(s"$this entered: $name => $sym")
       size += 1
+      // if this symbol has a synonym, enter it under that name as well
+      Synonyms.get(name).map(syn => enter(syn, sym))
       sym
     }
 
-    override def toString = s"Scope($id, $nestingLevel)"
+    override def toString = s"Scope($name, $id, $nestingLevel)"
   }
 
   /** Creates a new top-level scope. */
-  def newScope :Scope = new Scope(null, 0)
+  def newScope (name :Name) :Scope = new Scope(null, name, 0)
 
   /** Creates an empty read-only scope. Read-only scopes are used by `NoTerm` and `NoType` to
     * prevent nested symbols from unintentionally being entered into their scopes. */
-  def newReadOnlyScope :Scope = new Scope(null, 0) {
+  def newReadOnlyScope (name :Name) :Scope = new Scope(null, name, 0) {
     override def enter (name :Name, sym :Symbol) =
       throw new UnsupportedOperationException("Cannot enter symbol in read-only scope.")
   }

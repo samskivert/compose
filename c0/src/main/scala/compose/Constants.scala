@@ -30,7 +30,7 @@ object Constants {
 
   case class Constant (tag :Int, value :String) {
     override def toString = tag match {
-      case NoTag => "<none?>"
+      case NoTag => "<none>"
       case UnitTag => "()"
       case CharTag => s"'${value}'"
       case StringTag => '"' + value + '"'

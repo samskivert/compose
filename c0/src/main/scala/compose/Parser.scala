@@ -104,19 +104,24 @@ object Parser {
     map((TypeArrow.apply _).tupled)
   val typeRef :P[TypeTree] = P( namedOrApplyOrFun | parenFun )
   val optTypeRef = P( (ws ~ ":" ~ typeRef ).? ).map(_ getOrElse OmittedType)
-  val optConstraint = P( (ws ~ ":" ~ namedOrApply ).? ).map(_ getOrElse OmittedType)
 
   // comments: doc comments are part of AST, other comments are whitespace
   val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
   val docComments = P( ws ~ docComment.rep )
 
   // definitions
+  val simpleConstraint = P( hs ~ ":" ~/ typeIdent )
+  val paramApply = P( "[" ~/ (hs ~ typeIdent.map(Param)).rep(1, ",") ~ hs ~ "]" )
+  val paramDef :P[Seq[ParamTree]] = P( ws ~ typeIdent ~ (simpleConstraint | paramApply).? ).map {
+    case (name, None) => Seq(Param(name))
+    case (name, Some(Seq(params))) => Seq(Constraint(name, params.asInstanceOf[Seq[Param]]))
+    case (name, Some(ident)) => Seq(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(Param(name))))
+  }
   val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
-  val paramDef = P( ws ~ typeIdent ~ optConstraint ).map(ParamDef.tupled)
 
   val funArgs :P[Seq[ArgDef]] = P( "(" ~ argDef.rep(sep=",") ~ ws ~ ")" )
   val optFunArgs = P( ws ~ funArgs.?.map(_ getOrElse Seq()) )
-  val params = P( "[" ~ paramDef.rep(1, sep=",") ~ ws ~ "]" )
+  val params = P( "[" ~ paramDef.rep(1, sep=",").map(_.flatten) ~ ws ~ "]" )
   val optParams = P( hs ~ params.?.map(_ getOrElse Seq()) )
   val optFunBody = P( (ws ~ "=" ~/ ws ~ expr).?.map(_ getOrElse OmittedBody) )
   val funDef :P[FunDef] = P( docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optParams ~
@@ -137,12 +142,14 @@ object Parser {
                     // TODO: do we want/need to allow unions with a single case?
                     caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
 
-  val xtends = P( ws ~ ":" ~/ hs ~ typeRef.rep(1, sep=",") )
+  val parentRef = P( ws ~ typeIdent ~ paramApply ).map(Constraint.tupled)
+  val xtends = P( ws ~ ":" ~/ hs ~ parentRef.rep(1, sep=",") )
   val optExtends = P( xtends.? ).map(_ getOrElse Seq())
   val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optParams ~ ws ~ optExtends ~
                    ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
-  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optParams ~ hs ~ ":" ~ hs ~ typeRef ~
-                   ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(ImplDef.tupled)
+  val methBind = P( ws ~ ident ~ hs ~ "=" ~/ hs ~ ident ).map(MethodBinding.tupled)
+  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optParams ~ hs ~ "=" ~ hs ~ typeRef ~
+                   ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).map(ImplDef.tupled)
 
   val defExpr = P( funDef | letDef | varDef | unionDef | recordDef | faceDef | implDef ).
     map(DefExpr)
@@ -157,7 +164,7 @@ object Parser {
   def op (glyph :String) :P[TermName] = ws ~ glyph.!.map(termName)
   def binOp (term: P[TermTree], op: P[TermName]) = (ws ~ term ~ (op ~ ws ~ term).rep).map {
     case (lhs, chunks) => chunks.foldLeft(lhs) {
-      case (lhs, (op, rhs)) => FunApply(BinOp, IdentRef(op), Seq(), Seq(lhs, rhs))
+      case (lhs, (op, rhs)) => FunApply(FunKind.BinOp, IdentRef(op), Seq(), Seq(lhs, rhs))
     }
   }
 
@@ -178,7 +185,7 @@ object Parser {
   val indexSuff = P( "@" ~ expr ).map(Index(OmittedBody, _))
   val applyParams = P( ("[" ~ typeRef.rep(1, ",") ~ "]").? ).map(_ getOrElse Seq())
   val applySuff = P( applyParams ~ "(" ~ expr.rep(sep=",") ~ ws ~ ")" ).map {
-    case (params, args) => FunApply(Normal, OmittedBody, params, args)
+    case (params, args) => FunApply(FunKind.Normal, OmittedBody, params, args)
   }
   val atomSuffs = P( selectSuff | indexSuff | applySuff ).rep
   val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map {
@@ -191,7 +198,7 @@ object Parser {
   }
 
   val unaryExpr = P( (op("+") | op("-") | op("~") | op("!")) ~ atomExpr ).map {
-    case (op, expr) => FunApply(UnOp, IdentRef(op), Seq(), Seq(expr))
+    case (op, expr) => FunApply(FunKind.UnOp, IdentRef(op), Seq(), Seq(expr))
   }
 
   val termExpr = P( atomExpr | unaryExpr )

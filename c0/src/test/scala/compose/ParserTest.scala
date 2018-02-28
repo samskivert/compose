@@ -36,7 +36,7 @@ class ParserTest {
 
   def ident (name :String) = IdentRef(termName(name))
   def binOp (op :String, e0 :TermTree, e1 :TermTree) =
-    FunApply(BinOp, IdentRef(termName(op)), Seq(), Seq(e0, e1))
+    FunApply(FunKind.BinOp, IdentRef(termName(op)), Seq(), Seq(e0, e1))
   def argDef (arg :String) = ArgDef(Seq(), termName(arg), OmittedType)
   def intlit (value :String) = Literal(Constants.int(value))
   def strlit (value :String) = Literal(Constants.string(value))
@@ -70,10 +70,10 @@ class ParserTest {
     testParse(binOp("*", binOp("+", a, b), c), parenExpr.parse("((a + b) * c)"))
     testParse(Block(Seq(hello)), blockExpr.parse("{ hello }"))
 
-    testParse(FunApply(UnOp, ident("+"), Seq(), Seq(a)), unaryExpr.parse("+a"))
-    testParse(FunApply(UnOp, ident("-"), Seq(), Seq(b)), unaryExpr.parse("-b"))
-    testParse(FunApply(UnOp, ident("~"), Seq(), Seq(c)), unaryExpr.parse("~c"))
-    testParse(FunApply(UnOp, ident("!"), Seq(), Seq(hello)), unaryExpr.parse("!hello"))
+    testParse(FunApply(FunKind.UnOp, ident("+"), Seq(), Seq(a)), unaryExpr.parse("+a"))
+    testParse(FunApply(FunKind.UnOp, ident("-"), Seq(), Seq(b)), unaryExpr.parse("-b"))
+    testParse(FunApply(FunKind.UnOp, ident("~"), Seq(), Seq(c)), unaryExpr.parse("~c"))
+    testParse(FunApply(FunKind.UnOp, ident("!"), Seq(), Seq(hello)), unaryExpr.parse("!hello"))
 
     Seq("+", "-", "*", "/", "%", "<<", ">>", "&&", "||", "&", "|",
         "==", "!=", "<=", ">=", "<", ">") foreach { op =>
@@ -87,7 +87,7 @@ class ParserTest {
   }
 
   @Test def testData () :Unit = {
-    val aVar = ParamDef(typeName("A"), OmittedType)
+    val aVar = Param(typeName("A"))
     val nilCase = RecordDef(Seq(), typeName("Nil"), Seq(), Seq())
     val consCase = RecordDef(Seq(), typeName("Cons"), Seq(), Seq(
       FieldDef(Seq(), termName("head"), TypeRef(typeName("A"))),
@@ -110,10 +110,10 @@ class ParserTest {
   }
 
   @Test def testFunApply () :Unit = {
-    testParse(FunApply(Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("hello(a, b, c)"))
-    testParse(FunApply(Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("(hello)(a, b, c)"))
-    testParse(FunApply(Normal, aEqAPlus1, Seq(), Seq(b)), atomExpr.parse("(a => a + 1)(b)"))
-    testParse(FunApply(Normal, Select(ident("foo"), helloName), Seq(), Seq(a, b, c)),
+    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("hello(a, b, c)"))
+    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("(hello)(a, b, c)"))
+    testParse(FunApply(FunKind.Normal, aEqAPlus1, Seq(), Seq(b)), atomExpr.parse("(a => a + 1)(b)"))
+    testParse(FunApply(FunKind.Normal, Select(ident("foo"), helloName), Seq(), Seq(a, b, c)),
               atomExpr.parse("foo.hello(a, b, c)"))
   }
 
@@ -136,7 +136,7 @@ class ParserTest {
   }
 
   @Test def testComp () :Unit = {
-    val range = FunApply(Normal, ident("range"), Seq(), Seq(intlit("10"), intlit("99")))
+    val range = FunApply(FunKind.Normal, ident("range"), Seq(), Seq(intlit("10"), intlit("99")))
     val filter = binOp("==", binOp("%", binOp("+", a, b), intlit("2")), intlit("0"))
     // no brackets here because those are handled by bracketExpr
     val code = "a * b where a <- range(10, 99), b <- range(10, 99), (a + b) % 2 == 0"
