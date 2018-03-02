@@ -6,7 +6,7 @@ package compose
 
 object Constants {
 
-  final val NoTag = 0
+  final val VoidTag = 0
   final val UnitTag = 1
   final val BoolTag = 2
   final val IntTag = 3
@@ -29,13 +29,37 @@ object Constants {
   def rawString (value :String) = Constant(RawStringTag, value)
 
   case class Constant (tag :Int, value :String) {
+    lazy val minWidth :Int = tag match {
+      case BoolTag  => 1
+      case IntTag   => intWidth(value)
+      case FloatTag => floatWidth(value)
+      case CharTag  => 16 // TODO
+      case _        => 0
+    }
+    def kind = if (tag == RawStringTag) StringTag else tag
     override def toString = tag match {
-      case NoTag => "<none>"
+      case VoidTag => "<void>"
       case UnitTag => "()"
       case CharTag => s"'${value}'"
       case StringTag => '"' + value + '"'
       case RawStringTag => s"`${value}`'"
       case _ => value
     }
+  }
+
+  def intWidth (value :String) :Int = {
+    // TODO: something non-broken for int constants larger than Long.MaxValue
+    val longValue = value.toLong
+    if (longValue > Int.MaxValue) 64
+    else if (longValue > Short.MaxValue) 32
+    else if (longValue > Byte.MaxValue) 16
+    else 8
+  }
+
+  def floatWidth (value :String) :Int = {
+    // TODO: something non-broken for float constants larger than Double.MaxValue
+    val doubleValue = value.toDouble
+    if (doubleValue > Float.MaxValue) 64
+    else 32
   }
 }

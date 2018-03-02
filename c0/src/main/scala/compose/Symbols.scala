@@ -8,8 +8,11 @@ object Symbols {
   import Names._
   import Types._
   import Scopes._
+  import Trees._
 
-  abstract class Symbol (val owner :Symbol, val scope :Scope) {
+  type InfoFn = () => Type
+
+  abstract class Symbol (val owner :Symbol, val scope :Scope, infoFn :InfoFn) {
     def name :Name
 
     def exists :Boolean = true
@@ -20,76 +23,70 @@ object Symbols {
 
     def map[T] (f :Symbol => T) :Option[T] = if (exists) Some(f(this)) else None
 
-    def info :Type = {
-      if (_type == null) {
-        if (typeCompleter == null) _type = Error(s"Missing $what completer: $name")
-        else {
-          _type = typeCompleter()
-          typeCompleter = null
-        }
-      }
-      _type
-    }
+    def info :Type = infoFn()
 
-    def initInfo (info :Type) :this.type = { _type = info ; this }
-    def initInfoLazy (completer :() => Type) :this.type = {
-      if (typeCompleter != null) throw new AssertionError("Symbol already initialized: $this")
-      typeCompleter = completer
-      this
-    }
+    /** Any "ambient" type parameters (or class constraints, TBD) introduced by this symbol into
+      * its lexical scope. */
+    def params :Seq[ParamTree]
 
     /** Creates a type symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
-    def defineType (name :TypeName) :TypeSymbol =
-      scope.enter(new TypeSymbol(this, scope.nestedScope(name), name))
+    def defineType (name :TypeName, tree :Tree, params :Seq[ParamTree]) :TypeSymbol =
+      scope.enter(new TypeSymbol(this, scope.nestedScope(name), treeType(tree), name, params) {
+        override def toString = s"$what $name ($tree)"
+      })
 
     /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
-    def defineTerm (name :TermName) :TermSymbol = scope.enter(createTerm(name))
+    def defineTerm (name :TermName, tree :Tree) :TermSymbol = scope.enter(createTerm(name, tree))
 
     /** Creates a term symbol owned by this symbol, with a newly nested scope, but does not enter
       * it into this symbol's scope. */
-    def createTerm (name :TermName) :TermSymbol =
-      new TermSymbol(this, scope.nestedScope(name), name)
+    def createTerm (name :TermName, tree :Tree) :TermSymbol =
+      new TermSymbol(this, scope.nestedScope(name), treeType(tree), name) {
+        override def toString = s"$what $name ($tree)"
+      }
 
-    override def toString = {
-      val tpe = if (_type == null) "<uncompleted>" else _type.toString
-      s"$what $name :$tpe"
-    }
+    override def toString = s"$what $name :$info"
 
     private def what = if (isTerm) "term" else "type"
-    private[this] var _type :Type = _
-    private[this] var typeCompleter :() => Type = _
   }
 
-  class TypeSymbol (owner :Symbol, scope :Scope, val name :TypeName) extends Symbol(owner, scope) {
+  class TypeSymbol (
+    owner :Symbol, scope :Scope, infoFn :InfoFn, val name :TypeName, val params :Seq[ParamTree]
+  ) extends Symbol(owner, scope, infoFn) {
     override def isType :Boolean = true
     override def asType = this
   }
 
-  class TermSymbol (owner :Symbol, scope :Scope, val name :TermName) extends Symbol(owner, scope) {
+  class TermSymbol (owner :Symbol, scope :Scope, infoFn :InfoFn, val name :TermName)
+      extends Symbol(owner, scope, infoFn) {
     override def isTerm :Boolean = true
     override def asTerm = this
+    override def params = Seq()
   }
 
-  val NoType = new TypeSymbol(null, newReadOnlyScope(NoName), NoName.toTypeName) {
+  val NoType = new TypeSymbol(null, newReadOnlyScope(NoName), noneType, NoName.toTypeName, Seq()) {
     override def exists :Boolean = false
   }
-  val NoTerm = new TermSymbol(null, newReadOnlyScope(NoName), NoName) {
+  val NoTerm = new TermSymbol(null, newReadOnlyScope(NoName), noneType, NoName) {
     override def exists :Boolean = false
     override def asType = NoType
   }
 
   val rootSymbol = {
     val rootName = termName("<root>")
-    val root = new TermSymbol(NoTerm, newScope(rootName), rootName)
+    val root = new TermSymbol(NoTerm, newScope(rootName), noneType, rootName)
     Prim.Types foreach { tpe =>
-      val sym = new TypeSymbol(root, root.scope.nestedScope(tpe.name), tpe.name)
-      sym.initInfo(tpe)
+      val sym = new TypeSymbol(root, root.scope.nestedScope(tpe.name), () => tpe, tpe.name, Seq())
       root.scope.enter(sym)
     }
     root
   }
 
-  def newModuleSymbol (name :TermName) :Symbol = rootSymbol.createTerm(name)
+  // TODO: require a tree to create our module symbol? modules should eventually have a type...
+  def newModuleSymbol (name :TermName) :Symbol = rootSymbol.createTerm(name, OmittedBody)
+
+  private val noneType :InfoFn = () => Prim.None
+  private def treeType (tree :Tree) :InfoFn = () => if (tree.isTyped) tree.tpe else Lazy(tree)
 }

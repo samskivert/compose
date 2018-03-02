@@ -193,7 +193,7 @@ object Parser {
       case Select(_, ident) => Select(expr, ident)
       case Index(_, index) => Index(expr, index)
       case FunApply(kind, _, params, args) => FunApply(kind, expr, params, args)
-      case _ => throw new AssertionError() // not reachable, but scalac can't prove it
+      case _ => ??? // not reachable, but scalac can't prove it
     })
   }
 

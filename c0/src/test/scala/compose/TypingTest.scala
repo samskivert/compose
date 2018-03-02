@@ -4,49 +4,26 @@
 
 package compose
 
-import java.io.PrintWriter
 import org.junit.Assert._
 import org.junit._
-import fastparse.core.Parsed
 
-class TyperTest {
-  import Contexts._
+class TypingTest {
   import Indexer._
-  import Parser._
-  import Trees._
-  import Typer._
-  import TestCode._
   import Names._
-
-  def extract[T] (result :Parsed[T, _, _]) :T = result.fold(
-    (p, pos, extra) => {
-      extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
-      fail(result.toString)
-      ??? // unreachable
-    },
-    (res, pos) => res
-  )
-
-  def testContext (name :String) = moduleContext(termName(s"${name}.cz"))
-
-  val out = new PrintWriter(System.out)
+  import Parser._
+  import TestCode._
+  import Trees._
 
   @Test def testConstants () :Unit = {
     val trees = extract(program.parse("0"))
     implicit val ctx = testContext("constants")
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 
   @Test def testBinOp () :Unit = {
     val trees = extract(program.parse("0 + 2"))
     implicit val ctx = testContext("binop")
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 
   @Test def testFib () :Unit = {
@@ -61,20 +38,14 @@ class TyperTest {
     val trees = extract(program.parse(fib))
     implicit val ctx = testContext("fib")
     trees foreach index
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 
   @Test def testLiterals () :Unit = {
     val trees = extract(parseCode("literals.cz"))
     implicit val ctx = testContext("literals")
     trees foreach index
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 
   @Test def testData () :Unit = {
@@ -85,10 +56,27 @@ class TyperTest {
     implicit val ctx = testContext("data")
     trees foreach index
     println(ctx.scope.lookup(typeName("Ordering")).info)
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
+  }
+
+  @Test def testRecursiveData () :Unit = {
+    val data = """
+    data List[A] = Nil | Cons(head :A, tail :List[A])
+    """
+    val trees = extract(program.parse(data))
+    implicit val ctx = testContext("data")
+    trees foreach index
+    println(ctx.scope.lookup(typeName("List")).info)
+    println(ctx.scope.lookup(typeName("Nil")).info)
+    println(ctx.scope.lookup(typeName("Cons")).info)
+    trees foreach { tree => debugTree(out)(tree.typed) }
+  }
+
+  @Test def testPrelude () :Unit = {
+    val trees = extract(parseCode("prelude.cz"))
+    implicit val ctx = testContext("prelude.cz")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 
   @Test def testInterface () :Unit = {
@@ -96,9 +84,20 @@ class TyperTest {
       extract(parseCode("eq.cz"))
     implicit val ctx = testContext("eq.cz")
     trees foreach index
-    trees foreach { tree =>
-      val typedTree = typed(tree)
-      debugTree(out)(typedTree)
-    }
+    trees foreach { tree => debugTree(out)(tree.typed) }
+  }
+
+  @Test def testApply () :Unit = {
+    val data = """
+    data List[A] = Nil | Cons(head :A, tail :List[A])
+    fun id[A] (a :A) :A = a
+    let a :List[I32] = Nil
+    let b = id[I32](5)
+    let c :List[List[I32]] = Nil
+    """
+    val trees = extract(program.parse(data))
+    implicit val ctx = testContext("data")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed) }
   }
 }

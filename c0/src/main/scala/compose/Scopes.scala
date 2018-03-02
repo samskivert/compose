@@ -17,10 +17,12 @@ object Scopes {
   /** Maps names to symbols for a scope.
     * Includes mappings from all outer scopes that contain this one. */
   class Scope private[Scopes] (parent :Scope, val name :Name, val nestingLevel :Int) {
-    private val id = { scopeId += 1 ; scopeId }
     private var last :ScopeEntry = _
     private var size = 0
     private var buckets :Array[ScopeEntry] = null
+
+    /** A unique integer identifier for this scope. */
+    val id = { scopeId += 1 ; scopeId }
 
     private def ensureCapacity (tableSize :Int) :Unit =
       if (size >= tableSize * FillFactor) createHash(tableSize*2)

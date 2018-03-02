@@ -2,7 +2,7 @@
 
 fun not (a :Bool) :Bool = foreign
 
-fun id[A] (a :A) = a
+fun id[A] (a :A) :A = a
 
 fun length[A] (as :Array[A]) :I32 = foreign
 
@@ -17,4 +17,4 @@ interface Ring[A] : Semiring[A] {
   fun sub (a1 :A, a2 :A) :A
 }
 
-fun negate[A:Ring] (a :A) = zero() - a
+fun negate[A:Ring] (a :A) :A = zero() - a
