@@ -112,20 +112,24 @@ object Parser {
   // definitions
   val simpleConstraint = P( hs ~ ":" ~/ typeIdent )
   val paramApply = P( "[" ~/ (hs ~ typeIdent.map(Param)).rep(1, ",") ~ hs ~ "]" )
-  val paramDef :P[Seq[ParamTree]] = P( ws ~ typeIdent ~ (simpleConstraint | paramApply).? ).map {
-    case (name, None) => Seq(Param(name))
-    case (name, Some(Seq(params))) => Seq(Constraint(name, params.asInstanceOf[Seq[Param]]))
-    case (name, Some(ident)) => Seq(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(Param(name))))
-  }
-  val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
+  val cstParamDef :P[ParamOrConst] =
+    P( ws ~ typeIdent ~ (simpleConstraint | paramApply).? ).map {
+      case (name, None) => Param(name)
+      case (name, Some(Seq(params))) => Constraint(name, params.asInstanceOf[Seq[Param]])
+      case (name, Some(ident)) =>
+        ConstrainedParam(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(Param(name))))
+    }
+  val cstParams = P( "[" ~ cstParamDef.rep(1, sep=",") ~ ws ~ "]" )
+  val param = P( ws ~ typeIdent ).map(Param)
+  val params = P( "[" ~ param.rep(1, sep=",") ~ ws ~ "]" )
+  def optSeq[T] (parser :P[Seq[T]]) = parser.?.map(_ getOrElse Seq())
 
+  val argDef :P[ArgDef] = P( docComments ~ ws ~ ident ~ optTypeRef ).map(ArgDef.tupled)
   val funArgs :P[Seq[ArgDef]] = P( "(" ~ argDef.rep(sep=",") ~ ws ~ ")" )
   val optFunArgs = P( ws ~ funArgs.?.map(_ getOrElse Seq()) )
-  val params = P( "[" ~ paramDef.rep(1, sep=",").map(_.flatten) ~ ws ~ "]" )
-  val optParams = P( hs ~ params.?.map(_ getOrElse Seq()) )
   val optFunBody = P( (ws ~ "=" ~/ ws ~ expr).?.map(_ getOrElse OmittedBody) )
-  val funDef :P[FunDef] = P( docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optParams ~
-                             optFunArgs ~ optTypeRef ~ optFunBody).map(FunDef.tupled)
+  val funDef :P[FunDef] = P( docComments ~ ws ~ Key("fun") ~ hs ~/ ident ~ optSeq(cstParams) ~
+                             optFunArgs ~ optTypeRef ~ optFunBody).map((FunDef.mk _).tupled)
 
   val binding = P( ws ~ ident ~ optTypeRef ~ ws ~ "=" ~ expr ).map(Binding.tupled)
   val letDef = P( Key("let") ~ hs ~/ binding.rep(1, sep=",") ).map(LetDef)
@@ -133,23 +137,24 @@ object Parser {
 
   val fieldDef = P( docComments ~ ws ~ ident ~ hs ~ ":" ~ typeRef ).map(FieldDef.tupled)
   val fieldDefs = P( "(" ~/ fieldDef.rep(sep=",") ~ ws ~ ")" )
-  val recordDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optParams ~ ws ~
+  val recordDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optSeq(params) ~ ws ~
                     fieldDefs ).map(RecordDef.tupled)
 
-  val caseDef = P( docComments ~ ws ~ typeIdent ~ optParams ~ ws ~
+  val caseDef = P( docComments ~ ws ~ typeIdent ~ optSeq(params) ~ ws ~
                    fieldDefs.?.map(_ getOrElse Seq()) ~ ws ).map(RecordDef.tupled)
-  val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optParams ~ ws ~ "=" ~/
+  val unionDef = P( docComments ~ Key("data") ~ hs ~ typeIdent ~ optSeq(params) ~ ws ~ "=" ~/
                     // TODO: do we want/need to allow unions with a single case?
                     caseDef.rep(2, sep="|") ).map(UnionDef.tupled)
 
   val parentRef = P( ws ~ typeIdent ~ paramApply ).map(Constraint.tupled)
   val xtends = P( ws ~ ":" ~/ hs ~ parentRef.rep(1, sep=",") )
   val optExtends = P( xtends.? ).map(_ getOrElse Seq())
-  val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optParams ~ ws ~ optExtends ~
-                   ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
+  val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optSeq(params) ~ ws ~
+                   optExtends ~ ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
   val methBind = P( ws ~ ident ~ hs ~ "=" ~/ hs ~ ident ).map(MethodBinding.tupled)
-  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optParams ~ hs ~ "=" ~ hs ~ typeRef ~
-                   ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).map(ImplDef.tupled)
+  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optSeq(params) ~ hs ~ "=" ~ hs ~
+                   typeRef ~ ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).
+    map((ImplDef.mk _).tupled)
 
   val defExpr = P( funDef | letDef | varDef | unionDef | recordDef | faceDef | implDef ).
     map(DefExpr)
@@ -182,16 +187,14 @@ object Parser {
   val bracketExpr = P( "[" ~ ( compExpr | arrayLiteral ) ~ ws ~ "]" )
 
   val selectSuff = P( "." ~ ident ).map(Select(OmittedBody, _))
-  val indexSuff = P( "@" ~ expr ).map(Index(OmittedBody, _))
   val applyParams = P( ("[" ~ typeRef.rep(1, ",") ~ "]").? ).map(_ getOrElse Seq())
   val applySuff = P( applyParams ~ "(" ~ expr.rep(sep=",") ~ ws ~ ")" ).map {
     case (params, args) => FunApply(FunKind.Normal, OmittedBody, params, args)
   }
-  val atomSuffs = P( selectSuff | indexSuff | applySuff ).rep
+  val atomSuffs = P( selectSuff | applySuff ).rep
   val atomExpr = P( (literalExpr | identExpr | parenExpr | bracketExpr) ~ atomSuffs).map {
     case (expr, suffs) => suffs.foldLeft(expr)((expr, suff) => suff match {
       case Select(_, ident) => Select(expr, ident)
-      case Index(_, index) => Index(expr, index)
       case FunApply(kind, _, params, args) => FunApply(kind, expr, params, args)
       case _ => ??? // not reachable, but scalac can't prove it
     })
@@ -202,7 +205,12 @@ object Parser {
   }
 
   val termExpr = P( atomExpr | unaryExpr )
-  val multiExpr = P( binOp(termExpr, op("*") | op("/") | op("%")) )
+  val indexExpr = P( ws ~ termExpr ~ (op("@") ~ ws ~ termExpr).rep).map {
+    case (lhs, chunks) => chunks.foldLeft(lhs) {
+      case (lhs, (op, rhs)) => Index(lhs, rhs)
+    }
+  }
+  val multiExpr = P( binOp(indexExpr, op("*") | op("/") | op("%")) )
   val addExpr = P( binOp(multiExpr, op("+") | op("-")) )
 
   val bitshiftExpr = P( binOp(addExpr, op("<<") | op(">>")) )

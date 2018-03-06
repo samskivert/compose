@@ -11,6 +11,8 @@ object Symbols {
   import Trees._
 
   type InfoFn = () => Type
+  private val noneType :InfoFn = () => Prim.None
+  private def treeType (tree :Tree) :InfoFn = () => if (tree.isTyped) tree.tpe else Lazy(tree)
 
   abstract class Symbol (val owner :Symbol, val scope :Scope, infoFn :InfoFn) {
     def name :Name
@@ -25,13 +27,12 @@ object Symbols {
 
     def info :Type = infoFn()
 
-    /** Any "ambient" type parameters (or class constraints, TBD) introduced by this symbol into
-      * its lexical scope. */
-    def params :Seq[ParamTree]
+    /** Any "ambient" type parameters introduced by this symbol into its lexical scope. */
+    def params :Seq[Param]
 
     /** Creates a type symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
-    def defineType (name :TypeName, tree :Tree, params :Seq[ParamTree]) :TypeSymbol =
+    def defineType (name :TypeName, tree :Tree, params :Seq[Param]) :TypeSymbol =
       scope.enter(new TypeSymbol(this, scope.nestedScope(name), treeType(tree), name, params) {
         override def toString = s"$what $name ($tree)"
       })
@@ -53,7 +54,7 @@ object Symbols {
   }
 
   class TypeSymbol (
-    owner :Symbol, scope :Scope, infoFn :InfoFn, val name :TypeName, val params :Seq[ParamTree]
+    owner :Symbol, scope :Scope, infoFn :InfoFn, val name :TypeName, val params :Seq[Param]
   ) extends Symbol(owner, scope, infoFn) {
     override def isType :Boolean = true
     override def asType = this
@@ -86,7 +87,4 @@ object Symbols {
 
   // TODO: require a tree to create our module symbol? modules should eventually have a type...
   def newModuleSymbol (name :TermName) :Symbol = rootSymbol.createTerm(name, OmittedBody)
-
-  private val noneType :InfoFn = () => Prim.None
-  private def treeType (tree :Tree) :InfoFn = () => if (tree.isTyped) tree.tpe else Lazy(tree)
 }

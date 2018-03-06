@@ -4,7 +4,8 @@
 
 package compose
 
-import java.io.PrintWriter
+import java.io.{StringWriter, PrintWriter}
+import scala.collection.mutable.ArrayBuffer
 
 object Trees {
   import Constants._
@@ -59,35 +60,54 @@ object Trees {
       treeType
     }
 
-    /** Ensures this tree (and its children) are typed, and returns it. */
-    def typed (implicit ctx :Context) :this.type = {
+    /** Ensures this tree (and its children) are typed, and returns it.
+      * @param proto the expected type of the tree (if known, otherwise `None`). Used for local
+      * type inference and type checking.
+      */
+    def typed (proto :Type = Prim.None)(implicit ctx :Context) :this.type = {
       // TODO: save ctx and ensure we don't request the type later with an invalid context?
       if (!isTyped) {
-        treeType = computeType
+        treeType = computeType(proto)
         computeBodyType()
       }
       this
     }
 
-    protected def computeType (implicit ctx :Context) :Type
+    // TEMP: what's the "proper" way to do this?
+    def retype (tpe :Type) :Unit = { treeType = tpe }
+
+    protected def computeType (proto :Type)(implicit ctx :Context) :Type
     protected def computeBodyType ()(implicit ctx :Context) :Unit = {}
   }
+
+  def typed[T <: Tree](trees :Seq[T], protos :Seq[Type])(implicit ctx :Context) :Seq[T] =
+    (trees zip protos).map(tp => (tp._1 typed tp._2))
+  def typedTypes[T <: Tree](trees :Seq[T], protos :Seq[Type])(implicit ctx :Context) :Seq[Type] =
+    (trees zip protos).map(tp => (tp._1 typed tp._2).tpe)
 
   sealed trait TypeTree extends Tree {
     type ThisTree <: TypeTree
     override def isType = true
   }
   case object OmittedType extends TypeTree {
-    protected def computeType (implicit ctx :Context) = Prim.None
+    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None
     override def toString = ""
   }
   case class TypeRef (name :TypeName) extends TypeTree {
-    protected def computeType (implicit ctx :Context) = typeFor(name)
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      // TODO: check that types match
+      typeFor(name)
+    }
     override def toString = name.toString
   }
   case class TypeApply (ctor :TypeName, params :Seq[TypeTree]) extends TypeTree {
-    protected def computeType (implicit ctx :Context) = {
-      val paramTypes = params.map(_.typed.tpe)
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val paramProtos = proto match {
+        case Apply(pctorType, pparamTypes) => pparamTypes
+        // TODO: should anything other than None here be a type mismatch?
+        case _ => params.map(_ => Prim.None)
+      }
+      val paramTypes = typedTypes(params, paramProtos)
       if (ctor == ArrayName) {
         if (paramTypes.size != 1) Error(s"Array must be applied to exactly one parameter")
         else Array(paramTypes(0))
@@ -102,8 +122,14 @@ object Trees {
   }
   // TODO: do we need a syntax for universally quantified arrows?
   case class TypeArrow (args :Seq[TypeTree], ret :TypeTree) extends TypeTree {
-    protected def computeType (implicit ctx :Context) =
-      Arrow(Seq(), args.map(_.typed.tpe), ret.typed.tpe)
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val (argProtos, retProto) = proto match {
+        case Arrow(_, argProtos, retProto) => (argProtos, retProto)
+        // TODO: same as above re: error on mismatch
+        case _ => (args.map(_ => Prim.None), Prim.None)
+      }
+      Arrow(Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
+    }
     override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
   }
 
@@ -115,113 +141,150 @@ object Trees {
     override def isDef = true
   }
 
-  sealed trait ParamTree extends DefTree {
-    type ThisTree <: ParamTree
+  // used to intertwingle params and constraints into a single list
+  // (I don't want to complicate the syntax with a separate list for constraints)
+  sealed trait ParamOrConst {
+    def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit
   }
-  case class Param (name :TypeName) extends ParamTree {
+  case class ConstrainedParam (param :Param, cst :Constraint) extends ParamOrConst {
+    def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = {
+      params += param
+      csts += cst
+    }
+  }
+
+  case class Param (name :TypeName) extends DefTree with ParamOrConst {
     type ThisTree <: Param
-    protected def computeType (implicit ctx :Context) = Var(name, ctx.scope.id)
+    def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = params += this
+    protected def computeType (proto :Type)(implicit ctx :Context) = Var(name, ctx.scope.id)
   }
-  case class Constraint (name :TypeName, params :Seq[Param]) extends ParamTree {
+  case class Constraint (name :TypeName, params :Seq[Param]) extends DefTree with ParamOrConst {
     type ThisTree <: Constraint
-    protected def computeType (implicit ctx :Context) =
-      applyType(typeFor(name), params.map(_.typed.tpe))
+    def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = csts += this
+    protected def computeType (proto :Type)(implicit ctx :Context) =
+      // TODO: will we ever have an expected type for a constraint?
+      applyType(typeFor(name), params.map(_.typed().tpe))
   }
 
   // TODO: destructuring fun arg bindings
   case class ArgDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: ArgDef
-    protected def computeType (implicit ctx :Context) = typ.typed.tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = typ.typed(proto).tpe
   }
-  case class FunDef (docs :Seq[String], name :TermName, params :Seq[ParamTree],
+  case class FunDef (docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint],
                      args :Seq[ArgDef], result :TypeTree, body :TermTree) extends DefTree {
     type ThisTree <: FunDef
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val funSym = ctx.scope.lookup(name)
       assert(funSym.exists, s"Missing symbol for fun def $name")
-      val ownerParams = ctx.owner.params
-      def typedWith (implicit ctx :Context) =
-        Arrow((ownerParams ++ params).map(_.typed.tpe), args.map(_.typed.tpe), result.typed.tpe)
+      val fullParams = ctx.owner.params ++ params
+      def typedWith (implicit ctx :Context) = Arrow(
+        fullParams.map(_.typed().tpe), args.map(_.typed().tpe), result.typed().tpe)
       typedWith(ctx.withOwner(funSym))
     }
     override protected def computeBodyType ()(implicit ctx :Context) = {
       val funSym = ctx.scope.lookup(name)
       assert(funSym.exists, s"Missing symbol for fun def $name")
-      body.typed(ctx.withOwner(funSym).withoutFlag(TypingDef))
+      val Arrow(_, _, retType) = this.tpe
+      body.typed(retType)(ctx.withOwner(funSym).withoutFlag(TypingDef))
+    }
+  }
+  object FunDef {
+    def mk (docs :Seq[String], name :TermName, paramsCsts :Seq[ParamOrConst],
+            args :Seq[ArgDef], result :TypeTree, body :TermTree) :FunDef = {
+      val params = ArrayBuffer[Param]() ; val csts = ArrayBuffer[Constraint]()
+      paramsCsts.foreach(_.accum(params, csts))
+      FunDef(docs, name, params, csts, args, result, body)
     }
   }
 
   // TODO: destructuring let/var bindings
   case class Binding (name :TermName, typ :TypeTree, value :TermTree) extends DefTree {
-    protected def computeType (implicit ctx :Context) = {
-      typ.typed ; value.typed
-      if (typ == OmittedType) value.tpe else typ.tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val declType = typ.typed().tpe
+      val exprType = value.typed(declType).tpe
+      if (typ == OmittedType) exprType else declType
     }
   }
   case class LetDef (binds :Seq[Binding]) extends DefTree {
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val bindCtx = ctx.withoutFlag(TypingDef)
-      binds.foreach(_.typed(bindCtx))
+      binds.foreach(_.typed()(bindCtx))
       Prim.None
     }
   }
   case class VarDef (binds :Seq[Binding]) extends DefTree {
-    protected def computeType (implicit ctx :Context) =  {
+    protected def computeType (proto :Type)(implicit ctx :Context) =  {
       val bindCtx = ctx.withoutFlag(TypingDef)
-      binds.foreach(_.typed(bindCtx))
+      binds.foreach(_.typed()(bindCtx))
       Prim.None
     }
   }
 
   case class FieldDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: FieldDef
-    protected def computeType (implicit ctx :Context) = typ.typed.tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = typ.typed(proto).tpe
   }
-  case class RecordDef (docs :Seq[String], name :TypeName, params :Seq[ParamTree],
-                        fields :Seq[FieldDef]) extends DefTree {
-    protected def computeType (implicit ctx :Context) = {
+  case class RecordDef (
+    docs :Seq[String], name :TypeName, params :Seq[Param], fields :Seq[FieldDef]
+  ) extends DefTree {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val recSym = ctx.scope.lookup(name)
       assert(recSym.exists, s"Missing symbol for record def $name")
-      def typedWith (implicit ctx :Context) =
-        Record(name, params.map(_.typed.tpe), fields.map(f => Field(f.name, f.typed.tpe)))
+      val fullParams = ctx.owner.params ++ params
+      def typedWith (implicit ctx :Context) = Record(
+        name, fullParams.map(_.typed().tpe), fields.map(f => Field(f.name, f.typed().tpe)))
       typedWith(ctx.withOwner(recSym))
     }
   }
 
-  case class UnionDef (docs :Seq[String], name :TypeName, params :Seq[ParamTree],
-                       cases :Seq[DefTree]) extends DefTree {
-    protected def computeType (implicit ctx :Context) = {
+  case class UnionDef (
+    docs :Seq[String], name :TypeName, params :Seq[Param], cases :Seq[DefTree]
+  ) extends DefTree {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val unionSym = ctx.scope.lookup(name)
       assert(unionSym.exists, s"Missing symbol for union def $name")
       def typedWith (implicit ctx :Context) =
-        Union(name, params.map(_.typed.tpe), cases.map(_.typed.tpe))
+        Union(name, params.map(_.typed().tpe), cases.map(_.typed().tpe))
       typedWith(ctx.withOwner(unionSym))
     }
   }
 
-  case class FaceDef (docs :Seq[String], name :TypeName, params :Seq[ParamTree],
-                      parents :Seq[Constraint], meths :Seq[FunDef]) extends DefTree {
-    protected def computeType (implicit ctx :Context) = {
+  case class FaceDef (
+    docs :Seq[String], name :TypeName, params :Seq[Param], parents :Seq[Constraint],
+    meths :Seq[FunDef]
+  ) extends DefTree {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val faceSym = ctx.scope.lookup(name)
       assert(faceSym.exists, s"Missing symbol for interface def $name")
       def typedWith (implicit ctx :Context) = {
-        params.foreach(_.typed)
-        parents.foreach(_.typed)
+        params.foreach(_.typed())
+        parents.foreach(_.typed())
         // TODO: parents should be in type?
-        Interface(name, params.map(_.tpe), meths.map(m => Method(m.name, m.typed.tpe)))
+        Interface(name, params.map(_.tpe), meths.map(m => Method(m.name, m.typed().tpe)))
       }
       typedWith(ctx.withOwner(faceSym))
     }
   }
 
   case class MethodBinding (meth :TermName, fun :TermName) extends DefTree {
-    protected def computeType (implicit ctx :Context) = Prim.None // TODO
+    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None // TODO
   }
-  case class ImplDef (docs :Seq[String], name :TermName, params :Seq[ParamTree],
-                      face :TypeTree, binds :Seq[MethodBinding]) extends DefTree {
-    protected def computeType (implicit ctx :Context) = Prim.None // TODO
+  case class ImplDef (
+    docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint], face :TypeTree,
+    binds :Seq[MethodBinding]
+  ) extends DefTree {
+    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None // TODO
     // TEMP: impl is typed as function from constraints to record
     // implSym.initInfoLazy(() => Arrow(paramSyms.map(_.info), Seq(), typeFor(face)(implCtx)))
+  }
+  object ImplDef {
+    def mk (docs :Seq[String], name :TermName, paramsCsts :Seq[ParamOrConst],
+            face :TypeTree, binds :Seq[MethodBinding]) :ImplDef = {
+      val params = ArrayBuffer[Param]() ; val csts = ArrayBuffer[Constraint]()
+      paramsCsts.foreach(_.accum(params, csts))
+      ImplDef(docs, name, params, csts, face, binds)
+    }
   }
 
   // case class TypeDef (name :TypeName, TODO)
@@ -236,33 +299,34 @@ object Trees {
 
   // TODO: optional type annotation? (needed for destructuring funargs)
   case class IdentPat (ident :TermName) extends PatTree {
-    protected def computeType (implicit ctx :Context) = typeFor(ident)
+    protected def computeType (proto :Type)(implicit ctx :Context) = typeFor(ident)
     override def toString = ident.toString
   }
   case class LiteralPat (const :Constant) extends PatTree {
-    protected def computeType (implicit ctx :Context) = Const(const)
+    protected def computeType (proto :Type)(implicit ctx :Context) = Const(const)
     override def toString = const.toString
   }
   case class DestructPat (ctor :TermName, binds :Seq[PatTree]) extends PatTree {
     // TODO: resolve constructor in symbol table; use that to type the bindings
-    protected def computeType (implicit ctx :Context) = ???
+    protected def computeType (proto :Type)(implicit ctx :Context) = ???
     override def toString = s"$ctor(${binds.mkString(", ")})"
   }
   // TODO: named destructors? (i.e. Node[left @ Node[ll lr], right])
   case class Case (pattern :PatTree, guard :Option[TermTree], result :TermTree) extends PatTree {
     type ThisTree <: Case
-    protected def computeType (implicit ctx :Context) = {
-      pattern.typed
-      guard.foreach(_.typed) // TODO: expect Bool
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      // TODO: we need a way to pass in the expected type of the pattern (via context?)...
+      pattern.typed()
+      guard.foreach(_.typed(Prim.Bool))
       // TODO: use ctx obtained by typing pattern as it has necessary name bindings
-      result.typed.tpe
+      result.typed(proto).tpe
     }
   }
   case class Condition (guard :TermTree, result :TermTree) extends PatTree {
     type ThisTree <: Condition
-    protected def computeType (implicit ctx :Context) = {
-      guard.typed // TODO: expect Bool
-      result.typed.tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      guard.typed(Prim.Bool)
+      result.typed(proto).tpe
     }
   }
 
@@ -275,12 +339,12 @@ object Trees {
   }
 
   case class Generator (name :TermName, expr :TermTree) extends CompTree {
-    // TODO: any expected type? probably not because generators will presumable be driven by a
+    // TODO: any expected type? probably not because generators will presumably be driven by a
     // traversable type class
-    protected def computeType (implicit ctx :Context) = expr.typed.tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = expr.typed(proto).tpe
   }
   case class Filter (expr :TermTree) extends CompTree {
-    protected def computeType (implicit ctx :Context) = expr.typed.tpe // TODO: expect Bool
+    protected def computeType (proto :Type)(implicit ctx :Context) = expr.typed(Prim.Bool).tpe
   }
 
   //
@@ -291,31 +355,42 @@ object Trees {
     override def isTerm = true
   }
   case object OmittedBody extends TermTree {
-    protected def computeType (implicit ctx :Context) = Prim.None
+    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None
   }
 
   // pure
   case class Literal (const :Constant) extends TermTree {
-    protected def computeType (implicit ctx :Context) = Const(const)
+    protected def computeType (proto :Type)(implicit ctx :Context) = Const(const)
   }
   case class ArrayLiteral (values :Seq[TermTree]) extends TermTree {
-    protected def computeType (implicit ctx :Context) =
-      Array(unify(values.map(_.typed.tpe))) // TODO: disallow empty array literal?
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val elemProto = proto match {
+        case Array(elemType) => elemType
+        // TODO: handle type mismatch here?
+        case _ => Prim.None
+      }
+      Array(if (values.isEmpty) elemProto else join(values.map(_.typed(elemProto).tpe)))
+    }
   }
 
   case class IdentRef (ident :TermName) extends TermTree {
-    protected def computeType (implicit ctx :Context) = typeFor(ident)
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      // TODO: check that type matches proto?
+      typeFor(ident)
+    }
   }
 
   case class Select (expr :TermTree, field :TermName) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       // if the receiver is not a record, or does not define the selected field, attempt to resolve
       // that field as a function and pass the receiver as a single argument to it
       def asReceiverFun (errmsg :String) = ctx.scope.lookup(field).info match {
+        // TODO: we need to record the fun chosen here for funapply, infer args (using proto), etc.
         case Arrow(_, _, resultType) => resultType
         case _ => Error(errmsg)
       }
-      expr.typed.tpe match {
+      // TODO: how to use prototype here? just check that we match?
+      expr.typed().tpe match {
         case Record(name, _, fields) => fields.find(_.name == field) match {
           case Some(field) => field.tpe
           case None => asReceiverFun(
@@ -328,9 +403,10 @@ object Trees {
   }
 
   case class Index (expr :TermTree, index :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
-      index.typed.tpe // compute type of index for side effect (TODO: expect integral?)
-      expr.typed.tpe match {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      // (TODO: expect generic integral rather than I32?)
+      index.typed(Prim.I32).tpe // compute type of index for side effect
+      expr.typed(Array(proto)).tpe match {
         case Array(elem) => elem
         case tpe         => Error(s"Target of @ must be an array type (got $tpe)")
       }
@@ -338,17 +414,29 @@ object Trees {
   }
 
   case class Tuple (exprs :Seq[TermTree]) extends TermTree {
-    protected def computeType (implicit ctx :Context) =
-      applyType(Prim.tuple(exprs.size), exprs.map(_.typed.tpe))
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val elemTypes = proto match {
+        // TODO: fail if record name does not match tuple? (adapt?)
+        case Record(_, _, fields) => fields.map(_.tpe)
+        // TODO: fail if we don't expect a Tuple type?
+        case _ => exprs.map(_ => Prim.None)
+      }
+      applyType(Prim.tuple(exprs.size), typedTypes(exprs, elemTypes))
+    }
   }
 
   case class Lambda (args :Seq[ArgDef], body :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       val lamSym = ctx.owner.createTerm(NoName, this) // TODO: synthesize lambda name
       val lamCtx = ctx.withOwner(lamSym)
       args foreach { arg => index(arg)(lamCtx) } // index args in lambda context
-      args foreach { arg => arg.typed(lamCtx) } // and type them in same context (TODO: inference)
-      body.typed(lamCtx).tpe
+      val (argProtos, retProto) = proto match {
+        case Arrow(_, argTypes, retType) => (argTypes, retType)
+        // TODO: fail if expected type not arrow?
+        case _ => (args.map(_ => Prim.None), Prim.None)
+      }
+      typedTypes(args, argProtos)(lamCtx) // and type them in same context
+      body.typed(retProto)(lamCtx).tpe
     }
   }
 
@@ -361,7 +449,7 @@ object Trees {
   }
   case class FunApply (kind :FunKind, fun :TermTree, params :Seq[TypeTree],
                        args :Seq[TermTree]) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       // TODO: sort out handling of foo.bar[B](baz)
 
       // // if `fun` is a Select, we type the receiver and if it's not a record (or if it is a record
@@ -393,65 +481,85 @@ object Trees {
       // val typedArgs = mapConserve(fullArgs, typedTerm)
       // FunApply(fullKind, appliedTypedFun, typedParams, typedArgs).withType(resultType)
 
-      fun.typed.tpe match {
-        case funType :Arrow =>
-          val paramTypes = inferFunParams(funType, params.map(_.typed.tpe), args.map(_.typed.tpe))
-          applyType(funType, paramTypes).asInstanceOf[Arrow].result
+      val funProto = Arrow(Seq(), args.map(_ => Prim.None), proto)
+      fun.typed(funProto).tpe match {
+        case funType @ Arrow(formalParams, formalArgs, formalResult) =>
+          def unifyApply (csts :Seq[(Type, Type)]) = unify(csts).map(
+            sols => applyType(funType, formalParams map subst(sols)))
+          // first constrain fun type based on explicit parameters and expected return type
+          val applyParams = params.map(_.typed().tpe)
+          val applyCsts = (formalParams zip applyParams) :+ (formalResult -> proto)
+          unifyApply(applyCsts).map(cstFunType => {
+            // use the partially constrained formal argument types to type the actual arguments
+            val argProtos = cstFunType.asInstanceOf[Arrow].args
+            val argTypes = typedTypes(args, argProtos)
+            // finally re-unify the function type using the apply constraints and any new
+            // constraints generated by the typed arguments
+            unifyApply(applyCsts ++ (formalArgs zip argTypes)).map(newFunType => {
+              fun.retype(newFunType)
+              newFunType.asInstanceOf[Arrow].result
+            }).merge
+          }).merge
         case tpe => Error(s"Target of apply must be an arrow type (got: $tpe)")
       }
     }
   }
 
-  def inferFunParams (funType :Arrow, applyParams :Seq[Type], applyArgs :Seq[Type]) :Seq[Type] =
-    applyParams // TODO
-
   case class If (cond :TermTree, ifTrue :TermTree, ifFalse :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
-      cond.typed // TODO: expect bool
-      unify(Seq(ifTrue.typed.tpe, ifFalse.typed.tpe))
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      cond.typed(Prim.Bool)
+      join(Seq(ifTrue.typed(proto).tpe, ifFalse.typed(proto).tpe))
     }
   }
   // TODO: if+let? or maybe "let Ctor(arg) = expr" is a LetTermTree which evaluates to true/false?
   // latter might be fiddly due to it being an expr that introduces defs in a scope up the AST
 
   case class Match (cond :TermTree, cases :Seq[Case]) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
-      cond.typed // compute type of condition
-      unify(cases.map(_.typed.result.tpe))
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      cond.typed() // compute type of condition
+      // TODO: use type of cond as proto for patterns (via context?)
+      join(cases.map(_.typed(proto).result.tpe))
     }
   }
   case class Cond (conds :Seq[Condition], elseResult :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) =
-      unify(conds.map(_.typed.result.tpe) :+ elseResult.typed.tpe)
+    protected def computeType (proto :Type)(implicit ctx :Context) =
+      join(conds.map(_.typed(proto).result.tpe) :+ elseResult.typed(proto).tpe)
   }
   case class MonadComp (elem :TermTree, clauses :Seq[CompTree]) extends TermTree {
-    protected def computeType (implicit ctx :Context) = ???
+    protected def computeType (proto :Type)(implicit ctx :Context) = ???
   }
 
   case class DefExpr (df :DefTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = df.typed(ctx.withFlag(TypingDef)).tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) =
+      df.typed(proto)(ctx.withFlag(TypingDef)).tpe
   }
   case class Block (exprs :Seq[TermTree]) extends TermTree {
-    protected def computeType (implicit ctx :Context) = {
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
       // first index contents, then type contents, then use type of last expr as block type
-      exprs foreach index
-      exprs.map(_.typed).last.tpe
+      val stats = exprs.take(exprs.size-1)
+      stats foreach index
+      stats foreach { _.typed() }
+      exprs.last.typed(proto).tpe
     }
   }
 
   // naughty
   case class Assign (ident :TermName, value :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = { value.typed ; Prim.None }
+    protected def computeType (proto :Type)(implicit ctx :Context) = { value.typed() ; Prim.None }
   }
 
   case class While (cond :TermTree, body :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = { cond.typed ; body.typed ; Prim.None }
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      cond.typed(Prim.Bool) ; body.typed() ; Prim.None
+    }
   }
   case class DoWhile (body :TermTree, cond :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = { body.typed ; cond.typed ; Prim.None }
+    protected def computeType (proto :Type)(implicit ctx :Context) = {
+      body.typed() ; cond.typed(Prim.Bool) ; Prim.None
+    }
   }
   case class For (gens :Seq[Generator], body :TermTree) extends TermTree {
-    protected def computeType (implicit ctx :Context) = ???
+    protected def computeType (proto :Type)(implicit ctx :Context) = ???
   }
 
   //
@@ -479,8 +587,8 @@ object Trees {
       case Param(name) => t
       case Constraint(name, params) => apply(t, params)
       case ArgDef(docs, name, typ) => apply(t, typ)
-      case FunDef(docs, name, params, args, result, body) =>
-        apply(apply(apply(apply(t, params), args), result), body)
+      case FunDef(docs, name, params, args, csts, result, body) =>
+        apply(apply(apply(apply(apply(t, params), args), csts), result), body)
       case Binding (name, typ, value) => apply(apply(t, typ), value)
       case LetDef(binds) => apply(t, binds)
       case VarDef(binds) => apply(t, binds)
@@ -490,8 +598,8 @@ object Trees {
       case FaceDef(docs, name, params, parents, meths) =>
         apply(apply(apply(t, params), parents), meths)
       case MethodBinding(meth, fun) => t
-      case ImplDef(docs, name, params, parent, binds) =>
-        apply(apply(apply(t, params), parent), binds)
+      case ImplDef(docs, name, params, csts, parent, binds) =>
+        apply(apply(apply(apply(t, params), csts), parent), binds)
 
       // pat trees
       case IdentPat (ident) => t
@@ -596,10 +704,10 @@ object Trees {
       case Param(name) => pr.print(name)
       case Constraint(name, params) => pr.print(name) ; printDefList(params, "[", "]")
       case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
-      case FunDef(docs, name, params, args, ret, body) =>
+      case FunDef(docs, name, params, csts, args, ret, body) =>
         docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
         pr.printIndent("fun ", name)
-        printDefList(params, "[", "]")
+        printDefList(params ++ csts, "[", "]")
         printDefList(args, " (", ")")
         printOptType(ret)
         if (body != OmittedBody) { pr.print(" = ") ; printExpr(body) }
@@ -612,10 +720,10 @@ object Trees {
         meths foreach { meth => printDef(meth)(pr.println().nest) }
         pr.println().printIndent("}")
       case MethodBinding(meth, fun) => pr.print(meth, " = ", fun)
-      case ImplDef(docs, name, params, parent, binds) =>
+      case ImplDef(docs, name, params, csts, parent, binds) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("impl ", name)
-        printDefList(params, "[", "]")
+        printDefList(params ++ csts, "[", "]")
         pr.print(" = ") ; printType(parent)
         printDefList(binds, "(", ")")
     }
@@ -756,9 +864,9 @@ object Trees {
         def treeType = if (tree.isTyped) tree.tpe else Prim.Missing
         tree match {
           case DefExpr(dt) => apply(pr, dt)
-          case FunDef(docs, name, params, args, result, body) =>
+          case FunDef(docs, name, params, csts, args, result, body) =>
             pr.printIndent("fun ", name)
-            printDefList(params, "[", "]")(pr)
+            printDefList(params ++ csts, "[", "]")(pr)
             printDefList(args, "(", ")")(pr)
             pr.print(" :", result)
             pr.println(" ::", treeType)
@@ -872,6 +980,14 @@ object Trees {
     }
     acc.apply(new Printer(out), tree)(moduleContext(termName("debugTree")))
     out.flush()
+  }
+
+  def show (expr :TermTree) :String = {
+    val str = new StringWriter()
+    val out = new PrintWriter(str)
+    printExpr(expr)(new Printer(out))
+    out.flush()
+    str.toString
   }
 
   def print (expr :TermTree) :Unit = {

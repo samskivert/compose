@@ -10,7 +10,11 @@ object Types {
   import Trees._
 
   sealed abstract class Type {
-    // TODO: maybe declare "force :Type" and have Lazy force its sym and everyone else use `this`
+
+    /** Applies `f` to `this` and returns the result, with caveats.
+      * If `this` is an error type, `f` is not applied and `this` is returned directly.
+      * If `this` is the `Lazy` type, the type is forced and then `f` is applied. */
+    def map (f :Type => Type) :Type = f(this)
   }
 
   // literal/constant type: 1, 2e3, 'c', "pants"
@@ -73,16 +77,20 @@ object Types {
 
   // lazy type reference, used to handle recursive declarations
   case class Lazy (tree :Tree) extends Type {
+    override def map (f :Type => Type) = f(tree.tpe)
     override def toString = if (tree.isTyped) s"Lazy(${tree.tpe})" else s"Lazy($tree)"
   }
 
   // an error type used to record name resolution failure
   case class Unknown (name :Name) extends Type {
+    override def map (f :Type => Type) = this
     override def toString = s"?$name"
   }
 
   // an error type used to record other kinds of errors
-  case class Error (msg :String) extends Type
+  case class Error (msg :String) extends Type {
+    override def map (f :Type => Type) = this
+  }
 
   // TEMP: some built-in primitive types
   object Prim {
@@ -143,7 +151,10 @@ object Types {
   /** Joins two types into their upper bound if possible; yields an error type if not. */
   def join (typeA :Type, typeB :Type) :Type = {
     def fail = Error(s"Cannot join $typeA to $typeB")
-    if (typeA == typeB) typeA else typeA match {
+    if (typeA == typeB) typeA
+    else if (typeA == Prim.None) typeB
+    else if (typeB == Prim.None) typeA
+    else typeA match {
       case Const(constA) => typeB match {
         case Const(constB) =>
           if (constA.kind != constB.kind) fail
@@ -174,14 +185,13 @@ object Types {
     }
   }
 
-  // TODO: a series of joins isn't actually unification: this should have a different name...
-  def unify (types :Seq[Type]) :Type = types reduce join
+  /** Joins a set of types into their upper bound if possible; yields an error type if not. */
+  def join (types :Seq[Type]) :Type = types reduce join
 
-  // TODO: seems like we need a tree walker for type trees...
+  // TODO: do we need a tree walker for type trees?
 
-  // TODO: where are we inferring type parameters...
   def applyType (ctor :Type, params :Seq[Type]) :Type = if (params.isEmpty) ctor else {
-    println(s"applyType($ctor, $params)")
+    // println(s"applyType($ctor, $params)")
     def apply (tvars :Seq[Var]) =
       if (params.size != tvars.size) Error(s"Cannot match $params to vars of $ctor")
       else subst((tvars zip params).toMap)(ctor)
@@ -210,6 +220,37 @@ object Types {
     case Interface(name, params, meths) =>
       Interface(name, params.map(subst(map)), meths.map(m => m.copy(tpe=subst(map)(m.tpe))))
     case _ => source
+  }
+
+  def unify (constraints :Seq[(Type, Type)]) :Either[Error, Map[Var, Type]] = {
+    // println(s"unify($constraints)")
+    def bind (map :Map[Var, Type], v :Var, t :Type) = map.get(v) match {
+      case None => map + (v -> t)
+      case Some(ot) => map + (v -> join(t, ot))
+    }
+    def loop (cs :Seq[(Type, Type)], accum :Map[Var, Type]) :Either[Error, Map[Var, Type]] =
+      if (cs.isEmpty) Right(accum)
+      else {
+        val (ta, tb) = cs.head
+        def fail (msg :String) = Left(Error(s"Can't unify '$ta' and '$tb': $msg"))
+        if (ta == tb) loop(cs.tail, accum)
+        else (ta, tb) match {
+          case (av @ Var(a, aid), _) =>
+            loop(cs.tail, bind(accum, av, tb))
+          case (Apply(ctorA, paramsA), Apply(ctorB, paramsB)) =>
+            if (paramsA.length != paramsB.length) fail("param lists differ in length")
+            else loop((cs.tail :+ (ctorA -> ctorB)) ++ (paramsA zip paramsB), accum)
+          case (Arrow(paramsA, argsA, resultA), Arrow(paramsB, argsB, resultB)) =>
+            if (!paramsA.isEmpty || !paramsB.isEmpty) fail("TODO: higher order unification?")
+            else if (argsA.size != argsB.size) fail("arg lists differ in length")
+            else loop(cs.tail ++ (argsA zip argsB) :+ (resultA -> resultB), accum)
+          case _ => join(ta, tb) match {
+            case err :Error => Left(err)
+            case _ => loop(cs.tail, accum)
+          }
+        }
+      }
+    loop(constraints, Map())
   }
 
   private def mkString[A] (types :Seq[A], wrap :String) =

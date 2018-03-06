@@ -10,10 +10,10 @@ interface Eq[A] {
   fun notEq (a1 :A, a2 :A) :Bool = !eq(a1, a2)
 }
 
-fun voidEq (v1 :Void, v2 :Void) = true
+fun voidEq (v1 :Void, v2 :Void) :Bool = true
 impl eqVoid = Eq[Void](eq=voidEq)
 
-fun unitEq (u1 :Unit, u2 :Unit) = true
+fun unitEq (u1 :Unit, u2 :Unit) :Bool = true
 impl eqUnit = Eq[Unit](eq=unitEq)
 
 fun boolEq (a :Bool, b :Bool) :Bool = foreign

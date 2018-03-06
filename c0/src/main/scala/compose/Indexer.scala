@@ -46,25 +46,23 @@ object Indexer {
         cases map { cse => ctx.scope.enter(apply(sym, cse)(unionCtx).asType) }
         unionSym
 
-      case FunDef(docs, name, params, args, result, body) =>
+      case FunDef(docs, name, params, csts, args, result, body) =>
         val funSym = ctx.owner.defineTerm(name, tree)
         val funCtx = ctx.withOwner(funSym)
-        // if we're a method, there will be 'ambient' parameters inherited from our enclosing
-        // interface
-        (ctx.owner.params ++ params) foreach { param => apply(sym, param)(funCtx).asType }
+        params foreach { param => apply(sym, param)(funCtx).asType }
         args foreach { arg => apply(sym, arg)(funCtx).asTerm }
         funSym
 
       case FaceDef(docs, name, params, parents, meths) =>
-        // augment the method declarations with the interface type vars and parent constraints
-        val faceSym = ctx.owner.defineType(name, tree, params ++ parents)
+        // augment the method declarations with the interface type vars
+        val faceSym = ctx.owner.defineType(name, tree, params)
         val faceCtx = ctx.withOwner(faceSym)
         params foreach { param => apply(sym, param)(faceCtx).asType }
         // enter the methods, and lift their symbols into the same scope as the interface
         meths map { meth => ctx.scope.enter(apply(sym, meth)(faceCtx).asTerm) }
         faceSym
 
-      case ImplDef(docs, name, params, face, binds) =>
+      case ImplDef(docs, name, params, csts, face, binds) =>
         val implSym = ctx.owner.defineTerm(name, tree)
         val implCtx = ctx.withOwner(implSym)
         params foreach { param => apply(sym, param)(implCtx).asType }

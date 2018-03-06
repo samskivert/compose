@@ -110,9 +110,12 @@ class ParserTest {
   }
 
   @Test def testFunApply () :Unit = {
-    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("hello(a, b, c)"))
-    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)), atomExpr.parse("(hello)(a, b, c)"))
-    testParse(FunApply(FunKind.Normal, aEqAPlus1, Seq(), Seq(b)), atomExpr.parse("(a => a + 1)(b)"))
+    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)),
+              atomExpr.parse("hello(a, b, c)"))
+    testParse(FunApply(FunKind.Normal, hello, Seq(), Seq(a, b, c)),
+              atomExpr.parse("(hello)(a, b, c)"))
+    testParse(FunApply(FunKind.Normal, aEqAPlus1, Seq(), Seq(b)),
+              atomExpr.parse("(a => a + 1)(b)"))
     testParse(FunApply(FunKind.Normal, Select(ident("foo"), helloName), Seq(), Seq(a, b, c)),
               atomExpr.parse("foo.hello(a, b, c)"))
   }
