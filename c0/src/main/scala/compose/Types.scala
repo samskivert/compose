@@ -5,8 +5,11 @@
 package compose
 
 object Types {
-  import Names._
   import Constants._
+  import Contexts._
+  import Indexer._
+  import Names._
+  import Symbols._
   import Trees._
 
   sealed abstract class Type {
@@ -17,6 +20,12 @@ object Types {
     def map (f :Type => Type) :Type = f(this)
   }
 
+  // used for things that have no type or for which type is yet unassigned
+  // (TODO: use two different sentinels?)
+  case object Untyped extends Type {
+    override def toString = "<none>"
+  }
+
   // literal/constant type: 1, 2e3, 'c', "pants"
   case class Const (const :Constant) extends Type {
     override def toString = const.toString
@@ -24,8 +33,8 @@ object Types {
   // we defer giving literal expressions "real" types until we know what coercions are desired
 
   // ground/opaque type: I32, Bool, etc.
-  case class Data (name :TypeName, kind :Int, bitWidth :Int) extends Type {
-    override def toString = name.toString
+  case class Data (sym :TypeSymbol, kind :Int, bitWidth :Int) extends Type {
+    override def toString = sym.name.toString
   }
 
   // TODO: can we model array as something else? data carries no parameters, but record has
@@ -35,24 +44,24 @@ object Types {
   }
 
   // record type: "data Foo (bar :Int, baz :String)"
-  case class Record (name :TypeName, params :Seq[Type], fields :Seq[Field]) extends Type {
-    override def toString = name + mkString(params, "[]") + mkString(fields, "()")
+  case class Record (sym :TypeSymbol, params :Seq[Type], fields :Seq[Field]) extends Type {
+    override def toString = sym.name + mkString(params, "[]") + mkString(fields, "()")
   }
   case class Field (name :TermName, tpe :Type) {
     override def toString = s"$name :$tpe"
   }
 
   // interface type: "interface Eq[A] { fun eq (a :A, b :A) :Bool }"
-  case class Interface (name :TypeName, params :Seq[Type], methods :Seq[Method]) extends Type {
-    override def toString = name + mkString(params, "[]")
+  case class Interface (sym :TypeSymbol, params :Seq[Type], methods :Seq[Method]) extends Type {
+    override def toString = sym.name + mkString(params, "[]")
   }
   case class Method (name :TermName, tpe :Type) {
     override def toString = s"$name :$tpe"
   }
 
   // tagged union: "data List[a] = Nil | Cons[a]"
-  case class Union (name :TypeName, params :Seq[Type], cases :Seq[Type]) extends Type {
-    override def toString = name + mkString(params, "[]")
+  case class Union (sym :TypeSymbol, params :Seq[Type], cases :Seq[Type]) extends Type {
+    override def toString = sym.name + mkString(params, "[]")
   }
 
   // type application: "List[a]"
@@ -71,8 +80,8 @@ object Types {
   }
 
   // type variable: the a in List[a]
-  case class Var (name :TypeName, scopeId :Int) extends Type {
-    override def toString = s"$name$$$scopeId"
+  case class Var (sym :TypeSymbol, scopeId :Int) extends Type {
+    override def toString = s"${sym.name}$$$scopeId"
   }
 
   // lazy type reference, used to handle recursive declarations
@@ -94,6 +103,9 @@ object Types {
 
   // TEMP: some built-in primitive types
   object Prim {
+    val sym = Symbols.rootSymbol
+    implicit val ctx = Context(sym)
+
     val Void   = primitive("Void", VoidTag,   0)
     val Unit   = primitive("Unit", UnitTag,   0)
     val Bool   = primitive("Bool", BoolTag,   1)
@@ -105,6 +117,14 @@ object Types {
     val F64    = primitive("F64",  FloatTag, 64)
     val Char   = primitive("Char", CharTag,  16)
 
+    val MaxTuple = 8 // yes yes, hack hack, will fix later (also keep smol for testing)
+    val Tuples = 2 until MaxTuple map { r =>
+      val tupTree = tupleTree(r)
+      index(tupTree)
+      tupTree.typed().tpe
+    }
+
+    /** Returns the primitive for the specified constant `kind` and minimum bit width. */
     def forKind (kind :Int, minWidth :Int) = kind match {
       case VoidTag   => Void
       case UnitTag   => Unit
@@ -119,27 +139,25 @@ object Types {
       case StringTag => ??? // TODO: strings?
     }
 
-    val Types = Seq(Void, Unit, Bool, I8, I16, I32, I64, F32, F64, Char)
-
-    val MaxTuple = 20 // yes yes, hack hack, will fix later
-    val Tuples = 2 until MaxTuple map { r =>
-      val params = 1 to r map { n => Var(typeName(s"T$n"), 0) }
-      val fields = 1 to r map { n => Field(termName(s"_$n"), params(n-1)) }
-      Record(typeName(s"Tuple$r"), params, fields)
-    }
+    /** Returns the tuple type with the specified `rank`. */
     def tuple (rank :Int) = Tuples(rank-2)
 
-    // TEMP: the type of trees that have no type (e.g. defs)
-    val None = primitive("None", VoidTag, 0)
+    /** Defines a primitive type and enters it into the root/primitives scope. */
+    private def primitive (name :String, kind :Int, bitWidth :Int) = {
+      val tname = typeName(name)
+      sym.scope.enter(new TypeSymbol(sym, sym.scope.nestedScope(tname), tname, Seq()) {
+        val info = Data(this, kind, bitWidth)
+      }).info
+    }
+  }
 
-    // TEMP: for debugging trees
-    val Missing = Error("Missing")
-
-    // TEMP: the type of type trees
-    val Star = primitive("Star", VoidTag, 0)
-
-    def primitive (name :String, kind :Int, bitWidth :Int) =
-      Data(termName(name).toTypeName, kind, bitWidth)
+  /** Creates the type of the ctor function for the record type defined by `tpe`.
+   * @return the ctor `Arrow` type, or an `Error` type if `tpe` is not a `Record`. */
+  def ctorType (tpe :Type) = tpe match {
+    case Record(name, params, fields) =>
+      if (fields.isEmpty) tpe
+      else Arrow(params, fields.map(_.tpe), tpe)
+    case _ => Error(s"Cannot make constructor function for non-record type: $tpe")
   }
 
   /** Forces `tpe` if it is lazy, otherwise returns as is. */
@@ -148,13 +166,20 @@ object Types {
     case _ => tpe
   }
 
+  /** Unfolds a recursive (lazy) type by one step. For types of the form
+    * `Apply(Lazy(tpe), params))` we force the lazy type and apply the params. */
+  def unfold (tpe :Type) :Type = tpe match {
+    case Apply(ctor, params) => applyType(force(ctor), params)
+    case _ => tpe
+  }
+
   /** Joins two types into their upper bound if possible; yields an error type if not. */
   def join (typeA :Type, typeB :Type) :Type = {
     def fail = Error(s"Cannot join $typeA to $typeB")
     if (typeA == typeB) typeA
-    else if (typeA == Prim.None) typeB
-    else if (typeB == Prim.None) typeA
+    else if (typeB == Untyped) typeA
     else typeA match {
+      case Untyped => typeB
       case Const(constA) => typeB match {
         case Const(constB) =>
           if (constA.kind != constB.kind) fail
@@ -164,22 +189,33 @@ object Types {
           else Prim.forKind(constA.kind, math.max(constA.minWidth, constB.minWidth))
         case _ => join(typeB, typeA)
       }
-      case Array(elem) => fail // TODO
-      case Data(name, kind, bitWidth) => typeB match {
-        case Const(const) if (const.kind == kind) =>
-          Prim.forKind(kind, math.max(bitWidth, const.minWidth))
-        case Data(nameB, kindB, bitWidthB) if (kind == kindB) =>
-          Prim.forKind(kind, math.max(bitWidth, bitWidthB))
+      case Array(elemA) => typeB match {
+        case Array(elemB) => Array(join(elemA, elemB))
         case _ => fail
       }
-      case Record(name, params, fields) => fail // TODO
-      case Interface(name, params, methods) => fail // TODO
-      case Union(name, params, cases) => fail // TODO
-      case Apply(ctor, params) => fail // TODO
-      case Arrow(params, args, result) => fail // TODO: can we join function types?
+      case Data(sym, kindA, bitWidthA) => typeB match {
+        case Const(const) if (const.kind == kindA) =>
+          Prim.forKind(kindA, math.max(bitWidthA, const.minWidth))
+        case Data(symB, kindB, bitWidthB) if (kindA == kindB) =>
+          Prim.forKind(kindA, math.max(bitWidthA, bitWidthB))
+        case _ => fail
+      }
+      case Union(sym, params, cases) => typeB match {
+        case recType :Record if (recType.sym.owner == sym) => typeA
+        case _ => fail // TODO
+      }
+      case Record(sym, params, fields) => typeB match {
+        case unionType :Union => join(typeB, typeA)
+        case _ => fail // TODO
+      }
+      // TODO: does this ever happen or should all applications have been processed by the time we
+      // get to the point of joining a type with another?
+      case Apply(ctor, params) => join(applyType(ctor, params), typeB) // TODO: is this valid?
       case Alias(source) => join(source, typeB) // TODO: is this valid?
-      case Var(name, _) => fail
+      case Arrow(params, args, result) => fail // TODO: can we join function types?
       case Lazy(tree) => join(tree.tpe, typeB)
+      case Interface(sym, params, methods) => fail // TODO
+      case Var(sym, _) => fail
       case Unknown(name) => fail
       case Error(msg) => typeA // TODO: should we combine messages if two errors are joined?
     }
@@ -187,8 +223,6 @@ object Types {
 
   /** Joins a set of types into their upper bound if possible; yields an error type if not. */
   def join (types :Seq[Type]) :Type = types reduce join
-
-  // TODO: do we need a tree walker for type trees?
 
   def applyType (ctor :Type, params :Seq[Type]) :Type = if (params.isEmpty) ctor else {
     // println(s"applyType($ctor, $params)")
@@ -213,12 +247,13 @@ object Types {
     case Array(elem) => Array(subst(map)(elem))
     case Arrow(params, args, result) => Arrow(
       params.map(subst(map)), args.map(subst(map)), subst(map)(result))
-    case Union(name, params, cases) =>
-      Union(name, params.map(subst(map)), cases.map(subst(map)))
-    case Record(name, params, fields) =>
-      Record(name, params.map(subst(map)), fields.map(f => f.copy(tpe=subst(map)(f.tpe))))
-    case Interface(name, params, meths) =>
-      Interface(name, params.map(subst(map)), meths.map(m => m.copy(tpe=subst(map)(m.tpe))))
+    case Union(sym, params, cases) =>
+      Union(sym, params.map(subst(map)), cases.map(subst(map)))
+    case Record(sym, params, fields) =>
+      Record(sym, params.map(subst(map)), fields.map(f => f.copy(tpe=subst(map)(f.tpe))))
+    case Interface(sym, params, meths) =>
+      Interface(sym, params.map(subst(map)), meths.map(m => m.copy(tpe=subst(map)(m.tpe))))
+    case Lazy(tree) => subst(map)(tree.tpe)
     case _ => source
   }
 

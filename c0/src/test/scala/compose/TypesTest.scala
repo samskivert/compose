@@ -9,16 +9,22 @@ import org.junit._
 
 class TypesTest {
   import Names._
+  import Symbols._
+  import Trees._
   import Types._
 
-  def mkVar (name :String) = Var(typeName(name), 1)
+  def testSym = newModuleSymbol(termName("test"))
+  def mkVar (name :String) = {
+    val tname = typeName(name)
+    Var(testSym.defineType(tname, Param(tname), Seq()), 1)
+  }
 
   @Test def testUnify () :Unit = {
     val varA = mkVar("A")
     val varB = mkVar("B")
     println(unify(Seq((varA, varB))))
 
-    val fakeList = Union(typeName("List"), Seq(varA), Seq())
+    val fakeList = Union(NoType, Seq(varA), Seq())
     println(unify(Seq(Apply(fakeList, Seq(varA)) -> Apply(fakeList, Seq(Prim.I32)))))
 
     val aToB = Arrow(Seq(), Seq(varA), varB)

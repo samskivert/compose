@@ -13,10 +13,7 @@ object Trees {
   import Names._
   import Types._
   import Indexer._
-
-  class UntypedTreeException (tree :Tree) extends RuntimeException {
-    override def getMessage :String = s"Type of ${tree.id}#$tree is not assigned"
-  }
+  import Symbols._
 
   private var treeId = 0
 
@@ -56,7 +53,7 @@ object Trees {
 
     /** Returns the type of this tree. Throws an exception if called on an untyped tree. */
     def tpe :Type = {
-      if (treeType == null) throw new UntypedTreeException(this)
+      if (treeType == null) throw new Exception(s"Type of $id#$this is not assigned")
       treeType
     }
 
@@ -64,7 +61,7 @@ object Trees {
       * @param proto the expected type of the tree (if known, otherwise `None`). Used for local
       * type inference and type checking.
       */
-    def typed (proto :Type = Prim.None)(implicit ctx :Context) :this.type = {
+    def typed (proto :Type = Untyped)(implicit ctx :Context) :this.type = {
       // TODO: save ctx and ensure we don't request the type later with an invalid context?
       if (!isTyped) {
         treeType = computeType(proto)
@@ -90,7 +87,7 @@ object Trees {
     override def isType = true
   }
   case object OmittedType extends TypeTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None
+    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped
     override def toString = ""
   }
   case class TypeRef (name :TypeName) extends TypeTree {
@@ -105,7 +102,7 @@ object Trees {
       val paramProtos = proto match {
         case Apply(pctorType, pparamTypes) => pparamTypes
         // TODO: should anything other than None here be a type mismatch?
-        case _ => params.map(_ => Prim.None)
+        case _ => params.map(_ => Untyped)
       }
       val paramTypes = typedTypes(params, paramProtos)
       if (ctor == ArrayName) {
@@ -126,7 +123,7 @@ object Trees {
       val (argProtos, retProto) = proto match {
         case Arrow(_, argProtos, retProto) => (argProtos, retProto)
         // TODO: same as above re: error on mismatch
-        case _ => (args.map(_ => Prim.None), Prim.None)
+        case _ => (args.map(_ => Untyped), Untyped)
       }
       Arrow(Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
     }
@@ -137,7 +134,27 @@ object Trees {
   // Definitions
 
   sealed trait DefTree extends Tree {
+    private[this] var treeSym :Symbol = _
     type ThisTree <: DefTree
+
+    /** Whether or not the symbol defined by this tree has been created. This happens during the
+      * indexing step which precedes type checking. */
+    def isIndexed = treeSym != null
+
+    /** Returns the symbol for the type defined by this tree. Throws an exception if called on an
+      * unindexed tree. */
+    def sym :Symbol = {
+      if (treeSym == null) throw new Exception(s"Symbol of $id#$this is not created")
+      treeSym
+    }
+
+    /** Assigns a symbol to this tree (called by `Indexer`). */
+    def index (sym :Symbol) :sym.type = {
+      if (treeSym != null) throw new Exception(s"Symbol of $id#$this already assigned")
+      treeSym = sym
+      sym
+    }
+
     override def isDef = true
   }
 
@@ -156,9 +173,10 @@ object Trees {
   case class Param (name :TypeName) extends DefTree with ParamOrConst {
     type ThisTree <: Param
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = params += this
-    protected def computeType (proto :Type)(implicit ctx :Context) = Var(name, ctx.scope.id)
+    protected def computeType (proto :Type)(implicit ctx :Context) = Var(sym.asType, ctx.scope.id)
   }
-  case class Constraint (name :TypeName, params :Seq[Param]) extends DefTree with ParamOrConst {
+  // TODO: a constraint is technically not a def tree, it's a ref tree... change?
+  case class Constraint (name :TypeName, params :Seq[TypeRef]) extends DefTree with ParamOrConst {
     type ThisTree <: Constraint
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = csts += this
     protected def computeType (proto :Type)(implicit ctx :Context) =
@@ -210,14 +228,14 @@ object Trees {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val bindCtx = ctx.withoutFlag(TypingDef)
       binds.foreach(_.typed()(bindCtx))
-      Prim.None
+      Untyped
     }
   }
   case class VarDef (binds :Seq[Binding]) extends DefTree {
     protected def computeType (proto :Type)(implicit ctx :Context) =  {
       val bindCtx = ctx.withoutFlag(TypingDef)
       binds.foreach(_.typed()(bindCtx))
-      Prim.None
+      Untyped
     }
   }
 
@@ -233,7 +251,7 @@ object Trees {
       assert(recSym.exists, s"Missing symbol for record def $name")
       val fullParams = ctx.owner.params ++ params
       def typedWith (implicit ctx :Context) = Record(
-        name, fullParams.map(_.typed().tpe), fields.map(f => Field(f.name, f.typed().tpe)))
+        sym.asType, fullParams.map(_.typed().tpe), fields.map(f => Field(f.name, f.typed().tpe)))
       typedWith(ctx.withOwner(recSym))
     }
   }
@@ -245,7 +263,7 @@ object Trees {
       val unionSym = ctx.scope.lookup(name)
       assert(unionSym.exists, s"Missing symbol for union def $name")
       def typedWith (implicit ctx :Context) =
-        Union(name, params.map(_.typed().tpe), cases.map(_.typed().tpe))
+        Union(sym.asType, params.map(_.typed().tpe), cases.map(_.typed().tpe))
       typedWith(ctx.withOwner(unionSym))
     }
   }
@@ -261,20 +279,20 @@ object Trees {
         params.foreach(_.typed())
         parents.foreach(_.typed())
         // TODO: parents should be in type?
-        Interface(name, params.map(_.tpe), meths.map(m => Method(m.name, m.typed().tpe)))
+        Interface(sym.asType, params.map(_.tpe), meths.map(m => Method(m.name, m.typed().tpe)))
       }
       typedWith(ctx.withOwner(faceSym))
     }
   }
 
   case class MethodBinding (meth :TermName, fun :TermName) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None // TODO
+    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped // TODO
   }
   case class ImplDef (
     docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint], face :TypeTree,
     binds :Seq[MethodBinding]
   ) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None // TODO
+    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped // TODO
     // TEMP: impl is typed as function from constraints to record
     // implSym.initInfoLazy(() => Arrow(paramSyms.map(_.info), Seq(), typeFor(face)(implCtx)))
   }
@@ -355,7 +373,7 @@ object Trees {
     override def isTerm = true
   }
   case object OmittedBody extends TermTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Prim.None
+    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped
   }
 
   // pure
@@ -367,7 +385,7 @@ object Trees {
       val elemProto = proto match {
         case Array(elemType) => elemType
         // TODO: handle type mismatch here?
-        case _ => Prim.None
+        case _ => Untyped
       }
       Array(if (values.isEmpty) elemProto else join(values.map(_.typed(elemProto).tpe)))
     }
@@ -392,7 +410,8 @@ object Trees {
       // TODO: how to use prototype here? just check that we match?
       expr.typed().tpe match {
         case Record(name, _, fields) => fields.find(_.name == field) match {
-          case Some(field) => field.tpe
+          // because a record type may be recursive, we unfold once here
+          case Some(field) => unfold(field.tpe)
           case None => asReceiverFun(
             s"'${name}' record does not define a '${field}' field, " +
               s"nor does a '${field}' function exist.")
@@ -419,7 +438,7 @@ object Trees {
         // TODO: fail if record name does not match tuple? (adapt?)
         case Record(_, _, fields) => fields.map(_.tpe)
         // TODO: fail if we don't expect a Tuple type?
-        case _ => exprs.map(_ => Prim.None)
+        case _ => exprs.map(_ => Untyped)
       }
       applyType(Prim.tuple(exprs.size), typedTypes(exprs, elemTypes))
     }
@@ -433,7 +452,7 @@ object Trees {
       val (argProtos, retProto) = proto match {
         case Arrow(_, argTypes, retType) => (argTypes, retType)
         // TODO: fail if expected type not arrow?
-        case _ => (args.map(_ => Prim.None), Prim.None)
+        case _ => (args.map(_ => Untyped), Untyped)
       }
       typedTypes(args, argProtos)(lamCtx) // and type them in same context
       body.typed(retProto)(lamCtx).tpe
@@ -481,7 +500,7 @@ object Trees {
       // val typedArgs = mapConserve(fullArgs, typedTerm)
       // FunApply(fullKind, appliedTypedFun, typedParams, typedArgs).withType(resultType)
 
-      val funProto = Arrow(Seq(), args.map(_ => Prim.None), proto)
+      val funProto = Arrow(Seq(), args.map(_ => Untyped), proto)
       fun.typed(funProto).tpe match {
         case funType @ Arrow(formalParams, formalArgs, formalResult) =>
           def unifyApply (csts :Seq[(Type, Type)]) = unify(csts).map(
@@ -545,21 +564,29 @@ object Trees {
 
   // naughty
   case class Assign (ident :TermName, value :TermTree) extends TermTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = { value.typed() ; Prim.None }
+    protected def computeType (proto :Type)(implicit ctx :Context) = { value.typed() ; Untyped }
   }
 
   case class While (cond :TermTree, body :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
-      cond.typed(Prim.Bool) ; body.typed() ; Prim.None
+      cond.typed(Prim.Bool) ; body.typed() ; Untyped
     }
   }
   case class DoWhile (body :TermTree, cond :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
-      body.typed() ; cond.typed(Prim.Bool) ; Prim.None
+      body.typed() ; cond.typed(Prim.Bool) ; Untyped
     }
   }
   case class For (gens :Seq[Generator], body :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = ???
+  }
+
+  /** Creates a `Record` tree for a `Tuple` of rank `rank`. This tree is typed and the resulting
+    * type is used to type the special tuple syntax. */
+  def tupleTree (rank :Int) :Tree = {
+    val paramNames = 1 to rank map { n => typeName(s"T$n") }
+    val fields = 1 to rank map { n => FieldDef(Seq(), termName(s"_$n"), TypeRef(paramNames(n-1))) }
+    RecordDef(Seq(), typeName(s"Tuple$rank"), paramNames map Param, fields)
   }
 
   //
@@ -702,7 +729,7 @@ object Trees {
           printSep(cases, printMemberDef, "", " | ", "")
         }
       case Param(name) => pr.print(name)
-      case Constraint(name, params) => pr.print(name) ; printDefList(params, "[", "]")
+      case Constraint(name, params) => pr.print(name) ; printSep(params, printType, "[", ", ", "]")
       case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
       case FunDef(docs, name, params, csts, args, ret, body) =>
         docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
@@ -861,7 +888,7 @@ object Trees {
   def debugTree (out :PrintWriter)(tree :Tree) :Unit = {
     val acc = new Accumulator[Printer]() {
       override def apply (pr :Printer, tree :Tree)(implicit ctx :Context) = {
-        def treeType = if (tree.isTyped) tree.tpe else Prim.Missing
+        def treeType = if (tree.isTyped) tree.tpe else Error("Missing")
         tree match {
           case DefExpr(dt) => apply(pr, dt)
           case FunDef(docs, name, params, csts, args, result, body) =>

@@ -96,6 +96,7 @@ class TypingTest {
     let b = id(5)
     let c :List[List[I32]] = Nil
     let d :List[I32] = Cons(5, Nil)
+    let e = Cons(5, Nil), f = e.head, g = e.tail
     """
     val trees = extract(program.parse(data))
     implicit val ctx = testContext("data")

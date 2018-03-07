@@ -111,13 +111,13 @@ object Parser {
 
   // definitions
   val simpleConstraint = P( hs ~ ":" ~/ typeIdent )
-  val paramApply = P( "[" ~/ (hs ~ typeIdent.map(Param)).rep(1, ",") ~ hs ~ "]" )
+  val paramApply = P( "[" ~/ (hs ~ typeIdent.map(TypeRef)).rep(1, ",") ~ hs ~ "]" )
   val cstParamDef :P[ParamOrConst] =
     P( ws ~ typeIdent ~ (simpleConstraint | paramApply).? ).map {
       case (name, None) => Param(name)
-      case (name, Some(Seq(params))) => Constraint(name, params.asInstanceOf[Seq[Param]])
+      case (name, Some(Seq(params))) => Constraint(name, params.asInstanceOf[Seq[TypeRef]])
       case (name, Some(ident)) =>
-        ConstrainedParam(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(Param(name))))
+        ConstrainedParam(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(TypeRef(name))))
     }
   val cstParams = P( "[" ~ cstParamDef.rep(1, sep=",") ~ ws ~ "]" )
   val param = P( ws ~ typeIdent ).map(Param)
