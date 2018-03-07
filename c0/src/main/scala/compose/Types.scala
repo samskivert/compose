@@ -117,7 +117,7 @@ object Types {
     val F64    = primitive("F64",  FloatTag, 64)
     val Char   = primitive("Char", CharTag,  16)
 
-    val MaxTuple = 8 // yes yes, hack hack, will fix later (also keep smol for testing)
+    val MaxTuple = 16 // yes yes, hack hack, will fix later
     val Tuples = 2 until MaxTuple map { r =>
       val tupTree = tupleTree(r)
       index(tupTree)
