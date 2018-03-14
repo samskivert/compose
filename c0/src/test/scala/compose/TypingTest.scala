@@ -103,4 +103,22 @@ class TypingTest {
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
+
+  @Test def testApplyImpl () :Unit = {
+    val data = """
+    interface Num[A] {
+      fun add (a0 :A, a1 :A) :A
+    }
+    fun i32Add (a :I32, b :I32) :I32 = foreign
+    impl i32Num = Num[I32](add=i32Add)
+    fun i8Add (a :I8, b :I8) :I8 = foreign
+    impl i8Num = Num[I8](add=i8Add)
+    let a = 1, b = 2
+    let c = add(a, b)
+    """
+    val trees = extract(program.parse(data))
+    implicit val ctx = testContext("implApply")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
 }

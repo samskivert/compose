@@ -18,11 +18,16 @@ object Types {
       * If `this` is an error type, `f` is not applied and `this` is returned directly.
       * If `this` is the `Lazy` type, the type is forced and then `f` is applied. */
     def map (f :Type => Type) :Type = f(this)
+
+    def canUnify = true
+
+    def debugString :String = toString
   }
 
   // used for things that have no type or for which type is yet unassigned
   // (TODO: use two different sentinels?)
   case object Untyped extends Type {
+    override def canUnify = false
     override def toString = "<none>"
   }
 
@@ -34,7 +39,8 @@ object Types {
 
   // ground/opaque type: I32, Bool, etc.
   case class Data (sym :TypeSymbol, kind :Int, bitWidth :Int) extends Type {
-    override def toString = sym.name.toString
+    def name :TypeName = sym.name
+    override def toString = name.toString
   }
 
   // TODO: can we model array as something else? data carries no parameters, but record has
@@ -45,9 +51,11 @@ object Types {
 
   // record type: "data Foo (bar :Int, baz :String)"
   case class Record (sym :TypeSymbol, params :Seq[Type], fields :Seq[Field]) extends Type {
-    override def toString = sym.name + mkString(params, "[]") + mkString(fields, "()")
+    def name :TypeName = sym.name
+    override def toString = name + mkString(params, "[]") + mkString(fields, "()")
   }
-  case class Field (name :TermName, tpe :Type) {
+  case class Field (sym :TermSymbol, tpe :Type) {
+    def name :TermName = sym.name
     override def toString = s"$name :$tpe"
   }
 
@@ -55,13 +63,15 @@ object Types {
   case class Interface (sym :TypeSymbol, params :Seq[Type], methods :Seq[Method]) extends Type {
     override def toString = sym.name + mkString(params, "[]")
   }
-  case class Method (name :TermName, tpe :Type) {
+  case class Method (sym :TermSymbol, tpe :Type) {
+    def name :TermName = sym.name
     override def toString = s"$name :$tpe"
   }
 
   // tagged union: "data List[a] = Nil | Cons[a]"
   case class Union (sym :TypeSymbol, params :Seq[Type], cases :Seq[Type]) extends Type {
-    override def toString = sym.name + mkString(params, "[]")
+    def name :TypeName = sym.name
+    override def toString = name + mkString(params, "[]")
   }
 
   // type application: "List[a]"
@@ -70,8 +80,10 @@ object Types {
   }
 
   // function types: I32 => I32, (String, String) => I32, [A:Ord] (a1 :A, a2 :A) => Bool
-  case class Arrow (params :Seq[Type], args :Seq[Type], result :Type) extends Type {
+  case class Arrow (sym :Symbol, params :Seq[Type], args :Seq[Type], result :Type) extends Type {
+    def name = sym.name
     override def toString = mkString(params, "[]") + args.mkString("(", ", ", ")") + " => " + result
+    override def debugString = name + toString
   }
 
   // type alias: type Foo = Bar
@@ -85,19 +97,21 @@ object Types {
   }
 
   // lazy type reference, used to handle recursive declarations
-  case class Lazy (tree :Tree) extends Type {
-    override def map (f :Type => Type) = f(tree.tpe)
-    override def toString = if (tree.isTyped) s"Lazy(${tree.tpe})" else s"Lazy($tree)"
+  case class Lazy (tree :DefTree) extends Type {
+    override def map (f :Type => Type) = f(tree.sig)
+    override def toString = if (tree.hasSig) s"Lazy(${tree.sig})" else s"Lazy($tree)"
   }
 
   // an error type used to record name resolution failure
   case class Unknown (name :Name) extends Type {
+    override def canUnify = false
     override def map (f :Type => Type) = this
     override def toString = s"?$name"
   }
 
   // an error type used to record other kinds of errors
   case class Error (msg :String) extends Type {
+    override def canUnify = false
     override def map (f :Type => Type) = this
   }
 
@@ -145,7 +159,9 @@ object Types {
     /** Defines a primitive type and enters it into the root/primitives scope. */
     private def primitive (name :String, kind :Int, bitWidth :Int) = {
       val tname = typeName(name)
-      sym.scope.enter(new TypeSymbol(sym, sym.scope.nestedScope(tname), tname, Seq()) {
+      sym.scope.enter(new TypeSymbol(tname) {
+        val owner = sym
+        val scope = sym.scope.nestedScope(tname)
         val info = Data(this, kind, bitWidth)
       }).info
     }
@@ -154,15 +170,15 @@ object Types {
   /** Creates the type of the ctor function for the record type defined by `tpe`.
    * @return the ctor `Arrow` type, or an `Error` type if `tpe` is not a `Record`. */
   def ctorType (tpe :Type) = tpe match {
-    case Record(name, params, fields) =>
+    case Record(sym, params, fields) =>
       if (fields.isEmpty) tpe
-      else Arrow(params, fields.map(_.tpe), tpe)
+      else Arrow(sym, params, fields.map(_.tpe), tpe)
     case _ => Error(s"Cannot make constructor function for non-record type: $tpe")
   }
 
   /** Forces `tpe` if it is lazy, otherwise returns as is. */
   def force (tpe :Type) = tpe match {
-    case Lazy(tree) => tree.tpe
+    case Lazy(tree) => tree.sig
     case _ => tpe
   }
 
@@ -212,8 +228,8 @@ object Types {
       // get to the point of joining a type with another?
       case Apply(ctor, params) => join(applyType(ctor, params), typeB) // TODO: is this valid?
       case Alias(source) => join(source, typeB) // TODO: is this valid?
-      case Arrow(params, args, result) => fail // TODO: can we join function types?
-      case Lazy(tree) => join(tree.tpe, typeB)
+      case Arrow(sym, params, args, result) => fail // TODO: can we join function types?
+      case Lazy(tree) => join(tree.sig, typeB)
       case Interface(sym, params, methods) => fail // TODO
       case Var(sym, _) => fail
       case Unknown(name) => fail
@@ -227,12 +243,12 @@ object Types {
   def applyType (ctor :Type, params :Seq[Type]) :Type = if (params.isEmpty) ctor else {
     // println(s"applyType($ctor, $params)")
     def apply (tvars :Seq[Var]) =
-      if (params.size != tvars.size) Error(s"Cannot match $params to vars of $ctor")
+      if (params.size != tvars.size) Error(s"Cannot match $params to vars of $ctor ($tvars)")
       else subst((tvars zip params).toMap)(ctor)
     def vars (ps :Seq[Type]) = ps.collect { case tp :Var => tp }
     force(ctor) match {
       case Apply(_, tparams) => apply(vars(tparams))
-      case Arrow(tparams, _, _) => apply(vars(tparams))
+      case Arrow(_, tparams, _, _) => apply(vars(tparams))
       case Union(_, tparams, _) => apply(vars(tparams))
       case Record(_, tparams, _) => apply(vars(tparams))
       case Interface(_, tparams, _) => apply(vars(tparams))
@@ -245,15 +261,15 @@ object Types {
     case vr@Var(_, _) => map.getOrElse(vr, vr)
     case Apply(ctor, params) => Apply(ctor, params.map(subst(map)))
     case Array(elem) => Array(subst(map)(elem))
-    case Arrow(params, args, result) => Arrow(
-      params.map(subst(map)), args.map(subst(map)), subst(map)(result))
+    case Arrow(sym, params, args, result) => Arrow(
+      sym, params.map(subst(map)), args.map(subst(map)), subst(map)(result))
     case Union(sym, params, cases) =>
       Union(sym, params.map(subst(map)), cases.map(subst(map)))
     case Record(sym, params, fields) =>
       Record(sym, params.map(subst(map)), fields.map(f => f.copy(tpe=subst(map)(f.tpe))))
     case Interface(sym, params, meths) =>
       Interface(sym, params.map(subst(map)), meths.map(m => m.copy(tpe=subst(map)(m.tpe))))
-    case Lazy(tree) => subst(map)(tree.tpe)
+    case Lazy(tree) => subst(map)(tree.sig)
     case _ => source
   }
 
@@ -271,11 +287,11 @@ object Types {
         if (ta == tb) loop(cs.tail, accum)
         else (ta, tb) match {
           case (av @ Var(a, aid), _) =>
-            loop(cs.tail, bind(accum, av, tb))
+            loop(cs.tail, if (tb.canUnify) bind(accum, av, tb) else accum)
           case (Apply(ctorA, paramsA), Apply(ctorB, paramsB)) =>
             if (paramsA.length != paramsB.length) fail("param lists differ in length")
             else loop((cs.tail :+ (ctorA -> ctorB)) ++ (paramsA zip paramsB), accum)
-          case (Arrow(paramsA, argsA, resultA), Arrow(paramsB, argsB, resultB)) =>
+          case (Arrow(_, paramsA, argsA, resultA), Arrow(_, paramsB, argsB, resultB)) =>
             if (!paramsA.isEmpty || !paramsB.isEmpty) fail("TODO: higher order unification?")
             else if (argsA.size != argsB.size) fail("arg lists differ in length")
             else loop(cs.tail ++ (argsA zip argsB) :+ (resultA -> resultB), accum)

@@ -18,3 +18,9 @@ interface Ring[A] : Semiring[A] {
 }
 
 fun negate[A:Ring] (a :A) :A = zero() - a
+
+fun i32Zero () :I32 = 0
+fun i32Add (a :I32, b :I32) :I32 = foreign
+fun i32One () :I32 = 1
+fun i32Mul (a :I32, b :I32) :I32 = foreign
+impl i32SemiRing = Semiring[I32](zero=i32Zero, add=i32Add, one=i32One, mul=i32Mul)

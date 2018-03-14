@@ -16,7 +16,7 @@ class TypesTest {
   def testSym = newModuleSymbol(termName("test"))
   def mkVar (name :String) = {
     val tname = typeName(name)
-    Var(testSym.defineType(tname, Param(tname), Seq()), 1)
+    Var(testSym.defineType(tname, Param(tname)), 1)
   }
 
   @Test def testUnify () :Unit = {
@@ -27,14 +27,14 @@ class TypesTest {
     val fakeList = Union(NoType, Seq(varA), Seq())
     println(unify(Seq(Apply(fakeList, Seq(varA)) -> Apply(fakeList, Seq(Prim.I32)))))
 
-    val aToB = Arrow(Seq(), Seq(varA), varB)
-    val aToInt = Arrow(Seq(), Seq(varA), Prim.I32)
+    val aToB = Arrow(NoTerm, Seq(), Seq(varA), varB)
+    val aToInt = Arrow(NoTerm, Seq(), Seq(varA), Prim.I32)
     println(unify(Seq(aToB -> aToInt)))
 
-    val cToInt = Arrow(Seq(), Seq(mkVar("C")), Prim.I32)
+    val cToInt = Arrow(NoTerm, Seq(), Seq(mkVar("C")), Prim.I32)
     println(unify(Seq(aToB -> cToInt)))
 
-    val aToBool = Arrow(Seq(), Seq(varA), Prim.Bool)
+    val aToBool = Arrow(NoTerm, Seq(), Seq(varA), Prim.Bool)
     println(unify(Seq(aToB -> aToInt, aToB -> aToBool)))
 
     println(unify(Seq(Apply(fakeList, Seq(varA)) -> aToBool)))

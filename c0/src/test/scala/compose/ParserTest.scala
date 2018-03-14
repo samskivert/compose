@@ -152,6 +152,11 @@ class ParserTest {
     testParse(Assign(helloName, binOp("%", a, b)), assignEffect.parse("hello = a % b"))
   }
 
+  @Test def testImplDefs () :Unit = {
+    printParse(program.parse("impl eqI32 = Eq[I32](eq=i32Eq)"))
+    printParse(program.parse("impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq)"))
+  }
+
   @Test def testTypes () :Unit = {
     val intType = TypeRef(typeName("Int"))
     testParse(intType, typeRef.parse("Int"))

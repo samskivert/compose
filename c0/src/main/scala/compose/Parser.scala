@@ -152,8 +152,8 @@ object Parser {
   val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optSeq(params) ~ ws ~
                    optExtends ~ ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
   val methBind = P( ws ~ ident ~ hs ~ "=" ~/ hs ~ ident ).map(MethodBinding.tupled)
-  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ optSeq(params) ~ hs ~ "=" ~ hs ~
-                   typeRef ~ ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).
+  val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ hs ~ optSeq(cstParams) ~ hs ~ "=" ~/
+                   ws ~ typeRef ~ ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).
     map((ImplDef.mk _).tupled)
 
   val defExpr = P( funDef | letDef | varDef | unionDef | recordDef | faceDef | implDef ).

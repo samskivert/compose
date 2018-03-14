@@ -18,11 +18,23 @@ object Indexer {
     def log (tree :Tree) = { println(s"indexing ${tree.id}#${tree}") ; tree }
     def apply (sym :Symbol, tree :Tree)(implicit ctx :Context) = tree match {
       case tree @ Param(name) =>
-        ctx.owner.defineType(name, tree, Seq())
+        ctx.owner.defineType(name, tree)
 
-      case Constraint(name, params) =>
-        // constraints refer to already defined names, which we want to propagate up
-        ctx.scope.lookup(name)
+      case tree @ Constraint(name, params) =>
+        val implSym = ctx.owner.defineTerm(name.toTermName, tree, _ => tree.typed().tpe)
+        // enter a symbol for the interface represented by this constraint, as well as any parent
+        // interfaces; these will be used to resolve use of the interface methods on the type
+        // variable being constrained
+        def enterCstImpl (tree :Constraint) :Unit = {
+          val faceSym = ctx.scope.lookup(tree.name)
+          if (faceSym.exists) {
+            ctx.scope.enterImpl(faceSym, implSym)
+            faceSym.csts foreach enterCstImpl
+          }
+          // else: the constraint tree will be typed with Error
+        }
+        enterCstImpl(tree)
+        implSym
 
       case tree @ ArgDef(docs, name, typ) =>
         ctx.owner.defineTerm(name, tree)
@@ -31,19 +43,21 @@ object Indexer {
         ctx.owner.defineTerm(name, tree)
 
       case tree @ RecordDef(docs, name, params, fields) =>
-        val recSym = ctx.owner.defineType(name, tree, params)
+        val recSym = ctx.owner.defineType(name, tree)
         val recCtx = ctx.withOwner(recSym)
         params foreach { param => apply(sym, param)(recCtx) }
         fields foreach { field => apply(sym, field)(recCtx) }
         // also create a term symbol for the ctor fun
-        ctx.scope.enter(new TermSymbol(ctx.owner, ctx.scope.nestedScope(name), name.toTermName) {
+        ctx.scope.enter(new TermSymbol(name.toTermName) {
+          val owner = ctx.owner
+          val scope = ctx.scope.nestedScope(name)
           lazy val info = ctorType(recSym.info)
           override def toString = s"$what $name ($tree)"
         })
         recSym
 
       case tree @ UnionDef(docs, name, params, cases) =>
-        val unionSym = ctx.owner.defineType(name, tree, params)
+        val unionSym = ctx.owner.defineType(name, tree)
         val unionCtx = ctx.withOwner(unionSym)
         params foreach { param => apply(sym, param)(unionCtx) }
         // enter the cases, and lift their symbols into the same scope as the union
@@ -58,13 +72,14 @@ object Indexer {
       case tree @ FunDef(docs, name, params, csts, args, result, body) =>
         val funSym = ctx.owner.defineTerm(name, tree)
         val funCtx = ctx.withOwner(funSym)
-        params foreach { param => apply(sym, param)(funCtx).asType }
+        params foreach { param => apply(sym, param)(funCtx) }
+        csts foreach { cst => apply(sym, cst)(funCtx) }
         args foreach { arg => apply(sym, arg)(funCtx) }
         funSym
 
       case tree @ FaceDef(docs, name, params, parents, meths) =>
         // augment the method declarations with the interface type vars
-        val faceSym = ctx.owner.defineType(name, tree, params)
+        val faceSym = ctx.owner.defineType(name, tree)
         val faceCtx = ctx.withOwner(faceSym)
         params foreach { param => apply(sym, param)(faceCtx) }
         // enter the methods, and lift their symbols into the same scope as the interface
@@ -75,13 +90,18 @@ object Indexer {
         val implSym = ctx.owner.defineTerm(name, tree)
         val implCtx = ctx.withOwner(implSym)
         params foreach { param => apply(sym, param)(implCtx).asType }
+
+        val faceName = rootTypeName(face)
+        val faceSym = ctx.scope.lookup(faceName)
+        if (faceSym.exists) ctx.scope.enterImpl(faceSym, implSym)
+        else println(s"Cannot register impl with invalid interface '${faceName}': $faceSym")
         implSym
 
       case tree @ Binding(name, typ, value) =>
         // TODO: put context in let or var mode, so Binding can note mutability
         ctx.owner.defineTerm(name, tree)
-      case LetDef(bindings) => foldOver(sym, tree)
-      case VarDef(bindings) => foldOver(sym, tree)
+      case tree @ LetDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
+      case tree @ VarDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
 
       case _    :DefTree => throw new Exception(s"Missing DefTree case for $tree")
       case _    :Block   => sym // do not descend into nested blocks

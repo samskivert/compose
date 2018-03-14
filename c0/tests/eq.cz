@@ -7,20 +7,22 @@ interface Eq[A] {
 
   /// Computes the inverse of `eq` on `a1` and `a2`.
   /// @return `false` if they are equal, `true` otherwise.
-  fun notEq (a1 :A, a2 :A) :Bool = !eq(a1, a2)
+  fun notEq (a1 :A, a2 :A) :Bool
 }
 
+fun defNotEq[A:Eq](a1 :A, a2 :A) :Bool = !eq(a1, a2)
+
 fun voidEq (v1 :Void, v2 :Void) :Bool = true
-impl eqVoid = Eq[Void](eq=voidEq)
+impl eqVoid = Eq[Void](eq=voidEq, notEq=defNotEq)
 
 fun unitEq (u1 :Unit, u2 :Unit) :Bool = true
-impl eqUnit = Eq[Unit](eq=unitEq)
+impl eqUnit = Eq[Unit](eq=unitEq, notEq=defNotEq)
 
 fun boolEq (a :Bool, b :Bool) :Bool = foreign
-impl eqBool = Eq[Bool](eq=boolEq)
+impl eqBool = Eq[Bool](eq=boolEq, notEq=defNotEq)
 
 fun i32Eq (a :I32, b :I32) :Bool = foreign
-impl eqI32 = Eq[I32](eq=i32Eq)
+impl eqI32 = Eq[I32](eq=i32Eq, notEq=defNotEq)
 
 fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
   fun loop (ii :I32) :Bool =
@@ -29,4 +31,4 @@ fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
     else loop(ii+1)
   if (a1.length == a2.length) loop(0) else false
 }
-impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq)
+impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq, notEq=defNotEq)

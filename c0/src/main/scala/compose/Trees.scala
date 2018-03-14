@@ -64,8 +64,8 @@ object Trees {
     def typed (proto :Type = Untyped)(implicit ctx :Context) :this.type = {
       // TODO: save ctx and ensure we don't request the type later with an invalid context?
       if (!isTyped) {
+        // println(s"computeType $id#$this ($proto)")
         treeType = computeType(proto)
-        computeBodyType()
       }
       this
     }
@@ -74,13 +74,18 @@ object Trees {
     def retype (tpe :Type) :Unit = { treeType = tpe }
 
     protected def computeType (proto :Type)(implicit ctx :Context) :Type
-    protected def computeBodyType ()(implicit ctx :Context) :Unit = {}
   }
 
   def typed[T <: Tree](trees :Seq[T], protos :Seq[Type])(implicit ctx :Context) :Seq[T] =
     (trees zip protos).map(tp => (tp._1 typed tp._2))
   def typedTypes[T <: Tree](trees :Seq[T], protos :Seq[Type])(implicit ctx :Context) :Seq[Type] =
     (trees zip protos).map(tp => (tp._1 typed tp._2).tpe)
+
+  def rootTypeName (tree :TypeTree) :TypeName = tree match {
+    case TypeRef(name) => name
+    case TypeApply(ctor, _) => ctor
+    case _ => NoName.toTypeName
+  }
 
   sealed trait TypeTree extends Tree {
     type ThisTree <: TypeTree
@@ -121,11 +126,11 @@ object Trees {
   case class TypeArrow (args :Seq[TypeTree], ret :TypeTree) extends TypeTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val (argProtos, retProto) = proto match {
-        case Arrow(_, argProtos, retProto) => (argProtos, retProto)
+        case Arrow(_, _, argProtos, retProto) => (argProtos, retProto)
         // TODO: same as above re: error on mismatch
         case _ => (args.map(_ => Untyped), Untyped)
       }
-      Arrow(Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
+      Arrow(NoType, Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
     }
     override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
   }
@@ -134,12 +139,30 @@ object Trees {
   // Definitions
 
   sealed trait DefTree extends Tree {
+    private[this] var treeSig :Type = _
     private[this] var treeSym :Symbol = _
+    private[this] var computingSig = false
     type ThisTree <: DefTree
 
     /** Whether or not the symbol defined by this tree has been created. This happens during the
       * indexing step which precedes type checking. */
     def isIndexed = treeSym != null
+
+    def hasSig :Boolean = treeSig != null
+
+    /** Returns the type signature for the definition expressed by this tree.
+      * Note: this is computed on demand the first time it is requested. */
+    def sig :Type = {
+      if (treeSig != null) treeSig
+      else if (computingSig) Lazy(this)
+      else {
+        computingSig = true
+        // println(s"computeSig($id#$this)")
+        treeSig = computeSig(Context(sym, computeSigFlags))
+        computingSig = false
+        treeSig
+      }
+    }
 
     /** Returns the symbol for the type defined by this tree. Throws an exception if called on an
       * unindexed tree. */
@@ -155,10 +178,20 @@ object Trees {
       sym
     }
 
+    /** Type parameters introduced by this def. */
+    def defParams :Seq[Param] = Seq()
+
+    /** Type constraints introduced by this def. */
+    def defCsts :Seq[Constraint] = Seq()
+
     override def isDef = true
+
+    protected def computeSigFlags :Int = TypingDef
+    protected def computeSig (implicit ctx :Context) :Type
+    protected def computeType (proto :Type)(implicit ctx :Context) = sig
   }
 
-  // used to intertwingle params and constraints into a single list
+  // this is used to intertwingle params and constraints into a single list
   // (I don't want to complicate the syntax with a separate list for constraints)
   sealed trait ParamOrConst {
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit
@@ -173,38 +206,35 @@ object Trees {
   case class Param (name :TypeName) extends DefTree with ParamOrConst {
     type ThisTree <: Param
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = params += this
-    protected def computeType (proto :Type)(implicit ctx :Context) = Var(sym.asType, ctx.scope.id)
+    protected def computeSig (implicit ctx :Context) = Var(sym.asType, ctx.scope.id)
   }
-  // TODO: a constraint is technically not a def tree, it's a ref tree... change?
-  case class Constraint (name :TypeName, params :Seq[TypeRef]) extends DefTree with ParamOrConst {
+  case class Constraint (name :TypeName, params :Seq[TypeRef]) extends TermTree with ParamOrConst {
     type ThisTree <: Constraint
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = csts += this
     protected def computeType (proto :Type)(implicit ctx :Context) =
-      // TODO: will we ever have an expected type for a constraint?
       applyType(typeFor(name), params.map(_.typed().tpe))
   }
 
   // TODO: destructuring fun arg bindings
   case class ArgDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: ArgDef
-    protected def computeType (proto :Type)(implicit ctx :Context) = typ.typed(proto).tpe
+    protected def computeSig (implicit ctx :Context) = typ.typed().tpe
   }
   case class FunDef (docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint],
                      args :Seq[ArgDef], result :TypeTree, body :TermTree) extends DefTree {
     type ThisTree <: FunDef
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val funSym = ctx.scope.lookup(name)
-      assert(funSym.exists, s"Missing symbol for fun def $name")
-      val fullParams = ctx.owner.params ++ params
-      def typedWith (implicit ctx :Context) = Arrow(
-        fullParams.map(_.typed().tpe), args.map(_.typed().tpe), result.typed().tpe)
-      typedWith(ctx.withOwner(funSym))
+    override def defParams = params
+    override def defCsts = csts
+    protected def computeSig (implicit ctx :Context) = {
+      val fullParams = sym.owner.params ++ params
+      val paramTypes = fullParams.map(_.typed().tpe)
+      csts.map(_.typed())
+      Arrow(sym, paramTypes, args.map(_.typed().tpe), result.typed().tpe)
     }
-    override protected def computeBodyType ()(implicit ctx :Context) = {
-      val funSym = ctx.scope.lookup(name)
-      assert(funSym.exists, s"Missing symbol for fun def $name")
-      val Arrow(_, _, retType) = this.tpe
-      body.typed(retType)(ctx.withOwner(funSym).withoutFlag(TypingDef))
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val Arrow(_, _, _, retType) = this.sig
+      body.typed(retType)(ctx.withOwner(sym))
+      sig
     }
   }
   object FunDef {
@@ -218,53 +248,51 @@ object Trees {
 
   // TODO: destructuring let/var bindings
   case class Binding (name :TermName, typ :TypeTree, value :TermTree) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
+    override protected def computeSigFlags = 0
+    protected def computeSig (implicit ctx :Context) = {
       val declType = typ.typed().tpe
       val exprType = value.typed(declType).tpe
       if (typ == OmittedType) exprType else declType
     }
   }
   case class LetDef (binds :Seq[Binding]) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val bindCtx = ctx.withoutFlag(TypingDef)
-      binds.foreach(_.typed()(bindCtx))
-      Untyped
+    override def sig = Untyped
+    protected def computeSig (implicit ctx :Context) = Untyped
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      binds.foreach(_.typed())
+      sig
     }
   }
   case class VarDef (binds :Seq[Binding]) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) =  {
-      val bindCtx = ctx.withoutFlag(TypingDef)
-      binds.foreach(_.typed()(bindCtx))
-      Untyped
+    override def sig = Untyped
+    protected def computeSig (implicit ctx :Context) = Untyped
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      binds.foreach(_.typed())
+      sig
     }
   }
 
   case class FieldDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: FieldDef
-    protected def computeType (proto :Type)(implicit ctx :Context) = typ.typed(proto).tpe
+    protected def computeSig (implicit ctx :Context) = typ.typed().tpe
   }
   case class RecordDef (
     docs :Seq[String], name :TypeName, params :Seq[Param], fields :Seq[FieldDef]
   ) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val recSym = ctx.scope.lookup(name)
-      assert(recSym.exists, s"Missing symbol for record def $name")
-      val fullParams = ctx.owner.params ++ params
-      def typedWith (implicit ctx :Context) = Record(
-        sym.asType, fullParams.map(_.typed().tpe), fields.map(f => Field(f.name, f.typed().tpe)))
-      typedWith(ctx.withOwner(recSym))
+    override def defParams = params
+    protected def computeSig (implicit ctx :Context) = {
+      val fullParams = sym.owner.params ++ params
+      Record(sym.asType, fullParams.map(_.typed().tpe),
+             fields.map(f => Field(f.sym.asTerm, f.typed().tpe)))
     }
   }
 
   case class UnionDef (
     docs :Seq[String], name :TypeName, params :Seq[Param], cases :Seq[DefTree]
   ) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val unionSym = ctx.scope.lookup(name)
-      assert(unionSym.exists, s"Missing symbol for union def $name")
-      def typedWith (implicit ctx :Context) =
-        Union(sym.asType, params.map(_.typed().tpe), cases.map(_.typed().tpe))
-      typedWith(ctx.withOwner(unionSym))
+    override def defParams = params
+    protected def computeSig (implicit ctx :Context) = {
+      Union(sym.asType, params.map(_.typed().tpe), cases.map(_.typed().tpe))
     }
   }
 
@@ -272,29 +300,59 @@ object Trees {
     docs :Seq[String], name :TypeName, params :Seq[Param], parents :Seq[Constraint],
     meths :Seq[FunDef]
   ) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val faceSym = ctx.scope.lookup(name)
-      assert(faceSym.exists, s"Missing symbol for interface def $name")
-      def typedWith (implicit ctx :Context) = {
-        params.foreach(_.typed())
-        parents.foreach(_.typed())
-        // TODO: parents should be in type?
-        Interface(sym.asType, params.map(_.tpe), meths.map(m => Method(m.name, m.typed().tpe)))
-      }
-      typedWith(ctx.withOwner(faceSym))
+    override def defParams = params
+    override def defCsts = parents
+    protected def computeSig (implicit ctx :Context) = {
+      params.foreach(_.typed())
+      parents.foreach(_.typed())
+      // TODO: parents should be in type?
+      Interface(sym.asType, params.map(_.tpe), meths.map(m => Method(m.sym.asTerm, m.sig)))
+    }
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      meths.foreach(m => m.typed())
+      sig
     }
   }
 
   case class MethodBinding (meth :TermName, fun :TermName) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped // TODO
+    protected def computeSig (implicit ctx :Context) = Untyped
+    // TODO: check that it matches proto
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      val paramTypes = ctx.owner.params.map(_.tpe)
+      applyType(typeFor(fun), paramTypes)
+    }
   }
   case class ImplDef (
     docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint], face :TypeTree,
     binds :Seq[MethodBinding]
   ) extends DefTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = Untyped // TODO
-    // TEMP: impl is typed as function from constraints to record
-    // implSym.initInfoLazy(() => Arrow(paramSyms.map(_.info), Seq(), typeFor(face)(implCtx)))
+    override def defParams = params
+    override def defCsts = csts
+    override protected def computeSigFlags = 0
+    protected def computeSig (implicit ctx :Context) = {
+      val paramTypes = params.map(_.typed().tpe)
+      val cstTypes = csts.map(_.typed().tpe)
+      face.typed().tpe match {
+        // our signature is a function from our parameters and constraints to our implemented
+        // interface, applied to those parameters
+        case faceType :Interface => Arrow(sym, paramTypes, cstTypes, faceType)
+        case tpe => Error(s"Expected interface type, got: $tpe")
+      }
+    }
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      def typedWith (implicit ctx :Context) = {
+        face.typed().tpe match {
+          case Interface(faceSym, faceParams, faceMeths) =>
+            def bindType (m :Method) :Type =
+              binds.find(_.meth == m.name).map(b => b.typed(m.tpe).tpe).
+              getOrElse(Error(s"Missing binding for method ${m.name}"))
+            val bindFields = faceMeths.map(m => Field(m.sym, bindType(m)))
+            Record(faceSym, faceParams, bindFields)
+          case tpe => Error(s"Expected interface type, got: $tpe")
+        }
+      }
+      typedWith(ctx.withOwner(sym))
+    }
   }
   object ImplDef {
     def mk (docs :Seq[String], name :TermName, paramsCsts :Seq[ParamOrConst],
@@ -404,7 +462,7 @@ object Trees {
       // that field as a function and pass the receiver as a single argument to it
       def asReceiverFun (errmsg :String) = ctx.scope.lookup(field).info match {
         // TODO: we need to record the fun chosen here for funapply, infer args (using proto), etc.
-        case Arrow(_, _, resultType) => resultType
+        case Arrow(_, _, _, resultType) => resultType
         case _ => Error(errmsg)
       }
       // TODO: how to use prototype here? just check that we match?
@@ -446,11 +504,11 @@ object Trees {
 
   case class Lambda (args :Seq[ArgDef], body :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val lamSym = ctx.owner.createTerm(NoName, this) // TODO: synthesize lambda name
+      val lamSym = ctx.owner.createTerm(NoName, this, _ => Untyped) // TODO: synthesize lambda name
       val lamCtx = ctx.withOwner(lamSym)
       args foreach { arg => index(arg)(lamCtx) } // index args in lambda context
       val (argProtos, retProto) = proto match {
-        case Arrow(_, argTypes, retType) => (argTypes, retType)
+        case Arrow(_, _, argTypes, retType) => (argTypes, retType)
         // TODO: fail if expected type not arrow?
         case _ => (args.map(_ => Untyped), Untyped)
       }
@@ -468,6 +526,9 @@ object Trees {
   }
   case class FunApply (kind :FunKind, fun :TermTree, params :Seq[TypeTree],
                        args :Seq[TermTree]) extends TermTree {
+    private[this] var _methSym = NoTerm
+    def methSym :TermSymbol = _methSym
+
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       // TODO: sort out handling of foo.bar[B](baz)
 
@@ -500,25 +561,55 @@ object Trees {
       // val typedArgs = mapConserve(fullArgs, typedTerm)
       // FunApply(fullKind, appliedTypedFun, typedParams, typedArgs).withType(resultType)
 
-      val funProto = Arrow(Seq(), args.map(_ => Untyped), proto)
+      def unifyApplyMap (csts :Seq[(Type, Type)], funType :Arrow)(xf :Arrow => Type) =
+        unify(csts).
+        map(sols => applyType(funType, funType.params map subst(sols)) match {
+          case arr :Arrow => xf(arr)
+          case tpe => tpe
+        }).merge
+
+      def resolveImpl (methSym :Symbol, appFunType :Arrow) :TermSymbol = {
+        // the first params of the appFunType will match the params of the interface
+        val faceSym = methSym.owner.asType
+        val faceParams = force(faceSym.info).asInstanceOf[Interface].params
+        val appImplParams = appFunType.params.take(faceParams.size)
+        // TODO: handle instantiating the impl fun at the proper type
+        ctx.scope.impls(faceSym).find { sym => force(sym.info) match {
+          case tpe @ Arrow(_, implParams, implCsts, Interface(_, faceParams, _)) =>
+            appImplParams == faceParams
+          case face :Interface =>
+            appImplParams == face.params
+          case tpe => println(s"Zoiks! $tpe") ; ??? // unreachable but scalac don't know it
+        }} getOrElse NoTerm
+      }
+
+      // TODO: we need to look at the type constraints on the function we're calling and ensure
+      // that we can resolve implementations to meet them
+
+      // first resolve the raw (unapplied) fun type from the fun tree
+      val funProto = Arrow(NoTerm, Seq(), args.map(_ => Untyped), proto)
       fun.typed(funProto).tpe match {
-        case funType @ Arrow(formalParams, formalArgs, formalResult) =>
-          def unifyApply (csts :Seq[(Type, Type)]) = unify(csts).map(
-            sols => applyType(funType, formalParams map subst(sols)))
-          // first constrain fun type based on explicit parameters and expected return type
+        case funType @ Arrow(funSym, formalParams, formalArgs, formalResult) =>
+          // next constrain the fun type based on explicit parameters and expected return type
           val applyParams = params.map(_.typed().tpe)
           val applyCsts = (formalParams zip applyParams) :+ (formalResult -> proto)
-          unifyApply(applyCsts).map(cstFunType => {
+          unifyApplyMap(applyCsts, funType) { cstFunType =>
             // use the partially constrained formal argument types to type the actual arguments
-            val argProtos = cstFunType.asInstanceOf[Arrow].args
-            val argTypes = typedTypes(args, argProtos)
-            // finally re-unify the function type using the apply constraints and any new
+            val argTypes = typedTypes(args, cstFunType.args)
+            // finally unify the resolved function with the apply constraints and any new
             // constraints generated by the typed arguments
-            unifyApply(applyCsts ++ (formalArgs zip argTypes)).map(newFunType => {
-              fun.retype(newFunType)
-              newFunType.asInstanceOf[Arrow].result
-            }).merge
-          }).merge
+            val cstFunCsts = applyCsts ++ (cstFunType.args zip argTypes)
+            unifyApplyMap(cstFunCsts, funType) { appFunType =>
+              fun.retype(appFunType)
+              // if this is a method application, resolve the impl via which we will obtain the
+              // method (and give ourselves an error type if we cannot resolve an impl)
+              if (!funSym.isMethod) appFunType.result else {
+                _methSym = resolveImpl(funSym, appFunType)
+                if (_methSym.exists) appFunType.result
+                else Error(s"Unable to resolve impl for method: ${appFunType.debugString}")
+              }
+            }
+          }
         case tpe => Error(s"Target of apply must be an arrow type (got: $tpe)")
       }
     }
@@ -549,8 +640,7 @@ object Trees {
   }
 
   case class DefExpr (df :DefTree) extends TermTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) =
-      df.typed(proto)(ctx.withFlag(TypingDef)).tpe
+    protected def computeType (proto :Type)(implicit ctx :Context) = df.typed(proto).tpe
   }
   case class Block (exprs :Seq[TermTree]) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
@@ -698,15 +788,23 @@ object Trees {
   }
 
   def printMemberDef (df :DefTree)(implicit pr :Printer) = printDef(df, true)(pr.nest)
-  def printDefList (defs :Seq[DefTree], open :String, close :String)(implicit pr :Printer) =
-    if (!defs.isEmpty) printSep(defs, printMemberDef, open, ", ", close)
+  def printDefList (defs :Seq[DefTree], brackets :String)(implicit pr :Printer) =
+    if (!defs.isEmpty) printSep(defs, printMemberDef, brackets, ", ")
+
+  def printTree (tree :Tree)(implicit pr :Printer) = tree match {
+    case tree :TypeTree => printType(tree)
+    case tree :DefTree => printDef(tree)
+    case tree :TermTree => printExpr(tree)
+    case tree :PatTree => printPat(tree)
+    case tree :CompTree => printComp(tree)
+  }
 
   def printDef (df :DefTree, member :Boolean = false)(implicit pr :Printer) :Printer = {
     df match {
       case Binding(name, typ, value) =>
         pr.print(name) ; printOptType(typ) ; pr.print(" = ") ; printExpr(value)
-      case LetDef(binds) => pr.print("let ") ; printDefList(binds, "", "")
-      case VarDef(binds) => pr.print("var ") ; printDefList(binds, "", "")
+      case LetDef(binds) => pr.print("let ") ; printDefList(binds, "")
+      case VarDef(binds) => pr.print("var ") ; printDefList(binds, "")
       case FieldDef(docs, name, typ) =>
         if (!docs.isEmpty) pr.println()
         docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
@@ -718,31 +816,30 @@ object Trees {
         if (!docs.isEmpty) pr.printIndent("")
         if (!member) pr.print("data ")
         pr.print(name)
-        printDefList(params, "[", "]")
-        printDefList(fields, "(", ")")
+        printDefList(params, "[]")
+        printDefList(fields, "()")
       case UnionDef(docs, name, args, cases) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("data ", name)
-        printDefList(args, "[", "]")
+        printDefList(args, "[]")
         if (!cases.isEmpty) {
           pr.print(" = ")
-          printSep(cases, printMemberDef, "", " | ", "")
+          printSep(cases, printMemberDef, "", " | ")
         }
       case Param(name) => pr.print(name)
-      case Constraint(name, params) => pr.print(name) ; printSep(params, printType, "[", ", ", "]")
       case ArgDef(docs, name, typ) => pr.print(name) ; printOptType(typ)
       case FunDef(docs, name, params, csts, args, ret, body) =>
         docs.foreach { doc => pr.printIndent(s"/// $doc").println() }
         pr.printIndent("fun ", name)
-        printDefList(params ++ csts, "[", "]")
-        printDefList(args, " (", ")")
+        printSep(params ++ csts, printTree, "[]", ", ")
+        pr.print(" ") ; printDefList(args, "()")
         printOptType(ret)
         if (body != OmittedBody) { pr.print(" = ") ; printExpr(body) }
       case FaceDef(docs, name, params, parents, meths) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("interface ", name)
-        printDefList(params, "[", "]")
-        printDefList(parents, " : ", "")
+        printDefList(params, "[]")
+        if (!parents.isEmpty) { pr.print(" : ") ; printSep(parents, printExpr, "", ", ") }
         pr.print(" {")
         meths foreach { meth => printDef(meth)(pr.println().nest) }
         pr.println().printIndent("}")
@@ -750,9 +847,9 @@ object Trees {
       case ImplDef(docs, name, params, csts, parent, binds) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("impl ", name)
-        printDefList(params ++ csts, "[", "]")
+        printSep(params ++ csts, printTree, "[]", ", ")
         pr.print(" = ") ; printType(parent)
-        printDefList(binds, "(", ")")
+        printDefList(binds, "()")
     }
     pr
   }
@@ -761,7 +858,7 @@ object Trees {
     case IdentPat(ident) => pr.print(ident)
     case LiteralPat(const) => pr.print(const)
     case DestructPat(ctor, binds) =>
-      pr.print(ctor) ; printSep(binds, printPat, "", ", ", "")
+      pr.print(ctor) ; printSep(binds, printPat, "")
     case Case(pattern, guard, result) =>
       pr.printIndent("case ", pattern, " = ") ; printExpr(result)(pr.nest)
     case Condition(guard, result) =>
@@ -775,19 +872,20 @@ object Trees {
 
   def printExpr (expr :TermTree)(implicit pr :Printer) :Printer = {
     def print1 (expr :TermTree) = printExpr(expr)(pr.nest)
-    def printTuple (exprs :Seq[TermTree]) = printSep(exprs, printExpr, "(", ", ", ")")
+    def printTuple (exprs :Seq[TermTree]) = printSep(exprs, printExpr, "()")
 
     expr match {
       case Literal(const) => pr.print(const)
-      case ArrayLiteral(values) => printSep(values, printExpr, "[", ", ", "]")
+      case ArrayLiteral(values) => printSep(values, printExpr, "[]")
       case IdentRef (ident) => pr.print(ident)
+      case Constraint(name, params) => pr.print(name) ; printSep(params, printType, "[]")
       case OmittedBody => // nada
       case Select(expr, field) => printExpr(expr).print(".", field)
       case Index(expr, index) => printExpr(expr).print("@") ; printExpr(index)
       case Tuple(exprs) => printTuple(exprs)
       case Lambda(args, body) =>
         if (args.size == 1) printDef(args(0))
-        else printSep[DefTree](args, printDef(_, false), " (", ", ", ")")
+        else printSep[DefTree](args, printDef(_, false), "()")
         pr.print(" => ") ; printExpr(body)
       case FunApply(kind, ident, params, args) => kind match {
           case FunKind.UnOp =>
@@ -798,7 +896,7 @@ object Trees {
             printExpr(args(1)).print(")")
           case FunKind.Normal =>
             printExpr(ident)
-            if (!params.isEmpty) printSep(params, printType, "[", ", ", "]")
+            if (!params.isEmpty) printSep(params, printType, "[]")
             printTuple(args)
           case FunKind.Receiver =>
             printExpr(args(0)) ; pr.print(".") ; printExpr(ident)
@@ -814,15 +912,14 @@ object Trees {
         conds foreach { printPat(_)(pr.println().nest) }
         pr.println().nest.printIndent("else = ") ; print1(elseResult)
       case MonadComp(elem, clauses) =>
-        pr.print("[") ; printExpr(elem)
-        printSep(clauses, printComp, " where ", ", ", "]")
+        pr.print("[") ; printExpr(elem) ; pr.print(" where ")
+        printSep(clauses, printComp, "") ; pr.print("]")
       case DefExpr(df) => printDef(df)
       case Block(exprs) =>
         pr.print("{")
         def printSep () = pr.println().nest.printIndent()
         exprs foreach { expr => printSep() ; print1(expr) }
         pr.println().printIndent("}")
-
       case Assign(ident, value) => pr.print(ident, " = ") ; printExpr(value)
       case While(cond, body) =>
         pr.print("while ") ; printExpr(cond).print(" ") ; printExpr(body)
@@ -830,24 +927,26 @@ object Trees {
         pr.print("do ") ; printExpr(body)
         pr.print(" while ") ; printExpr(cond)
       case For(gens, body) =>
+        pr.print("for ")
         printSep[Generator](gens, {
           case Generator(name, expr) => pr.print(name, " <- ") ; printExpr(expr)
-        }, "for ", ", ", " ")
-        printExpr(body)
+        }, "")
+        pr.print(" ") ; printExpr(body)
     }
     pr
   }
 
-  def printSep[T] (ts :Seq[T], printT :T => Unit, open :String, sep :String, close :String)
+  def printSep[T] (ts :Seq[T], printT :T => Unit, brackets :String, sep :String = ", ")
                   (implicit pr :Printer) = {
     var first = true
-    pr.print(open)
+    if (brackets.length > 0) pr.print(brackets(0))
     ts foreach { t =>
       if (!first) pr.print(sep)
       printT(t)
       first = false
     }
-    pr.print(close)
+    if (brackets.length > 1) pr.print(brackets(1))
+    pr
   }
 
   def showTree (root :Product) :String = {
@@ -888,13 +987,14 @@ object Trees {
   def debugTree (out :PrintWriter)(tree :Tree) :Unit = {
     val acc = new Accumulator[Printer]() {
       override def apply (pr :Printer, tree :Tree)(implicit ctx :Context) = {
-        def treeType = if (tree.isTyped) tree.tpe else Error("Missing")
+        def treeType = (if (tree.isTyped) tree.tpe else Error("Missing")).debugString
+        implicit val ipr = pr
         tree match {
           case DefExpr(dt) => apply(pr, dt)
           case FunDef(docs, name, params, csts, args, result, body) =>
             pr.printIndent("fun ", name)
-            printDefList(params ++ csts, "[", "]")(pr)
-            printDefList(args, "(", ")")(pr)
+            printSep(params ++ csts, printTree, "[]", ", ")
+            printDefList(args, "()")
             pr.print(" :", result)
             pr.println(" ::", treeType)
             apply(pr.nest, body)
@@ -912,8 +1012,10 @@ object Trees {
             apply(pr.nest, expr)
             apply(pr.nest, index)
             pr
-          case FunApply(kind, fun, params, args) =>
-            pr.printIndent("<apply>").println(" ::", treeType)
+          case tree @ FunApply(kind, fun, params, args) =>
+            pr.printIndent("<apply>", " ::", treeType)
+            if (tree.methSym.exists) pr.print(" (via ", tree.methSym.info, ")")
+            pr.println()
             apply(pr.nest, fun)
             apply(pr.nest, args)
             pr
@@ -936,6 +1038,10 @@ object Trees {
             apply(pr.nest, ifTrue)
             apply(pr.nest, ifFalse)
             pr
+          case Block(exprs) =>
+            pr.printIndent("block ::", treeType).println()
+            apply(pr.nest, exprs)
+            pr
           case Binding (name, typ, value) =>
             pr.printIndent(name).println(" ::", treeType)
             apply(pr.nest, typ)
@@ -955,23 +1061,32 @@ object Trees {
             pr
           case RecordDef(docs, name, params, fields) =>
             pr.printIndent("rec ", name)
-            printDefList(params, "[", "]")(pr)
+            printDefList(params, "[]")
             pr.println(" ::", treeType)
             apply(pr.nest, fields)
             pr
           case UnionDef(docs, name, params, cases) =>
             pr.printIndent("data ", name)
-            printDefList(params, "[", "]")(pr)
+            printDefList(params, "[]")
             pr.println(" ::", treeType)
             apply(pr.nest, cases)
             pr
           case FaceDef(docs, name, params, parents, meths) =>
-            pr.print("face ", name)
-            printDefList(params, "[", "]")(pr)
-            printDefList(parents, " : ", "")(pr)
+            pr.printIndent("face ", name)
+            printDefList(params, "[]")
+            if (!parents.isEmpty) { pr.print(" : ") ; printSep(parents, printExpr, "", ", ") }
             pr.println(" ::", treeType)
             apply(pr.nest, parents)
             apply(pr.nest, meths)
+            pr
+          case MethodBinding(meth, fun) =>
+            pr.printIndent("bind ", meth, "=", fun).println(" ::", treeType)
+          case ImplDef(docs, name, params, csts, face, binds) =>
+            pr.printIndent("impl ", name)
+            printSep(params ++ csts, printTree, "[]", ", ")
+            pr.println(" ::", treeType)
+            apply(pr.nest, face)
+            apply(pr.nest, binds)
             pr
           case _ =>
             pr.printIndent(tree).println(" ::", treeType)
@@ -1009,17 +1124,17 @@ object Trees {
     out.flush()
   }
 
-  def show (expr :TermTree) :String = {
+  def show (tree :Tree) :String = {
     val str = new StringWriter()
     val out = new PrintWriter(str)
-    printExpr(expr)(new Printer(out))
+    printTree(tree)(new Printer(out))
     out.flush()
     str.toString
   }
 
-  def print (expr :TermTree) :Unit = {
+  def print (tree :Tree) :Unit = {
     val out = new PrintWriter(System.out)
-    printExpr(expr)(new Printer(out))
+    printTree(tree)(new Printer(out))
     out.println()
     out.flush()
   }

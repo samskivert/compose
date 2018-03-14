@@ -4,6 +4,8 @@
 
 package compose
 
+import java.util.HashMap
+
 /** Defines a symbol table which can be nested to match scopes. Adapted from dotc's. */
 object Scopes {
   import Names._
@@ -20,6 +22,7 @@ object Scopes {
     private var last :ScopeEntry = _
     private var size = 0
     private var buckets :Array[ScopeEntry] = null
+    private var impls :HashMap[TypeSymbol, Seq[TermSymbol]] = null
 
     /** A unique integer identifier for this scope. */
     val id = { scopeId += 1 ; scopeId }
@@ -82,6 +85,11 @@ object Scopes {
 
     // TODO: lookupAll that returns all overloads for a symbol (only for termname)
 
+    /** Returns the implementations for `face` visible in this scope. */
+    def impls (face :TypeSymbol) :Seq[TermSymbol] =
+      scopeImpls(face) ++ (if (parent == null) Seq() else parent.impls(face))
+    // TODO: should this just take the target type and return it or None?
+
     /** Creates a new scope nested under this scope. */
     def nestedScope (name :Name) :Scope = new Scope(this, name, nestingLevel+1)
 
@@ -102,6 +110,16 @@ object Scopes {
       Synonyms.get(name).map(syn => enter(syn, sym))
       sym
     }
+
+    /** Enters `impl` as an implementation for `face` into this scope. */
+    def enterImpl (face :TypeSymbol, impl :TermSymbol) :impl.type = {
+      if (impls == null) impls = new HashMap
+      impls.put(face, scopeImpls(face) :+ impl)
+      impl
+    }
+
+    private def scopeImpls (face :TypeSymbol) =
+      if (impls == null) Seq() else Option(impls.get(face)) getOrElse Seq()
 
     override def toString = s"Scope($name, $id, $nestingLevel)"
   }
