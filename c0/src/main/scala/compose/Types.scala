@@ -54,7 +54,7 @@ object Types {
     def name :TypeName = sym.name
     override def toString = name + mkString(params, "[]") + mkString(fields, "()")
   }
-  case class Field (sym :TermSymbol, tpe :Type) {
+  case class Field (sym :TermSymbol, tpe :Type) extends Type {
     def name :TermName = sym.name
     override def toString = s"$name :$tpe"
   }
@@ -224,6 +224,7 @@ object Types {
         case unionType :Union => join(typeB, typeA)
         case _ => fail // TODO
       }
+      case Field(sym, tpe) => fail
       // TODO: does this ever happen or should all applications have been processed by the time we
       // get to the point of joining a type with another?
       case Apply(ctor, params) => join(applyType(ctor, params), typeB) // TODO: is this valid?

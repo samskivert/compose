@@ -12,8 +12,10 @@ import org.junit.Assert._
 
 object TestCode {
   import Contexts._
+  import Indexer._
   import Names._
   import Parser._
+  import Trees._
 
   val out = new PrintWriter(System.out)
 
@@ -35,4 +37,11 @@ object TestCode {
   )
 
   def testContext (name :String) = moduleContext(termName(s"${name}.cz"))
+
+  def parseAndType (module :String, code :String) :Seq[Tree] = {
+    val trees = extract(program.parse(code))
+    implicit val ctx = testContext(module)
+    trees foreach index
+    trees map { tree => tree.typed() }
+  }
 }

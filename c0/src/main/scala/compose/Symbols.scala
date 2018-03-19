@@ -39,12 +39,12 @@ object Symbols {
     /** Creates a type symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
     def defineType (name :TypeName, tree :DefTree) :TypeSymbol =
-      tree.index(scope.enter(new TreeTypeSymbol(this, scope.nestedScope(name), name, tree)))
+      scope.enter(new TreeTypeSymbol(this, scope.nestedScope(name), name, tree))
 
     /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
     def defineTerm (name :TermName, tree :DefTree) :TermSymbol =
-      tree.index(scope.enter(createTerm(name, tree, _ => tree.sig)))
+      scope.enter(createTerm(name, tree, _ => tree.sig))
 
     /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
       * this symbol's scope. */
@@ -57,6 +57,8 @@ object Symbols {
       new TreeTermSymbol(this, scope.nestedScope(name), name, tree, sigFn)
 
     override def toString = s"$what $name :$info"
+    override def hashCode = System.identityHashCode(this)
+    override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]
 
     protected def what = if (isTerm) "term" else "type"
   }

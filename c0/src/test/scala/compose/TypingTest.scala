@@ -21,8 +21,12 @@ class TypingTest {
   }
 
   @Test def testBinOp () :Unit = {
-    val trees = extract(program.parse("0 + 2"))
+    val trees = extract(program.parse("""
+      fun add (a :I32, b :I32) :I32 = a
+      let foo = 0 + 2
+    """))
     implicit val ctx = testContext("binop")
+    trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
 
@@ -33,7 +37,7 @@ class TypingTest {
     fun fib (n :I32) :I32 = match n
       case 0 = 0
       case 1 = 1
-      case n = add(fib(sub(n, 2)), fib(sub(n, 1)))
+      case n = fib(n - 2) + fib(n - 1)
     """
     val trees = extract(program.parse(fib))
     implicit val ctx = testContext("fib")
@@ -120,5 +124,16 @@ class TypingTest {
     implicit val ctx = testContext("implApply")
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testParenBlock () :Unit = {
+    val code = """
+    data Foo(i :I32)
+    ({
+      let a = Foo(1), b = Foo(2)
+      if false a else b
+    }).i"""
+    val trees = parseAndType("code", code)
+    trees foreach { tree => debugTree(out)(tree) }
   }
 }

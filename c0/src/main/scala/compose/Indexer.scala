@@ -18,10 +18,10 @@ object Indexer {
     def log (tree :Tree) = { println(s"indexing ${tree.id}#${tree}") ; tree }
     def apply (sym :Symbol, tree :Tree)(implicit ctx :Context) = tree match {
       case tree @ Param(name) =>
-        ctx.owner.defineType(name, tree)
+        tree.index(ctx.owner.defineType(name, tree))
 
       case tree @ Constraint(name, params) =>
-        val implSym = ctx.owner.defineTerm(name.toTermName, tree, _ => tree.typed().tpe)
+        val implSym = tree.index(ctx.owner.defineTerm(name.toTermName, tree))
         // enter a symbol for the interface represented by this constraint, as well as any parent
         // interfaces; these will be used to resolve use of the interface methods on the type
         // variable being constrained
@@ -37,13 +37,13 @@ object Indexer {
         implSym
 
       case tree @ ArgDef(docs, name, typ) =>
-        ctx.owner.defineTerm(name, tree)
+        tree.index(ctx.owner.defineTerm(name, tree))
 
       case tree @ FieldDef(docs, name, typ) =>
-        ctx.owner.defineTerm(name, tree)
+        tree.index(ctx.owner.defineTerm(name, tree))
 
       case tree @ RecordDef(docs, name, params, fields) =>
-        val recSym = ctx.owner.defineType(name, tree)
+        val recSym = tree.index(ctx.owner.defineType(name, tree))
         val recCtx = ctx.withOwner(recSym)
         params foreach { param => apply(sym, param)(recCtx) }
         fields foreach { field => apply(sym, field)(recCtx) }
@@ -57,7 +57,7 @@ object Indexer {
         recSym
 
       case tree @ UnionDef(docs, name, params, cases) =>
-        val unionSym = ctx.owner.defineType(name, tree)
+        val unionSym = tree.index(ctx.owner.defineType(name, tree))
         val unionCtx = ctx.withOwner(unionSym)
         params foreach { param => apply(sym, param)(unionCtx) }
         // enter the cases, and lift their symbols into the same scope as the union
@@ -70,7 +70,7 @@ object Indexer {
         unionSym
 
       case tree @ FunDef(docs, name, params, csts, args, result, body) =>
-        val funSym = ctx.owner.defineTerm(name, tree)
+        val funSym = tree.index(ctx.owner.defineTerm(name, tree))
         val funCtx = ctx.withOwner(funSym)
         params foreach { param => apply(sym, param)(funCtx) }
         csts foreach { cst => apply(sym, cst)(funCtx) }
@@ -79,7 +79,7 @@ object Indexer {
 
       case tree @ FaceDef(docs, name, params, parents, meths) =>
         // augment the method declarations with the interface type vars
-        val faceSym = ctx.owner.defineType(name, tree)
+        val faceSym = tree.index(ctx.owner.defineType(name, tree))
         val faceCtx = ctx.withOwner(faceSym)
         params foreach { param => apply(sym, param)(faceCtx) }
         // enter the methods, and lift their symbols into the same scope as the interface
@@ -87,7 +87,7 @@ object Indexer {
         faceSym
 
       case tree @ ImplDef(docs, name, params, csts, face, binds) =>
-        val implSym = ctx.owner.defineTerm(name, tree)
+        val implSym = tree.index(ctx.owner.defineTerm(name, tree))
         val implCtx = ctx.withOwner(implSym)
         params foreach { param => apply(sym, param)(implCtx).asType }
 
@@ -99,7 +99,7 @@ object Indexer {
 
       case tree @ Binding(name, typ, value) =>
         // TODO: put context in let or var mode, so Binding can note mutability
-        ctx.owner.defineTerm(name, tree)
+        tree.index(ctx.owner.defineTerm(name, tree))
       case tree @ LetDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
       case tree @ VarDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
 
