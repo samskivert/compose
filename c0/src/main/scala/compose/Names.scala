@@ -70,9 +70,17 @@ object Names {
     Map(syn("not",   "!"),
         syn("eq",    "=="),
         syn("notEq", "!="),
-        syn("add",   "+"),
-        syn("sub",   "-"),
-        syn("mul",   "*"),
-        syn("div",   "/"))
+        // comparison ops
+        syn("less",      "<"),
+        syn("lessEq",    "<="),
+        syn("greater",   ">"),
+        syn("greaterEq", ">="),
+        // arithmetic ops
+        syn("add", "+"),
+        syn("sub", "-"),
+        syn("mul", "*"),
+        syn("div", "/"),
+        syn("mod", "%"),
+        )
   }
 }

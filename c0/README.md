@@ -22,27 +22,26 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 
 ### Type checking
 
+- ~~Type `ImplDef` trees.~~
+- ~~Introduce `RefTree` to bind particular symbol to reference in AST.~~
 - Actually check that types match, instead of just typing trees.
-- Type (and check) `ImplDef` trees.
-- Introduce RefTree to bind particular symbol to reference in AST.
-  - This will be needed so that we can resolve typeclass methods during typing and then save the
-    result for later interested parties (like code generation).
-- Include synthesized args for typeclass dictionaries in Arrow type. (As separate arglist?)
-- Inject (or pass along) appropriate dictionaries in FunApply.
+- Include synthesized args for typeclass dictionaries in `Arrow` type. (As separate arglist?)
+- Type pattern trees.
+- Type comprehensions.
+
+### Lowering
+
+- ~~Lower main AST to a simplified tree with no fancy features (pattern matching, monad
+  comprehensions, blocks as expressions, etc.)~~
+- ~~Make `lower` take a binding target to which to assign lowered expr instead of creating a
+  fresh ident for every subexpr~~
+- Inject (or pass along) appropriate dictionaries in `Apply`.
+- Lower pattern trees.
+- Lower comprehensions.
 
 ### Code generation
 
-- Walk the tree and generate unoptimized JavaScript.
-  - Not sure if we even care to create an intermediate representation for C0 because its only
-    purpose in life is to enable E0 to be written in something approximating C1, so it doesn't
-    need to generate especially performant code.
-
-### Pattern matcher
-
-- Type pattern trees.
-- Do codegen for pattern trees.
-  - Consider whether we want to do any lowering or optimization prior to codegen. Probably not
-    (cf. note in codegen about C0's short lifespan).
+- Walk the lowered tree and generate unoptimized JavaScript.
 
 ### Modules
 

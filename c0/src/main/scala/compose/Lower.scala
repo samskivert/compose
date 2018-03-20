@@ -28,10 +28,12 @@ object Lower {
       if (_tree == null) _tree = tree
       else fail(s"Symbol already has assigned tree: $this")
 
-    override def toString = s"$name :: {_tree}"
+    override def toString = s"$name :$sig ::${_tree}"
     override def hashCode = System.identityHashCode(this)
     override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]
   }
+
+  final val NoSymbol = new Symbol(NoName, Untyped)
 
   // Lowered trees
   sealed abstract class Tree
@@ -39,40 +41,40 @@ object Lower {
   sealed trait StmtTree extends Tree
   sealed trait DefTree extends StmtTree
 
-  abstract class Block { val stmts :Seq[StmtTree] }
-
   // defs
-  case class LetDef (ident :Symbol, value :ExprTree) extends DefTree
-  case class VarDef (ident :Symbol, value :ExprTree) extends DefTree
-  case class BareVarDef (ident :Symbol) extends DefTree
-  case class FunDef (ident :Symbol, dicts :Seq[Symbol], args :Seq[Symbol],
-                     body :Block) extends DefTree
+  case class LetDef (ident :Symbol, mut :Boolean, value :Option[ExprTree]) extends DefTree
   case class RecordDef (ident :Symbol, fields :Seq[Symbol]) extends DefTree
   case class UnionDef (ident :Symbol, cases :Seq[Symbol]) extends DefTree
+  case class FunDef (ident :Symbol, dicts :Seq[Symbol], args :Seq[Symbol],
+                     body :StmtTree) extends DefTree
 
   // expressions
   case class Literal (const :Constant) extends ExprTree
   case class IdentRef (sym :Symbol) extends ExprTree
   case class Select (expr :ExprTree, field :Symbol) extends ExprTree
-  case class Index (array :Symbol, index :Symbol) extends ExprTree
-  case class Lambda (args :Seq[Symbol], body :Block) extends ExprTree
-  case class Apply (fun :Symbol, dicts :Seq[Symbol], args :Seq[Symbol]) extends ExprTree
+  case class Index (expr :ExprTree, index :ExprTree) extends ExprTree
+  case class Lambda (args :Seq[Symbol], body :StmtTree) extends ExprTree
+  case class Apply (fun :Symbol, dicts :Seq[Symbol], args :Seq[ExprTree]) extends ExprTree
 
   // statements
+  case class Block (stmts :Seq[Tree]) extends StmtTree
   case class Assign (lhs :Symbol, value :ExprTree) extends StmtTree
   case class Return (value :ExprTree) extends StmtTree
-  case class If (cond :Symbol, ifTrue :Block, ifFalse :Block) extends StmtTree
-  case class While (cond :ExprTree, body :Block) extends StmtTree
-  case class DoWhile (body :Block, cond :ExprTree) extends StmtTree
+  case class ExprStmt (expr :ExprTree) extends StmtTree
+  case class If (cond :ExprTree, ifTrue :StmtTree, ifFalse :StmtTree) extends StmtTree
+  case class While (cond :ExprTree, body :StmtTree) extends StmtTree
+  case class DoWhile (body :StmtTree, cond :ExprTree) extends StmtTree
 
   val UnitExpr = Literal(Unit)
 
-  def lower (tree :high.Tree) :Block = {
+  def lower (trees :Seq[high.Tree]) :Seq[StmtTree] = {
     implicit val ctx = new Context()
-    val block = new MutableBlock()
-    lower(tree, block, false)
-    block
+    val bb = new BlockBuilder()
+    trees foreach { tree => lowerTree(tree, bb) }
+    bb.toStmts()
   }
+
+  def lower (tree :high.Tree) :Seq[StmtTree] = lower(Seq(tree))
 
   def print (tree :Tree) :Unit = {
     printTree(tree)(sysPrint)
@@ -80,8 +82,10 @@ object Lower {
     sysOut.flush()
   }
 
-  private class MutableBlock extends Block {
-    val stmts = ArrayBuffer[StmtTree]()
+  private class BlockBuilder {
+    private var stmts = ArrayBuffer[StmtTree]()
+    def toStmts () :Seq[StmtTree] = try stmts finally stmts = null
+    def build () :StmtTree = if (stmts.size == 1) stmts.head else Block(toStmts)
     def += (stmt :StmtTree) :Unit = stmts += stmt
   }
 
@@ -104,137 +108,138 @@ object Lower {
       finally nextIdent += 1
   }
 
-  private def hoist (block :MutableBlock)(expr :high.TermTree)
-                    (implicit ctx :Context) :Symbol = lower(expr, block, true) match {
-    case IdentRef(sym) => sym
-    case value =>
-      val argSym = ctx.freshIdent(expr.tpe)
-      block += LetDef(argSym, value)
-      argSym
+  private def lowerTree (tree :high.Tree, bb :BlockBuilder)
+                        (implicit ctx :Context) :ExprTree = tree match {
+    case tt :high.TermTree => lowerTerm(tt, bb, bindStmt)
+    case dt :high.DefTree  => fail(s"unreachable: $dt")
+    case pt :high.PatTree  => fail(s"unreachable: $pt")
+    case ct :high.CompTree => fail(s"unreachable: $ct")
+    case tt :high.TypeTree => fail(s"unreachable: $tt")
   }
 
-  private def lower (tree :high.Tree, block :MutableBlock, asExpr :Boolean)
-                    (implicit ctx :Context) :ExprTree = tree match {
+  private def lowerTerm (tree :high.TermTree, bb :BlockBuilder, target :BindTarget)
+                        (implicit ctx :Context) :ExprTree = tree match {
     case high.OmittedBody =>
       ???
     case high.Literal(const) =>
-      Literal(const)
+      // TODO: include expected type or manually represent implicit widening in lowered tree
+      target.bind(Literal(const), bb)
     case high.ArrayLiteral(values) =>
       ???
     case tree :high.IdentRef =>
-      IdentRef(ctx.sym(tree.sym))
-    case tree @ high.Select(expr, field) => tree.sym.info match {
+      target.bind(IdentRef(ctx.sym(tree.sym)), bb)
+    case tree @ high.Select(expr, field) => target.bind(tree.sym.info match {
       // TODO: whence the dictionary args
-      case arr :Arrow => Apply(ctx.sym(arr.sym), Seq(), Seq(hoist(block)(expr)))
-      case fld :Field => Select(lower(expr, block, true), ctx.sym(fld.sym))
+      case arr :Arrow => Apply(ctx.sym(arr.sym), Seq(), Seq(lowerHoist(expr, bb)))
+      case fld :Field => Select(lowerHoist(expr, bb), ctx.sym(fld.sym))
       case tpe        => fail(s"Unexpected field type: $tpe (of $tree)")
-    }
+    }, bb)
     case high.Index(expr, index) =>
-      Index(hoist(block)(expr), hoist(block)(index))
+      target.bind(Index(lowerHoist(expr, bb), lowerHoist(index, bb)), bb)
     case high.Tuple(exprs) =>
       ???
     case high.Lambda(args, body) =>
-      ???
+      // TODO: if not needs hoist then just make the expr the body
+      val bodyBB = new BlockBuilder()
+      bodyBB += Return(lowerHoist(body, bodyBB))
+      // TODO: dictionary args?
+      target.bind(Lambda(args.map(_.sym).map(ctx.sym), bodyBB.build()), bb)
     case tree @ high.FunApply(kind, fun, params, args) =>
-      // TODO: dictionary args
-      Apply(hoist(block)(fun), Seq(), args map hoist(block))
-    case high.If(cond, ifTrue, ifFalse) =>
-      val condSym = hoist(block)(cond)
-      if (asExpr) {
-        val resultSym = ctx.freshIdent(tree.tpe)
-        block += BareVarDef(resultSym)
-        val trueBlock = new MutableBlock()
-        trueBlock += Assign(resultSym, lower(ifTrue, trueBlock, true))
-        val falseBlock = new MutableBlock()
-        falseBlock += Assign(resultSym, lower(ifFalse, falseBlock, true))
-        block += If(condSym, trueBlock, falseBlock)
-        IdentRef(resultSym)
-      } else {
-        val trueBlock = new MutableBlock()
-        lower(ifTrue, trueBlock, false)
-        val falseBlock = new MutableBlock()
-        lower(ifFalse, falseBlock, false)
-        block += If(condSym, trueBlock, falseBlock)
-        UnitExpr
+      val funSym = fun match {
+        case ident :high.IdentRef => ctx.sym(ident.sym)
+        case value =>
+          val argSym = ctx.freshIdent(fun.tpe)
+          bb += LetDef(argSym, false, None)
+          lowerTerm(fun, bb, bindTo(argSym))
+          argSym
       }
+      // TODO: dictionary args
+      target.bind(Apply(funSym, Seq(), lowerHoist(args, bb)), bb)
+    case high.If(cond, ifTrue, ifFalse) =>
+      val condExpr = lowerHoist(cond, bb)
+      val trueBB = new BlockBuilder()
+      lowerTerm(ifTrue, trueBB, target.enterBlock)
+      val falseBB = new BlockBuilder()
+      // we return the result of the else block, but either is fine (they are same)
+      try lowerTerm(ifFalse, falseBB, target.enterBlock)
+      finally bb += If(condExpr, trueBB.build(), falseBB.build())
     case high.Match(cond, cases) =>
       ???
     case high.Cond(conds, elseResult) =>
-      if (asExpr) {
-        val resultSym = ctx.freshIdent(tree.tpe)
-        block += BareVarDef(resultSym)
-        def loop (block :MutableBlock, conds :Seq[high.Condition]) :Unit = {
-          val cond = conds.head
-          val condSym = hoist(block)(cond.guard)
-          val condBlock = new MutableBlock()
-          condBlock += Assign(resultSym, lower(cond.result, condBlock, true))
-          val elseBlock = new MutableBlock()
-          if (conds.size == 1) elseBlock += Assign(resultSym, lower(elseResult, elseBlock, true))
-          else loop(elseBlock, conds.tail)
-          block += If(condSym, condBlock, elseBlock)
-        }
-        loop(block, conds)
-        IdentRef(resultSym)
-      } else {
-        def loop (block :MutableBlock, conds :Seq[high.Condition]) :Unit = {
-          val cond = conds.head
-          val condSym = hoist(block)(cond.guard)
-          val condBlock = new MutableBlock()
-          lower(cond.result, condBlock, false)
-          val elseBlock = new MutableBlock()
-          if (conds.size == 1) lower(elseResult, elseBlock, false)
-          else loop(elseBlock, conds.tail)
-          block += If(condSym, condBlock, elseBlock)
-        }
-        loop(block, conds)
-        UnitExpr
+      def loop (bb :BlockBuilder, conds :Seq[high.Condition]) :ExprTree = {
+        val cond = conds.head
+        val condExpr = lowerHoist(cond.guard, bb)
+        val condBB = new BlockBuilder()
+        lowerTerm(cond.result, condBB, target.enterBlock)
+        val elseBB = new BlockBuilder()
+        try if (conds.size == 1) lowerTerm(elseResult, elseBB, target.enterBlock)
+            else loop(elseBB, conds.tail)
+        finally bb += If(condExpr, condBB.build(), elseBB.build())
       }
+      loop(bb, conds)
     case high.MonadComp(elem, clauses) =>
       ???
     case high.DefExpr(df) =>
-      lowerDef(df, block)
+      lowerDef(df, bb)
     case high.Block(exprs) =>
-      if (asExpr) {
-        val resultSym = ctx.freshIdent(tree.tpe)
-        block += BareVarDef(resultSym)
-        // TODO: we need to rename shadowed vars...
-        exprs.take(exprs.size-1) foreach { expr => lower(expr, block, false) }
-        block += Assign(resultSym, lower(exprs.last, block, true))
-        IdentRef(resultSym)
-      } else {
-        // TODO: we need to rename shadowed vars...
-        exprs.foreach { expr => lower(expr, block, false) }
-        UnitExpr
-      }
+      val nestBB = new BlockBuilder()
+      exprs.take(exprs.size-1) foreach { expr => lowerTerm(expr, nestBB, bindStmt) }
+      try lowerTerm(exprs.last, nestBB, target.enterBlock)
+      finally bb += nestBB.build()
     case tree @ high.Assign(ident, value) =>
-      block += Assign(ctx.sym(tree.sym), lower(value, block, true))
-      UnitExpr
+      lowerTerm(value, bb, bindTo(ctx.sym(tree.sym)))
     case high.While(cond, body) =>
-      ???
+      // TODO: this is not correct; if a while's conditional expression contains a nested block,
+      // we need to either hoist it into a function or replicate it before the first loop entry
+      // and at the end of the loop
+      val whileBB = new BlockBuilder()
+      lowerTerm(body, whileBB, bindStmt)
+      bb += While(lowerHoist(cond, bb), whileBB.build())
+      UnitExpr
     case high.DoWhile(body, cond) =>
-      ???
+      // TODO: this is also not correct; it's easier to make do/while support blocks in the
+      // condition expression, we just need to declare a variable outside the while body and then
+      // execute the condition at the end of the loop and assign the result to that var (note: if
+      // we ever get a `continue` statement this would have to change)
+      val whileBB = new BlockBuilder()
+      lowerTerm(body, whileBB, bindStmt)
+      bb += DoWhile(whileBB.build(), lowerHoist(cond, bb))
+      UnitExpr
     case high.For(gens, body) =>
       ???
   }
 
-  private def lowerDef (tree :high.DefTree, block :MutableBlock)
+  private def lowerDef (tree :high.DefTree, bb :BlockBuilder)
                        (implicit ctx :Context) :ExprTree = {
-    def lowerBinding (ctor :(Symbol, ExprTree) => DefTree)(bind :high.Binding) :Unit = {
-      block += ctor(ctx.sym(bind.sym), lower(bind.value, block, true))
+    def lowerBinding (mut :Boolean)(bind :high.Binding) :Unit = {
+      val bindSym = ctx.sym(bind.sym)
+      if (needsHoist(bind.value)) {
+        if (mut) {
+          bb += LetDef(bindSym, true, None)
+          lowerTerm(bind.value, bb, bindTo(bindSym))
+        } else {
+          val hoistSym = ctx.freshIdent(bind.sym.info)
+          bb += LetDef(hoistSym, true, None)
+          lowerTerm(bind.value, bb, bindTo(hoistSym))
+          bb += LetDef(bindSym, false, Some(IdentRef(hoistSym)))
+        }
+      } else {
+        bb += LetDef(bindSym, mut, Some(lowerTerm(bind.value, bb, bindNone)))
+      }
     }
     tree match {
       case high.FunDef(docs, name, params, csts, args, result, body) =>
-        val bodyBlock = new MutableBlock()
-        bodyBlock += Return(lower(body, bodyBlock, true))
+        val bodyBB = new BlockBuilder()
+        bodyBB += Return(lowerHoist(body, bodyBB)) // TODO: Return target?
         // TODO: extract closed over values and pass them as arguments
-        block += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
-                        args.map(_.sym).map(ctx.sym), bodyBlock)
+        bb += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
+                     args.map(_.sym).map(ctx.sym), bodyBB.build())
       case high.LetDef(binds) =>
-        binds foreach lowerBinding(LetDef)
+        binds foreach lowerBinding(false)
       case high.VarDef(binds) =>
-        binds foreach lowerBinding(VarDef)
+        binds foreach lowerBinding(true)
       case high.RecordDef(docs, name, args, fields) =>
-        block += RecordDef(ctx.sym(tree.sym), fields.map(_.sym).map(ctx.sym))
+        bb += RecordDef(ctx.sym(tree.sym), fields.map(_.sym).map(ctx.sym))
       case high.UnionDef(docs, name, args, cases) =>
         ???
       case high.FaceDef(docs, name, params, parents, meths) =>
@@ -248,26 +253,71 @@ object Lower {
     UnitExpr
   }
 
-  private def printSym (sym :Symbol)(implicit pr :Printer) :Unit = pr.print(sym.name)
-  private def printBlock (block :Block)(implicit pr :Printer) :Unit = {
-    pr.println("{")
-    block.stmts.foreach { stmt => printTree(stmt)(pr.nest.printIndent()) ; pr.println() }
-    pr.printIndent("}")
+  private abstract class BindTarget {
+    def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree
+    def enterBlock :BindTarget = this
   }
+  private val bindStmt :BindTarget = new BindTarget() {
+    def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree = { bb += ExprStmt(expr) ; expr }
+  }
+  private val bindNone :BindTarget = new BindTarget() {
+    def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree = expr
+    override def enterBlock = fail("Encountered block in non-binding context.")
+  }
+  private def bindFresh (tpe :Type, bb :BlockBuilder)(implicit ctx :Context) :BindTarget = {
+    val bindSym = ctx.freshIdent(tpe)
+    bb += LetDef(bindSym, true, None)
+    bindTo(bindSym)
+  }
+  private def bindTo (sym :Symbol) :BindTarget = new BindTarget() {
+    def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree = {
+      bb += Assign(sym, expr)
+      IdentRef(sym)
+    }
+  }
+
+  private def lowerHoist (expr :high.TermTree, bb :BlockBuilder)(implicit ctx :Context) :ExprTree =
+    if (needsHoist(expr)) lowerFresh(expr, bb) else lowerTerm(expr, bb, bindNone)
+
+  private def lowerHoist (exprs :Seq[high.TermTree], bb :BlockBuilder)
+                         (implicit ctx :Context) :Seq[ExprTree] =
+    if (exprs.exists(needsHoist)) {
+      exprs map { expr => lowerFresh(expr, bb) }
+    } else {
+      exprs map { expr => lowerTerm(expr, bb, bindNone) }
+    }
+
+  private def lowerFresh (expr :high.TermTree, bb :BlockBuilder)(implicit ctx :Context) :ExprTree = expr match {
+    case ident @ high.IdentRef(sym) => IdentRef(ctx.sym(ident.sym))
+    case expr => lowerTerm(expr, bb, bindFresh(expr.tpe, bb))
+  }
+
+  private def needsHoist (tree :high.TermTree) :Boolean = tree match {
+    case high.OmittedBody => false
+    case _ :high.Literal => false
+    case _ :high.ArrayLiteral => false
+    case _ :high.IdentRef => false
+    case _ :high.Lambda => false
+    case high.Select(expr, field) => needsHoist(expr)
+    case high.Index(expr, index) => needsHoist(expr) || needsHoist(index)
+    case high.Tuple(exprs) => exprs.exists(needsHoist)
+    case high.FunApply(kind, fun, params, args) => needsHoist(fun) || args.exists(needsHoist)
+    case _ => true
+  }
+
+  private def printSym (sym :Symbol)(implicit pr :Printer) :Unit = pr.print(sym.name)
   private def printTree (tree :Tree)(implicit pr :Printer) :Unit = tree match {
-    case LetDef(ident, value) =>
-      pr.print("let ", ident.name) ; pr.print(" = ") ; printTree(value)
-    case VarDef(ident, value) =>
-      pr.print("var ", ident.name) ; pr.print(" = ") ; printTree(value)
-    case BareVarDef(ident) =>
-      pr.print("var ", ident.name)
+    case LetDef(ident, mut, valopt) =>
+      pr.print(if (mut) "var " else "let ", ident.name)
+      valopt foreach { value => pr.print(" = ") ; printTree(value) }
     case FunDef(ident, dicts, args, body) =>
-      pr.print("fun ", ident.name) ; printSep(dicts, printSym, Square)
-      printSep(args, printSym, Paren) ; pr.print(" ") ; printBlock(body)
+      pr.print("fun ", ident.name)
+      if (!dicts.isEmpty) printSep(dicts, printSym, Square)
+      printSep(args, printSym, Paren) ; pr.print(" ") ; printTree(body)
     case RecordDef(ident, fields) =>
-      // TODO
+      pr.print("data ", ident.name) ; printSep(fields, printSym, Paren)
     case UnionDef(ident, cases) =>
-      // TODO
+      pr.print("data ", ident.name) ; printSep(cases, printSym, Blank, " | ")
     case Literal(const) =>
       pr.print(const)
     case IdentRef(sym) =>
@@ -275,22 +325,30 @@ object Lower {
     case Select(expr, field) =>
       printTree(expr) ; pr.print(".") ; printSym(field)
     case Index(array, index) =>
-      pr.print(array.name, "[", index.name, "]")
+      printTree(array) ; pr.print("[") ; printTree(index) ; pr.print("]")
     case Lambda(args, body) =>
-      printSep(args, printSym, Paren) ; pr.print(" => ") ; printBlock(body)
+      printSep(args, printSym, Paren) ; pr.print(" => ") ; printTree(body)
     case Apply(fun, dicts, args) =>
-      printSym(fun) ; printSep(dicts, printSym, Square) ; printSep(args, printSym, Paren)
+      printSym(fun)
+      if (!dicts.isEmpty) printSep(dicts, printSym, Square)
+      printSep(args, printTree, Paren)
+    case Block(stmts) =>
+      pr.println("{")
+      stmts.foreach { stmt => printTree(stmt)(pr.nest.printIndent()) ; pr.println() }
+      pr.printIndent("}")
     case Assign(lhs, value) =>
       printSym(lhs) ; pr.print(" = ") ; printTree(value)
     case Return(value) =>
       pr.print("return ") ; printTree(value)
+    case ExprStmt(expr) =>
+      printTree(expr)
     case If(cond, ifTrue, ifFalse) =>
-      pr.print("if (") ; printSym(cond) ; pr.print(") ") ; printBlock(ifTrue)
-      pr.print(" else ") ; printBlock(ifFalse)
+      pr.print("if (") ; printTree(cond) ; pr.print(") ") ; printTree(ifTrue)
+      pr.print(" else ") ; printTree(ifFalse)
     case While(cond, body) =>
-      pr.print("while (") ; printTree(cond) ; pr.print(") ") ; printBlock(body)
+      pr.print("while (") ; printTree(cond) ; pr.print(") ") ; printTree(body)
     case DoWhile(body, cond) =>
-      pr.print("do ") ; printBlock(body) ; pr.print(" while (") ; printTree(cond) ; pr.print(")")
+      pr.print("do ") ; printTree(body) ; pr.print(" while (") ; printTree(cond) ; pr.print(")")
   }
 
   private def fail (msg :String) :Nothing = throw new AssertionError(msg)
