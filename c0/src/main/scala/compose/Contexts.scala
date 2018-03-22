@@ -40,11 +40,11 @@ object Contexts {
   /** Creates a context for a module named `name`. */
   def moduleContext (name :TermName) = Context(newModuleSymbol(name))
 
-  /** Returns the type for (type) `ident` in the supplied `ctx`. */
+  /** Returns the type for (type) `ident` in the implied `ctx`. */
   def typeFor (ident :TypeName)(implicit ctx :Context) :Type =
     ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident)
 
-  /** Returns the type for (term) `ident` in the supplied `ctx`. */
+  /** Returns the type for (term) `ident` in the implied `ctx`. */
   def typeFor (ident :TermName)(implicit ctx :Context) :Type =
     ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident)
 }

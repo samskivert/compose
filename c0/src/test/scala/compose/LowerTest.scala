@@ -12,16 +12,7 @@ class LowerTest {
   import TestCode._
 
   @Test def testFib () :Unit = {
-    val fib = """
-    fun eq (a :I32, b :I32) :Bool = true
-    fun add (a :I32, b :I32) :I32 = 0
-    fun sub (a :I32, b :I32) :I32 = 0
-    fun fib (n :I32) :I32 = cond
-      eq(n, 0) = 0
-      eq(n, 1) = 1
-      else     = fib(n - 2) + fib(n - 1)
-    """
-    val trees = parseAndType("fib", fib)
+    val trees = parseAndType("fib", CondFib)
     lower(trees) foreach print
   }
 
@@ -55,13 +46,17 @@ class LowerTest {
   }
 
   @Test def testParenBlock () :Unit = {
-    val code = """
-    data Foo(i :I32)
-    let a = ({
-      let a = Foo(1), b = Foo(2)
-      if false a else b
-    }).i"""
-    val trees = parseAndType("code", code)
+    val trees = parseAndType("code", ParenBlock)
     lower(trees) foreach print
+  }
+
+  @Test def testApplyImpl () :Unit = {
+    val trees = parseAndType("code", ApplyImpl)
+    lower(trees) foreach print
+  }
+
+  @Test def testEq () :Unit = {
+    val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
+    lower(eqtrees) foreach print
   }
 }

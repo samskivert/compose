@@ -19,24 +19,39 @@ class TypesTest {
     Var(testSym.defineType(tname, Param(tname)), 1)
   }
 
+  def assertUnifies (constraints :Seq[(Type, Type)],
+                     expect :Seq[(Var, Type)]) = unify(constraints) match {
+    case Left(err) => fail(err.toString)
+    case Right(subs) => assertEquals(expect.toMap, subs)
+  }
+
+  def assertUnifyFails (constraints :Seq[(Type, Type)]) = unify(constraints) match {
+    case Left(err) => assertTrue(true)
+    case Right(subs) => fail(s"$constraints should not have unified to $subs")
+  }
+
   @Test def testUnify () :Unit = {
     val varA = mkVar("A")
     val varB = mkVar("B")
-    println(unify(Seq((varA, varB))))
+    assertUnifies(Seq(varA -> varB), Seq(varA -> varB))
 
     val fakeList = Union(NoType, Seq(varA), Seq())
-    println(unify(Seq(Apply(fakeList, Seq(varA)) -> Apply(fakeList, Seq(Prim.I32)))))
+    assertUnifies(Seq(Apply(fakeList, Seq(varA)) -> Apply(fakeList, Seq(Prim.I32))),
+                  Seq(varA -> Prim.I32))
 
-    val aToB = Arrow(NoTerm, Seq(), Seq(varA), varB)
-    val aToInt = Arrow(NoTerm, Seq(), Seq(varA), Prim.I32)
-    println(unify(Seq(aToB -> aToInt)))
+    val aToB = Arrow(NoTerm, Seq(), Seq(), Seq(varA), varB)
+    val aToInt = Arrow(NoTerm, Seq(), Seq(), Seq(varA), Prim.I32)
+    assertUnifies(Seq(aToB -> aToInt), Seq(varB -> Prim.I32))
 
-    val cToInt = Arrow(NoTerm, Seq(), Seq(mkVar("C")), Prim.I32)
-    println(unify(Seq(aToB -> cToInt)))
+    val varC = mkVar("C")
+    val cToInt = Arrow(NoTerm, Seq(), Seq(), Seq(varC), Prim.I32)
+    assertUnifies(Seq(aToB -> cToInt), Seq(varA -> varC, varB -> Prim.I32))
 
-    val aToBool = Arrow(NoTerm, Seq(), Seq(varA), Prim.Bool)
-    println(unify(Seq(aToB -> aToInt, aToB -> aToBool)))
+    val aToBool = Arrow(NoTerm, Seq(), Seq(), Seq(varA), Prim.Bool)
+    assertUnifyFails(Seq(aToB -> aToInt, aToB -> aToBool))
 
-    println(unify(Seq(Apply(fakeList, Seq(varA)) -> aToBool)))
+    assertUnifyFails(Seq(Apply(fakeList, Seq(varA)) -> aToBool))
+
+    assertUnifies(Seq(Array(varA) -> Array(Prim.I32)), Seq(varA -> Prim.I32))
   }
 }

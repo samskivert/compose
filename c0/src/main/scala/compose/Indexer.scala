@@ -7,6 +7,7 @@ package compose
 /** Indexes trees: enters definitions into the symbol table. */
 object Indexer {
   import Contexts._
+  import Names._
   import Symbols._
   import Trees._
   import Types._
@@ -21,20 +22,23 @@ object Indexer {
         tree.index(ctx.owner.defineType(name, tree))
 
       case tree @ Constraint(name, params) =>
-        val implSym = tree.index(ctx.owner.defineTerm(name.toTermName, tree))
+        // combine the constraint and its parameters into a name (mostly for debugging clarity, but
+        // a backend might choose to use the name as-is to name its dictionaries)
+        val dictName = termName(name + params.map(p => "$" + p).mkString)
+        val dictSym = tree.index(ctx.owner.defineTerm(dictName, tree))
         // enter a symbol for the interface represented by this constraint, as well as any parent
         // interfaces; these will be used to resolve use of the interface methods on the type
         // variable being constrained
         def enterCstImpl (tree :Constraint) :Unit = {
           val faceSym = ctx.scope.lookup(tree.name)
           if (faceSym.exists) {
-            ctx.scope.enterImpl(faceSym, implSym)
+            ctx.scope.enterImpl(faceSym, dictSym)
             faceSym.csts foreach enterCstImpl
           }
           // else: the constraint tree will be typed with Error
         }
         enterCstImpl(tree)
-        implSym
+        dictSym
 
       case tree @ ArgDef(docs, name, typ) =>
         tree.index(ctx.owner.defineTerm(name, tree))
@@ -90,6 +94,7 @@ object Indexer {
         val implSym = tree.index(ctx.owner.defineTerm(name, tree))
         val implCtx = ctx.withOwner(implSym)
         params foreach { param => apply(sym, param)(implCtx).asType }
+        csts foreach { cst => apply(sym, cst)(implCtx) }
 
         val faceName = rootTypeName(face)
         val faceSym = ctx.scope.lookup(faceName)

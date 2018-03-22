@@ -80,9 +80,12 @@ object Types {
   }
 
   // function types: I32 => I32, (String, String) => I32, [A:Ord] (a1 :A, a2 :A) => Bool
-  case class Arrow (sym :Symbol, params :Seq[Type], args :Seq[Type], result :Type) extends Type {
+  case class Arrow (
+    sym :Symbol, params :Seq[Type], csts :Seq[Type], args :Seq[Type], result :Type
+  ) extends Type {
     def name = sym.name
-    override def toString = mkString(params, "[]") + args.mkString("(", ", ", ")") + " => " + result
+    override def toString = mkString(params ++ csts, "[]") +
+      args.mkString("(", ", ", ")") + " => " + result
     override def debugString = name + toString
   }
 
@@ -172,7 +175,7 @@ object Types {
   def ctorType (tpe :Type) = tpe match {
     case Record(sym, params, fields) =>
       if (fields.isEmpty) tpe
-      else Arrow(sym, params, fields.map(_.tpe), tpe)
+      else Arrow(sym, params, Seq(), fields.map(_.tpe), tpe)
     case _ => Error(s"Cannot make constructor function for non-record type: $tpe")
   }
 
@@ -206,7 +209,7 @@ object Types {
         case _ => join(typeB, typeA)
       }
       case Array(elemA) => typeB match {
-        case Array(elemB) => Array(join(elemA, elemB))
+        case Array(elemB) => join(elemA, elemB).map(Array)
         case _ => fail
       }
       case Data(sym, kindA, bitWidthA) => typeB match {
@@ -229,7 +232,7 @@ object Types {
       // get to the point of joining a type with another?
       case Apply(ctor, params) => join(applyType(ctor, params), typeB) // TODO: is this valid?
       case Alias(source) => join(source, typeB) // TODO: is this valid?
-      case Arrow(sym, params, args, result) => fail // TODO: can we join function types?
+      case Arrow(sym, params, csts, args, result) => fail // TODO: can we join function types?
       case Lazy(tree) => join(tree.sig, typeB)
       case Interface(sym, params, methods) => fail // TODO
       case Var(sym, _) => fail
@@ -249,7 +252,7 @@ object Types {
     def vars (ps :Seq[Type]) = ps.collect { case tp :Var => tp }
     force(ctor) match {
       case Apply(_, tparams) => apply(vars(tparams))
-      case Arrow(_, tparams, _, _) => apply(vars(tparams))
+      case Arrow(_, tparams, _, _, _) => apply(vars(tparams))
       case Union(_, tparams, _) => apply(vars(tparams))
       case Record(_, tparams, _) => apply(vars(tparams))
       case Interface(_, tparams, _) => apply(vars(tparams))
@@ -258,12 +261,12 @@ object Types {
     }
   }
 
-  def subst (map :Map[Var, Type])(source :Type) :Type = source match {
+  private def subst (map :Map[Var, Type])(source :Type) :Type = source match {
     case vr@Var(_, _) => map.getOrElse(vr, vr)
     case Apply(ctor, params) => Apply(ctor, params.map(subst(map)))
     case Array(elem) => Array(subst(map)(elem))
-    case Arrow(sym, params, args, result) => Arrow(
-      sym, params.map(subst(map)), args.map(subst(map)), subst(map)(result))
+    case Arrow(sym, params, csts, args, result) => Arrow(
+      sym, params.map(subst(map)), csts.map(subst(map)), args.map(subst(map)), subst(map)(result))
     case Union(sym, params, cases) =>
       Union(sym, params.map(subst(map)), cases.map(subst(map)))
     case Record(sym, params, fields) =>
@@ -274,8 +277,8 @@ object Types {
     case _ => source
   }
 
-  def unify (constraints :Seq[(Type, Type)]) :Either[Error, Map[Var, Type]] = {
-    // println(s"unify($constraints)")
+  def unify (csts :Seq[(Type, Type)]) :Either[Error, Map[Var, Type]] = {
+    // println(s"unify($csts)")
     def bind (map :Map[Var, Type], v :Var, t :Type) = map.get(v) match {
       case None => map + (v -> t)
       case Some(ot) => map + (v -> join(t, ot))
@@ -289,11 +292,15 @@ object Types {
         else (ta, tb) match {
           case (av @ Var(a, aid), _) =>
             loop(cs.tail, if (tb.canUnify) bind(accum, av, tb) else accum)
+          case (Array(paramA), Array(paramB)) =>
+            loop(cs.tail :+ (paramA -> paramB), accum)
           case (Apply(ctorA, paramsA), Apply(ctorB, paramsB)) =>
             if (paramsA.length != paramsB.length) fail("param lists differ in length")
             else loop((cs.tail :+ (ctorA -> ctorB)) ++ (paramsA zip paramsB), accum)
-          case (Arrow(_, paramsA, argsA, resultA), Arrow(_, paramsB, argsB, resultB)) =>
+          case (Arrow(_, paramsA, cstsA, argsA, resultA),
+                Arrow(_, paramsB, cstsB, argsB, resultB)) =>
             if (!paramsA.isEmpty || !paramsB.isEmpty) fail("TODO: higher order unification?")
+            else if (!cstsA.isEmpty || !cstsB.isEmpty) fail("TODO: constraint unification?")
             else if (argsA.size != argsB.size) fail("arg lists differ in length")
             else loop(cs.tail ++ (argsA zip argsB) :+ (resultA -> resultB), accum)
           case _ => join(ta, tb) match {
@@ -302,8 +309,25 @@ object Types {
           }
         }
       }
-    loop(constraints, Map())
+    loop(csts, Map()).flatMap { subs =>
+      val errs = subs.collect { case (v, t :Error) => s"could not unify $v: ${t.msg}" }
+      if (errs.isEmpty) Right(subs)
+      else Left(Error(s"Unify failure(s): ${errs.mkString(", ")}"))
+    }
   }
+
+  def unifyApply (csts :Seq[(Type, Type)], funType :Arrow) :Type =
+    unify(csts).
+    map(sols => applyType(funType, funType.params map subst(sols))).merge
+
+  def unifyApplyMap (csts :Seq[(Type, Type)], funType :Arrow)(xf :Arrow => Type) :Type =
+    unify(csts).
+    map(sols => applyType(funType, funType.params map subst(sols)) match {
+      case arr :Arrow => xf(arr)
+      case tpe => tpe
+    }).merge
+
+  def boxedString[Type] (types :Seq[Type]) = mkString(types, "[]")
 
   private def mkString[A] (types :Seq[A], wrap :String) =
     if (types.isEmpty) "" else types.mkString(wrap.substring(0, 1), ", ", wrap.substring(1))

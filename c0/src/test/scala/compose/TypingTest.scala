@@ -31,15 +31,7 @@ class TypingTest {
   }
 
   @Test def testFib () :Unit = {
-    val fib = """
-    fun add (a :I32, b :I32) :I32 = a
-    fun sub (a :I32, b :I32) :I32 = a
-    fun fib (n :I32) :I32 = match n
-      case 0 = 0
-      case 1 = 1
-      case n = fib(n - 2) + fib(n - 1)
-    """
-    val trees = extract(program.parse(fib))
+    val trees = extract(program.parse(MatchFib))
     implicit val ctx = testContext("fib")
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
@@ -53,10 +45,7 @@ class TypingTest {
   }
 
   @Test def testData () :Unit = {
-    val data = """
-    data Ordering = LT | EQ | GT
-    """
-    val trees = extract(program.parse(data))
+    val trees = extract(program.parse(OrdData))
     implicit val ctx = testContext("data")
     trees foreach index
     println(ctx.scope.lookup(typeName("Ordering")).info)
@@ -64,10 +53,7 @@ class TypingTest {
   }
 
   @Test def testRecursiveData () :Unit = {
-    val data = """
-    data List[A] = Nil | Cons(head :A, tail :List[A])
-    """
-    val trees = extract(program.parse(data))
+    val trees = extract(program.parse(ListData))
     implicit val ctx = testContext("data")
     trees foreach index
     println(ctx.scope.lookup(typeName("List")).info)
@@ -77,63 +63,30 @@ class TypingTest {
   }
 
   @Test def testPrelude () :Unit = {
-    val trees = extract(parseCode("prelude.cz"))
-    implicit val ctx = testContext("prelude.cz")
-    trees foreach index
-    trees foreach { tree => debugTree(out)(tree.typed()) }
+    parseAndType(Seq("prelude.cz")) foreach debugTree(out)
   }
 
   @Test def testInterface () :Unit = {
-    val ptrees = extract(parseCode("prelude.cz"))
-    val eqtrees = extract(parseCode("eq.cz"))
-    implicit val ctx = testContext("eq.cz")
-    (ptrees ++ eqtrees) foreach index
-    ptrees foreach { _.typed() }
-    eqtrees foreach { tree => debugTree(out)(tree.typed()) }
+    val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
+    eqtrees foreach debugTree(out)
   }
 
   @Test def testApply () :Unit = {
-    val data = """
-    data List[A] = Nil | Cons(head :A, tail :List[A])
-    fun id[A] (a :A) :A = a
-    let a :List[I32] = Nil
-    let b = id(5)
-    let c :List[List[I32]] = Nil
-    let d :List[I32] = Cons(5, Nil)
-    let e = Cons(5, Nil), f = e.head, g = e.tail
-    """
-    val trees = extract(program.parse(data))
+    val trees = extract(program.parse(ListApply))
     implicit val ctx = testContext("data")
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
 
   @Test def testApplyImpl () :Unit = {
-    val data = """
-    interface Num[A] {
-      fun add (a0 :A, a1 :A) :A
-    }
-    fun i32Add (a :I32, b :I32) :I32 = foreign
-    impl i32Num = Num[I32](add=i32Add)
-    fun i8Add (a :I8, b :I8) :I8 = foreign
-    impl i8Num = Num[I8](add=i8Add)
-    let a = 1, b = 2
-    let c = add(a, b)
-    """
-    val trees = extract(program.parse(data))
+    val trees = extract(program.parse(ApplyImpl))
     implicit val ctx = testContext("implApply")
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
 
   @Test def testParenBlock () :Unit = {
-    val code = """
-    data Foo(i :I32)
-    ({
-      let a = Foo(1), b = Foo(2)
-      if false a else b
-    }).i"""
-    val trees = parseAndType("code", code)
+    val trees = parseAndType("code", ParenBlock)
     trees foreach { tree => debugTree(out)(tree) }
   }
 }

@@ -25,6 +25,9 @@ object Symbols {
     def isFun :Boolean = false
     def isMethod :Boolean = isFun && owner.isFace
 
+    def funArgs :Seq[ArgDef] = throw new UnsupportedOperationException(
+      s"Not a fundef symbol: $this")
+
     def map[T] (f :Symbol => T) :Option[T] = if (exists) Some(f(this)) else None
 
     /** Any "ambient" type parameters introduced by this symbol into its lexical scope. */
@@ -88,6 +91,10 @@ object Symbols {
   ) extends TermSymbol(name) {
     override def info = sigFn(tree)
     override def isFun = tree.isInstanceOf[FunDef]
+    override def funArgs = tree match {
+      case tree :FunDef => tree.args
+      case _ => super.funArgs
+    }
     override def toString = s"$what $name ($tree)"
   }
 
@@ -117,6 +124,20 @@ object Symbols {
     val owner = NoTerm
     val scope = newScope(this.name)
     override def info = Untyped
+  }
+
+  def errorTerm (msg :String) :TermSymbol = new TermSymbol(termName("<error>")) {
+    val owner = NoTerm
+    val scope = newScope(this.name)
+    override def exists :Boolean = false
+    override def info = Error(msg)
+  }
+
+  def errorType (msg :String) :TypeSymbol = new TypeSymbol(typeName("<error>")) {
+    val owner = NoTerm
+    val scope = newScope(this.name)
+    override def exists :Boolean = false
+    override def info = Error(msg)
   }
 
   // TODO: require a tree to create our module symbol? modules should eventually have a type...

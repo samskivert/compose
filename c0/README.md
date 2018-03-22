@@ -20,14 +20,19 @@ is necessary to take the next step on my path to nirvana.
 This is a somewhat high level TODO list for C0. Normally I keep this sort of thing in an
 uncommitted file in the top-level directory of a project, but this time I'll share with the class.
 
-### Type checking
+### Typing
 
 - ~~Type `ImplDef` trees.~~
 - ~~Introduce `RefTree` to bind particular symbol to reference in AST.~~
-- Actually check that types match, instead of just typing trees.
-- Include synthesized args for typeclass dictionaries in `Arrow` type. (As separate arglist?)
+- ~~Include synthesized args for typeclass dictionaries in `Arrow` type. (As separate arglist?)~~
+- Actually check that types match when typing trees.
 - Type pattern trees.
 - Type comprehensions.
+
+### Resolution
+
+- Add an `ImplThis` tree node and use it when an impl binding requires passing the impl itself to
+  the bound function.
 
 ### Lowering
 
@@ -35,11 +40,11 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
   comprehensions, blocks as expressions, etc.)~~
 - ~~Make `lower` take a binding target to which to assign lowered expr instead of creating a
   fresh ident for every subexpr~~
-- Inject (or pass along) appropriate dictionaries in `Apply`.
+- ~~Inject (or pass along) appropriate dictionaries in `Apply`.~~
 - Lower pattern trees.
 - Lower comprehensions.
 
-### Code generation
+### Codegen
 
 - Walk the lowered tree and generate unoptimized JavaScript.
 

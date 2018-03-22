@@ -13,6 +13,7 @@ object Trees {
   import Indexer._
   import Names._
   import Printing._
+  import Resolve._
   import Symbols._
   import Types._
 
@@ -126,11 +127,11 @@ object Trees {
   case class TypeArrow (args :Seq[TypeTree], ret :TypeTree) extends TypeTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val (argProtos, retProto) = proto match {
-        case Arrow(_, _, argProtos, retProto) => (argProtos, retProto)
+        case Arrow(_, _, _, argProtos, retProto) => (argProtos, retProto)
         // TODO: same as above re: error on mismatch
         case _ => (args.map(_ => Untyped), Untyped)
       }
-      Arrow(NoType, Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
+      Arrow(NoType, Seq(), Seq(), typedTypes(args, argProtos), ret.typed(retProto).tpe)
     }
     override def toString = s"${args.mkString("(", ", ", ")")} => $ret"
   }
@@ -230,11 +231,11 @@ object Trees {
     protected def computeSig (implicit ctx :Context) = {
       val fullParams = sym.owner.params ++ params
       val paramTypes = fullParams.map(_.typed().tpe)
-      csts.map(_.typed())
-      Arrow(sym, paramTypes, args.map(_.typed().tpe), result.typed().tpe)
+      val cstTypes = csts.map(_.typed().tpe)
+      Arrow(sym, paramTypes, cstTypes, args.map(_.typed().tpe), result.typed().tpe)
     }
     override protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val Arrow(_, _, _, retType) = this.sig
+      val Arrow(_, _, _, _, retType) = this.sig
       body.typed(retType)(ctx.withOwner(sym))
       sig
     }
@@ -316,14 +317,36 @@ object Trees {
     }
   }
 
-  case class MethodBinding (meth :TermName, fun :TermName) extends DefTree {
+  case class MethodBinding (meth :TermName, fun :TermName) extends RefTree {
+    private[this] var _impls = Seq[ImplTree]()
+    def impls :Seq[ImplTree] = _impls
+
     protected def computeSig (implicit ctx :Context) = Untyped
-    // TODO: check that it matches proto
-    override protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val paramTypes = ctx.owner.params.map(_.tpe)
-      applyType(typeFor(fun), paramTypes)
+    override protected def computeType (proto :Type)(implicit ctx :Context) = proto match {
+      case err :Error => err
+      case _ =>
+        val targetSym = setSym(ctx.scope.lookup(fun))
+        if (!targetSym.exists) Unknown(fun) else {
+          val tgtType = targetSym.info.asInstanceOf[Arrow]
+          // TODO: check that it matches proto (that we can join? that the types are equal modulo
+          // dictionaries after application?)
+          if (tgtType.params.isEmpty) tgtType
+          else {
+            val Arrow(protoSym, protoParams, protoCsts, protoArgs, protoResult) = proto
+            val methType = unifyApply(tgtType.args zip protoArgs, tgtType)
+            // TODO: when resolving constraints for our bound methods, we will often encounter a
+            // situation where we need to pass in `this` impl to meet a constraint; we don't want
+            // to recursively resolve it (indeed we can't without infinitely looping), so we need
+            // to tell the constraint resolution process about `this` so that it can use a special
+            // ImplThis tree to cut the Gordian knot in this case
+            _impls = resolveCsts(methType.asInstanceOf[Arrow].csts)
+            // if any impl failed to resolve, type ourselves as error
+            _impls collectFirst { case ErrorImpl(msg) => Error(msg) } getOrElse methType
+          }
+        }
     }
   }
+
   case class ImplDef (
     docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint], face :TypeTree,
     binds :Seq[MethodBinding]
@@ -337,7 +360,7 @@ object Trees {
       face.typed().tpe match {
         // our signature is a function from our parameters and constraints to our implemented
         // interface, applied to those parameters
-        case faceType :Interface => Arrow(sym, paramTypes, cstTypes, faceType)
+        case faceType :Interface => Arrow(sym, paramTypes, cstTypes, Seq(), faceType)
         case tpe => Error(s"Expected interface type, got: $tpe")
       }
     }
@@ -345,11 +368,12 @@ object Trees {
       def typedWith (implicit ctx :Context) = {
         face.typed().tpe match {
           case Interface(faceSym, faceParams, faceMeths) =>
-            def bindType (m :Method) :Type =
-              binds.find(_.meth == m.name).map(b => b.typed(m.tpe).tpe).
-              getOrElse(Error(s"Missing binding for method ${m.name}"))
-            val bindFields = faceMeths.map(m => Field(m.sym, bindType(m)))
-            Record(faceSym, faceParams, bindFields)
+            // type the bindings using the interface method types as prototypes
+            binds.foreach { bind => bind.typed(faceMeths.find(_.name == bind.meth).map(_.tpe).
+              getOrElse(Error(s"No matching interface method for impl binding '${bind.meth}'"))) }
+            def bindType (m :Method) = if (binds.exists(_.meth == m.name)) m.tpe
+                                       else Error(s"Missing binding for method ${m.name}")
+            Record(faceSym, faceParams, faceMeths.map(m => Field(m.sym, bindType(m))))
           case tpe => Error(s"Expected interface type, got: $tpe")
         }
       }
@@ -484,7 +508,7 @@ object Trees {
       // that field as a function and pass the receiver as a single argument to it
       def asReceiverFun (errmsg :String) = ctx.scope.lookup(field).info match {
         // TODO: we need to record the fun chosen here for funapply, infer args (using proto), etc.
-        case Arrow(funSym, _, _, resultType) => setSym(funSym) ; resultType
+        case Arrow(funSym, _, _, _, resultType) => setSym(funSym) ; resultType
         case _ => Error(errmsg)
       }
       // TODO: how to use prototype here? just check that we match?
@@ -530,7 +554,7 @@ object Trees {
       val lamCtx = ctx.withOwner(lamSym)
       args foreach { arg => index(arg)(lamCtx) } // index args in lambda context
       val (argProtos, retProto) = proto match {
-        case Arrow(_, _, argTypes, retType) => (argTypes, retType)
+        case Arrow(_, _, _, argTypes, retType) => (argTypes, retType)
         // TODO: fail if expected type not arrow?
         case _ => (args.map(_ => Untyped), Untyped)
       }
@@ -548,9 +572,11 @@ object Trees {
   }
   case class FunApply (kind :FunKind, fun :TermTree, params :Seq[TypeTree],
                        args :Seq[TermTree]) extends TermTree {
-    // TODO: should this just be a RefTree?
-    private[this] var _methSym = NoTerm
-    def methSym :TermSymbol = _methSym
+    private[this] var _impl :ImplTree = NoImpl
+    def impl :ImplTree = _impl
+
+    private[this] var _implArgs = Seq[ImplTree]()
+    def implArgs :Seq[ImplTree] = _implArgs
 
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       // TODO: sort out handling of foo.bar[B](baz)
@@ -584,35 +610,13 @@ object Trees {
       // val typedArgs = mapConserve(fullArgs, typedTerm)
       // FunApply(fullKind, appliedTypedFun, typedParams, typedArgs).withType(resultType)
 
-      def unifyApplyMap (csts :Seq[(Type, Type)], funType :Arrow)(xf :Arrow => Type) =
-        unify(csts).
-        map(sols => applyType(funType, funType.params map subst(sols)) match {
-          case arr :Arrow => xf(arr)
-          case tpe => tpe
-        }).merge
-
-      def resolveImpl (methSym :Symbol, appFunType :Arrow) :TermSymbol = {
-        // the first params of the appFunType will match the params of the interface
-        val faceSym = methSym.owner.asType
-        val faceParams = force(faceSym.info).asInstanceOf[Interface].params
-        val appImplParams = appFunType.params.take(faceParams.size)
-        // TODO: handle instantiating the impl fun at the proper type
-        ctx.scope.impls(faceSym).find { sym => force(sym.info) match {
-          case tpe @ Arrow(_, implParams, implCsts, Interface(_, faceParams, _)) =>
-            appImplParams == faceParams
-          case face :Interface =>
-            appImplParams == face.params
-          case tpe => println(s"Zoiks! $tpe") ; ??? // unreachable but scalac don't know it
-        }} getOrElse NoTerm
-      }
-
       // TODO: we need to look at the type constraints on the function we're calling and ensure
       // that we can resolve implementations to meet them
 
       // first resolve the raw (unapplied) fun type from the fun tree
-      val funProto = Arrow(NoTerm, Seq(), args.map(_ => Untyped), proto)
+      val funProto = Arrow(NoTerm, Seq(), Seq(), args.map(_ => Untyped), proto)
       fun.typed(funProto).tpe match {
-        case funType @ Arrow(funSym, formalParams, formalArgs, formalResult) =>
+        case funType @ Arrow(funSym, formalParams, formalCsts, formalArgs, formalResult) =>
           // next constrain the fun type based on explicit parameters and expected return type
           val applyParams = params.map(_.typed().tpe)
           val applyCsts = (formalParams zip applyParams) :+ (formalResult -> proto)
@@ -623,13 +627,20 @@ object Trees {
             // constraints generated by the typed arguments
             val cstFunCsts = applyCsts ++ (cstFunType.args zip argTypes)
             unifyApplyMap(cstFunCsts, funType) { appFunType =>
+              // retype the fun tree with this resolved and applied arrow type
               fun.retype(appFunType)
+
+              // resolve the symbols for any implementations we need to pass
+              _implArgs = resolveCsts(appFunType.csts)
+              // TODO: if any of _implArgs could not be resolved, type the apply as an error?
+
               // if this is a method application, resolve the impl via which we will obtain the
               // method (and give ourselves an error type if we cannot resolve an impl)
               if (!funSym.isMethod) appFunType.result else {
-                _methSym = resolveImpl(funSym, appFunType)
-                if (_methSym.exists) appFunType.result
-                else Error(s"Unable to resolve impl for method: ${appFunType.debugString}")
+                resolveImpl(funSym.owner.asType, appFunType.params) match {
+                  case ErrorImpl(msg) => Error(s"Unable to resolve impl for method: ${appFunType.debugString}")
+                  case impl => _impl = impl ; appFunType.result
+                }
               }
             }
           }
@@ -860,13 +871,12 @@ object Trees {
         pr.print(" {")
         meths foreach { meth => printDef(meth)(pr.println().nest) }
         pr.println().printIndent("}")
-      case MethodBinding(meth, fun) => pr.print(meth, " = ", fun)
       case ImplDef(docs, name, params, csts, parent, binds) =>
         docs.foreach { doc => pr.println(s"/// $doc") }
         pr.print("impl ", name)
         printSep(params ++ csts, printTree, Square, ", ")
         pr.print(" = ") ; printType(parent)
-        printDefList(binds, Paren)
+        printSep(binds, printExpr, Paren)
     }
     pr
   }
@@ -930,6 +940,7 @@ object Trees {
       case MonadComp(elem, clauses) =>
         pr.print("[") ; printExpr(elem) ; pr.print(" where ")
         printSep(clauses, printComp, Blank) ; pr.print("]")
+      case MethodBinding(meth, fun) => pr.print(meth, " = ", fun)
       case DefExpr(df) => printDef(df)
       case Block(exprs) =>
         pr.print("{")
@@ -1017,7 +1028,7 @@ object Trees {
             pr
           case tree @ FunApply(kind, fun, params, args) =>
             pr.printIndent("<apply>", " ::", treeType)
-            if (tree.methSym.exists) pr.print(" (via ", tree.methSym.info, ")")
+            if (tree.impl != NoImpl) pr.print(" (via ", tree.impl, ")")
             pr.println()
             apply(pr.nest, fun)
             apply(pr.nest, args)

@@ -11,13 +11,14 @@ object Lower {
   import Constants._
   import Names._
   import Printing._
+  import Resolve._
   import Types._
   import compose.{Symbols => hsym, Trees => high}
 
   // Lowering maps high symbols to low symbols (when it creates a low def tree from a high def
   // tree) and it also creates new low symbols when it hoists sub-expressions out into bindings.
 
-  class Symbol (val name :Name, val sig :Type) {
+  class Symbol (val name :Name, val sig :Type, val exists :Boolean) {
     private[this] var _tree :DefTree = _
 
     def tree :DefTree =
@@ -33,7 +34,7 @@ object Lower {
     override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]
   }
 
-  final val NoSymbol = new Symbol(NoName, Untyped)
+  final val NoSymbol = new Symbol(NoName, Untyped, false)
 
   // Lowered trees
   sealed abstract class Tree
@@ -53,8 +54,9 @@ object Lower {
   case class IdentRef (sym :Symbol) extends ExprTree
   case class Select (expr :ExprTree, field :Symbol) extends ExprTree
   case class Index (expr :ExprTree, index :ExprTree) extends ExprTree
-  case class Lambda (args :Seq[Symbol], body :StmtTree) extends ExprTree
-  case class Apply (fun :Symbol, dicts :Seq[Symbol], args :Seq[ExprTree]) extends ExprTree
+  case class Lambda (dicts :Seq[Symbol], args :Seq[Symbol], body :StmtTree) extends ExprTree
+  case class Apply (fun :ExprTree, dicts :Seq[ExprTree], args :Seq[ExprTree]) extends ExprTree
+  case class Construct (obj :Symbol, args :Seq[ExprTree]) extends ExprTree
 
   // statements
   case class Block (stmts :Seq[Tree]) extends StmtTree
@@ -97,24 +99,21 @@ object Lower {
     def sym (source :hsym.Symbol) :Symbol = {
       val low = syms.get(source)
       if (low != null) low else {
-        val newlow = new Symbol(source.name, source.info)
+        val newlow = new Symbol(source.name, source.info, source.exists)
         syms.put(source, newlow)
         newlow
       }
     }
 
     def freshIdent (tpe :Type) :Symbol =
-      try new Symbol(termName(s"$$$nextIdent"), tpe)
+      try new Symbol(termName(s"$$$nextIdent"), tpe, true)
       finally nextIdent += 1
   }
 
   private def lowerTree (tree :high.Tree, bb :BlockBuilder)
                         (implicit ctx :Context) :ExprTree = tree match {
     case tt :high.TermTree => lowerTerm(tt, bb, bindStmt)
-    case dt :high.DefTree  => fail(s"unreachable: $dt")
-    case pt :high.PatTree  => fail(s"unreachable: $pt")
-    case ct :high.CompTree => fail(s"unreachable: $ct")
-    case tt :high.TypeTree => fail(s"unreachable: $tt")
+    case _                 => fail(s"unreachable: $tree")
   }
 
   private def lowerTerm (tree :high.TermTree, bb :BlockBuilder, target :BindTarget)
@@ -130,7 +129,7 @@ object Lower {
       target.bind(IdentRef(ctx.sym(tree.sym)), bb)
     case tree @ high.Select(expr, field) => target.bind(tree.sym.info match {
       // TODO: whence the dictionary args
-      case arr :Arrow => Apply(ctx.sym(arr.sym), Seq(), Seq(lowerHoist(expr, bb)))
+      case arr :Arrow => Apply(IdentRef(ctx.sym(arr.sym)), Seq(), Seq(lowerHoist(expr, bb)))
       case fld :Field => Select(lowerHoist(expr, bb), ctx.sym(fld.sym))
       case tpe        => fail(s"Unexpected field type: $tpe (of $tree)")
     }, bb)
@@ -139,11 +138,14 @@ object Lower {
     case high.Tuple(exprs) =>
       ???
     case high.Lambda(args, body) =>
-      // TODO: if not needs hoist then just make the expr the body
-      val bodyBB = new BlockBuilder()
-      bodyBB += Return(lowerHoist(body, bodyBB))
-      // TODO: dictionary args?
-      target.bind(Lambda(args.map(_.sym).map(ctx.sym), bodyBB.build()), bb)
+      // TODO: I think this will lower wonkily, we need bindReturn...
+      val bodyStmt = if (needsHoist(body)) {
+        val bodyBB = new BlockBuilder()
+        bodyBB += Return(lowerHoist(body, bodyBB))
+        bodyBB.build()
+      } else ExprStmt(lowerTerm(body, bb, bindNone))
+      val dicts = Seq[Symbol]() // TODO: dictionary args?
+      target.bind(Lambda(dicts, args.map(_.sym).map(ctx.sym), bodyStmt), bb)
     case tree @ high.FunApply(kind, fun, params, args) =>
       val funSym = fun match {
         case ident :high.IdentRef => ctx.sym(ident.sym)
@@ -153,8 +155,11 @@ object Lower {
           lowerTerm(fun, bb, bindTo(argSym))
           argSym
       }
-      // TODO: dictionary args
-      target.bind(Apply(funSym, Seq(), lowerHoist(args, bb)), bb)
+      val funType = fun.tpe.asInstanceOf[Arrow]
+      val funExpr = if (tree.impl == NoImpl) IdentRef(funSym)
+      // TODO: if the impl is static and the method unadapted, inline it
+      else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
+      target.bind(Apply(funExpr, tree.implArgs.map(lowerImpl), lowerHoist(args, bb)), bb)
     case high.If(cond, ifTrue, ifFalse) =>
       val condExpr = lowerHoist(cond, bb)
       val trueBB = new BlockBuilder()
@@ -207,6 +212,13 @@ object Lower {
       UnitExpr
     case high.For(gens, body) =>
       ???
+    case high.MethodBinding(meth, fun) =>
+      fail(s"unreachable: $tree")
+  }
+
+  private def lowerImpl (tree :ImplTree)(implicit ctx :Context) :ExprTree = tree match {
+    case ImplRef(sym) => IdentRef(ctx.sym(sym))
+    case ImplApply(impl, args) => Apply(IdentRef(ctx.sym(impl)), Seq(), args map lowerImpl)
   }
 
   private def lowerDef (tree :high.DefTree, bb :BlockBuilder)
@@ -230,7 +242,7 @@ object Lower {
     tree match {
       case high.FunDef(docs, name, params, csts, args, result, body) =>
         val bodyBB = new BlockBuilder()
-        bodyBB += Return(lowerHoist(body, bodyBB)) // TODO: Return target?
+        bodyBB += Return(lowerHoist(body, bodyBB)) // TODO: bindReturn target?
         // TODO: extract closed over values and pass them as arguments
         bb += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
                      args.map(_.sym).map(ctx.sym), bodyBB.build())
@@ -244,13 +256,40 @@ object Lower {
         ???
       case high.FaceDef(docs, name, params, parents, meths) =>
         // TODO: extract default methods into standalone funs
-      case high.MethodBinding(meth, fun) =>
-        ???
       case high.ImplDef(docs, name, params, csts, parent, binds) =>
-        ???
+        val implSym = ctx.sym(tree.sym)
+        val Record(faceSym, _, fieldTypes) = tree.tpe
+        def ctorTree = Construct(
+          ctx.sym(faceSym),
+          fieldTypes.map(f => lowerMethod(binds.find(_.meth == f.name).get, f)))
+        // if the impl has no constraints, it's lowered into a dictionary value
+        if (csts.isEmpty) bb += LetDef(implSym, false, Some(ctorTree))
+        // otherwise it's lowered into a function from constraints to dictionary
+        else {
+          val bodyBB = new BlockBuilder()
+          bodyBB += Return(ctorTree)
+          bb += FunDef(implSym, csts.map(_.sym).map(ctx.sym), Seq(), bodyBB.build())
+        }
       case _ => fail("unreachable")
     }
     UnitExpr
+  }
+
+  private def lowerMethod (bind :high.MethodBinding, field :Field)
+                          (implicit ctx :Context) :ExprTree = {
+    val boundFun = IdentRef(ctx.sym(bind.sym))
+    // if we require no dictionaries, lower directly to the bound fun
+    if (bind.impls.isEmpty) boundFun
+    // otherwise lower to a lambda which closes over the necessary dictionaries
+    else {
+      // pull arg names from the method fundef instead of using meaningless names
+      val Arrow(methSym, methParams, methCsts, methArgs, methResult) = field.tpe
+      val lambdaSyms = (methSym.funArgs.map(_.name) zip methArgs).
+        map(nt => new Symbol(nt._1, nt._2, true))
+      val dictArgs = bind.impls map lowerImpl
+      val lambdaArgs = lambdaSyms map IdentRef
+      Lambda(Seq(), lambdaSyms, ExprStmt(Apply(boundFun, dictArgs, lambdaArgs)))
+    }
   }
 
   private abstract class BindTarget {
@@ -305,7 +344,9 @@ object Lower {
     case _ => true
   }
 
-  private def printSym (sym :Symbol)(implicit pr :Printer) :Unit = pr.print(sym.name)
+  private def printSym (sym :Symbol)(implicit pr :Printer) :Unit =
+    if (sym.exists) pr.print(sym.name) else pr.print("{!", sym, "!}")
+
   private def printTree (tree :Tree)(implicit pr :Printer) :Unit = tree match {
     case LetDef(ident, mut, valopt) =>
       pr.print(if (mut) "var " else "let ", ident.name)
@@ -326,12 +367,15 @@ object Lower {
       printTree(expr) ; pr.print(".") ; printSym(field)
     case Index(array, index) =>
       printTree(array) ; pr.print("[") ; printTree(index) ; pr.print("]")
-    case Lambda(args, body) =>
+    case Lambda(dicts, args, body) =>
+      if (!dicts.isEmpty) printSep(dicts, printSym, Square)
       printSep(args, printSym, Paren) ; pr.print(" => ") ; printTree(body)
     case Apply(fun, dicts, args) =>
-      printSym(fun)
-      if (!dicts.isEmpty) printSep(dicts, printSym, Square)
+      printTree(fun)
+      if (!dicts.isEmpty) printSep(dicts, printTree, Square)
       printSep(args, printTree, Paren)
+    case Construct(obj, args) =>
+      printSym(obj) ; printSep(args, printTree, Paren)
     case Block(stmts) =>
       pr.println("{")
       stmts.foreach { stmt => printTree(stmt)(pr.nest.printIndent()) ; pr.println() }
@@ -344,7 +388,7 @@ object Lower {
       printTree(expr)
     case If(cond, ifTrue, ifFalse) =>
       pr.print("if (") ; printTree(cond) ; pr.print(") ") ; printTree(ifTrue)
-      pr.print(" else ") ; printTree(ifFalse)
+      pr.println().printIndent("else ") ; printTree(ifFalse)
     case While(cond, body) =>
       pr.print("while (") ; printTree(cond) ; pr.print(") ") ; printTree(body)
     case DoWhile(body, cond) =>

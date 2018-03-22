@@ -11,6 +11,7 @@ object Printing {
   type Brackets = (String, String)
   val Square = ("[", "]")
   val Paren = ("(", ")")
+  val Curly = ("{", "}")
   val Blank = ("", "")
 
   class Printer (out :PrintWriter, val indent :String = "") {
