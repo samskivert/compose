@@ -156,14 +156,18 @@ object Parser {
                    ws ~ typeRef ~ ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).
     map((ImplDef.mk _).tupled)
 
-  val defExpr = P( funDef | letDef | varDef | unionDef | recordDef | faceDef | implDef ).
-    map(DefExpr)
+  val topLevelDef = P( funDef | unionDef | recordDef | faceDef | implDef ).map(DefExpr)
+  val defExpr = P( topLevelDef | letDef | varDef )
+
+  // patterns that start with an upper case letter are 'ref' (ref an existing binding),
+  // those that start with a lower case letter are 'def' (define a new binding)
+  def isRefPat (nm :TermName) = Character.isUpperCase(nm.toString.charAt(0))
 
   // patterns
-  val identPat = P( ident ).map(IdentPat)
+  val letOrIdentPat = P( ident ).map(nm => if (isRefPat(nm)) IdentPat(nm) else LetPat(nm))
   val literalPat = P( constant ).map(LiteralPat)
-  val destructPat = P( ident ~ "(" ~ pattern.rep(sep=",") ~ ")" ).map(DestructPat.tupled)
-  val pattern :P[PatTree] = P( identPat | literalPat | destructPat )
+  val destructPat = P( ident ~ "(" ~/ pattern.rep(sep=",") ~ ")" ).map(DestructPat.tupled)
+  val pattern :P[TermTree] = P( hs ~ (destructPat | letOrIdentPat | literalPat) )
 
   // expressions
   def op (glyph :String) :P[TermName] = ws ~ glyph.!.map(termName)
@@ -234,8 +238,9 @@ object Parser {
   val ifExpr = P( Key("if") ~ expr ~ expr ~ ws ~ Key("else") ~ expr ).map(If.tupled)
   // TODO: if let?
 
-  val caseClause = P( ws ~ (Key("case") ~ ws ~ pattern ~ ws ~ "=" ~ expr) ).
-    map(data => Case(data._1, None, data._2))
+  val guardClause = P( hs ~ Key("if") ~ expr ).?
+  val caseClause = P( ws ~ (Key("case") ~ pattern ~ guardClause ~ ws ~ "=" ~ expr) ).
+    map(Case.tupled)
   val matchExpr = P( Key("match") ~ expr ~ caseClause.rep(1) ).map(Match.tupled)
 
   val condEnd = P( hs ~ newline )
@@ -244,7 +249,7 @@ object Parser {
   val condExpr = P( Key("cond") ~ condClause.rep(1) ~ elseClause ).map(Cond.tupled)
 
   val generator = P( ident ~ hs ~ "<-" ~ expr ).map(Generator.tupled)
-  val compClause :P[CompTree] = P( ws ~ (generator | expr.map(Filter)) )
+  val compClause :P[TermTree] = P( ws ~ (generator | expr.map(Filter)) )
   val compExpr = P( expr ~ hs ~ Key("where") ~ compClause.rep(sep = ",") ).map(MonadComp.tupled)
 
   val pureExpr = P( lambdaExpr | pureOpExpr | blockExpr | ifExpr | matchExpr | condExpr )

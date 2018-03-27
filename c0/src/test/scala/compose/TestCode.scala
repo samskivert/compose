@@ -112,4 +112,35 @@ object TestCode {
       if false a else b
     }).value
   """
+
+  val SimpleMatch = """
+    fun add (a :I32, b :I32) :I32 = a
+    fun sub (a :I32, b :I32) :I32 = a
+    fun less (a :I32, b :I32) :Bool = false
+    let a :I32 = 5
+    let b = match a
+      case 0 = 0
+      case 1 = 1
+      case l if (l < 5) = l-1
+      case n = n+1
+  """
+
+  val DestructMatch = """
+    fun greater (a :I32, b :I32) :Bool = false
+    data JSValue = JSInt(n :I32) | JSBool(b :Bool) | JSNone
+    let foo :JSValue = JSNone
+    let bar = match foo
+      case JSInt(n) = n > 2
+      case JSBool(b) = b
+      case JSNone => false
+  """
+
+  val ParamDestructMatch = """
+    fun add (a :I32, b :I32) :I32 = a
+    data List[A] = Nil | Cons(head :A, tail :List[A])
+    let foo :List[I32] = Cons(1, Nil)
+    let bar = match foo
+      case Nil = 1
+      case Cons(h, t) = h + 1
+  """
 }

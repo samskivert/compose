@@ -21,6 +21,8 @@ object Types {
 
     def canUnify = true
 
+    def params :Seq[Type]
+
     def debugString :String = toString
   }
 
@@ -28,11 +30,13 @@ object Types {
   // (TODO: use two different sentinels?)
   case object Untyped extends Type {
     override def canUnify = false
+    override def params = Seq()
     override def toString = "<none>"
   }
 
   // literal/constant type: 1, 2e3, 'c', "pants"
   case class Const (const :Constant) extends Type {
+    override def params = Seq()
     override def toString = const.toString
   }
   // we defer giving literal expressions "real" types until we know what coercions are desired
@@ -40,12 +44,14 @@ object Types {
   // ground/opaque type: I32, Bool, etc.
   case class Data (sym :TypeSymbol, kind :Int, bitWidth :Int) extends Type {
     def name :TypeName = sym.name
+    override def params = Seq()
     override def toString = name.toString
   }
 
   // TODO: can we model array as something else? data carries no parameters, but record has
   // unnecessary fields... will we need "name + params" for any other kind of type?
   case class Array (elem :Type) extends Type {
+    override def params = Seq(elem)
     override def toString = s"Array[$elem]"
   }
 
@@ -56,6 +62,7 @@ object Types {
   }
   case class Field (sym :TermSymbol, tpe :Type) extends Type {
     def name :TermName = sym.name
+    override def params = Seq()
     override def toString = s"$name :$tpe"
   }
 
@@ -91,23 +98,27 @@ object Types {
 
   // type alias: type Foo = Bar
   case class Alias (source :Type) extends Type {
+    override def params = source.params
     override def toString = s"alias $source"
   }
 
   // type variable: the a in List[a]
   case class Var (sym :TypeSymbol, scopeId :Int) extends Type {
+    override def params = Seq()
     override def toString = s"${sym.name}$$$scopeId"
   }
 
   // lazy type reference, used to handle recursive declarations
   case class Lazy (tree :DefTree) extends Type {
     override def map (f :Type => Type) = f(tree.sig)
+    override def params = tree.sig.params
     override def toString = if (tree.hasSig) s"Lazy(${tree.sig})" else s"Lazy($tree)"
   }
 
   // an error type used to record name resolution failure
   case class Unknown (name :Name) extends Type {
     override def canUnify = false
+    override def params = Seq()
     override def map (f :Type => Type) = this
     override def toString = s"?$name"
   }
@@ -115,6 +126,7 @@ object Types {
   // an error type used to record other kinds of errors
   case class Error (msg :String) extends Type {
     override def canUnify = false
+    override def params = Seq()
     override def map (f :Type => Type) = this
   }
 
@@ -327,7 +339,7 @@ object Types {
       case tpe => tpe
     }).merge
 
-  def boxedString[Type] (types :Seq[Type]) = mkString(types, "[]")
+  def boxedString (types :Seq[_]) = mkString(types, "[]")
 
   private def mkString[A] (types :Seq[A], wrap :String) =
     if (types.isEmpty) "" else types.mkString(wrap.substring(0, 1), ", ", wrap.substring(1))

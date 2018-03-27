@@ -12,14 +12,14 @@ interface Eq[A] {
 
 fun defNotEq[A:Eq](a1 :A, a2 :A) :Bool = !eq(a1, a2)
 
-// fun voidEq (v1 :Void, v2 :Void) :Bool = true
-// impl eqVoid = Eq[Void](eq=voidEq, notEq=defNotEq)
+fun voidEq (v1 :Void, v2 :Void) :Bool = true
+impl eqVoid = Eq[Void](eq=voidEq, notEq=defNotEq)
 
-// fun unitEq (u1 :Unit, u2 :Unit) :Bool = true
-// impl eqUnit = Eq[Unit](eq=unitEq, notEq=defNotEq)
+fun unitEq (u1 :Unit, u2 :Unit) :Bool = true
+impl eqUnit = Eq[Unit](eq=unitEq, notEq=defNotEq)
 
-// fun boolEq (a :Bool, b :Bool) :Bool = foreign
-// impl eqBool = Eq[Bool](eq=boolEq, notEq=defNotEq)
+fun boolEq (a :Bool, b :Bool) :Bool = foreign
+impl eqBool = Eq[Bool](eq=boolEq, notEq=defNotEq)
 
 fun i32Eq (a :I32, b :I32) :Bool = foreign
 impl eqI32 = Eq[I32](eq=i32Eq, notEq=defNotEq)
@@ -33,6 +33,6 @@ fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
 }
 impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq, notEq=defNotEq)
 
-fun test (a1 :Array[I32], a2 :Array[I32]) :Bool = a1 == a2
+// fun test (a1 :Array[I32], a2 :Array[I32]) :Bool = a1 == a2
 
 // fun test (a1 :Array[Bool], a2 :Array[Bool]) :Bool = a1 == a2

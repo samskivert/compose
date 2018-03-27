@@ -126,9 +126,13 @@ class ParserTest {
   }
 
   @Test def testMatch () :Unit = {
-    // val caseClause = P( ws ~ (Key("case") ~ ws ~ pattern ~ ws ~ "=" ~ expr) ).
-    //   map(data => Case(data._1, None, data._2))
-    // val matchExpr = P( Key("match") ~ expr ~ caseClause.rep(1) ).map((Match.apply _).tupled)
+    testParse(LiteralPat(Constants.int("0")), pattern.parse("0"))
+    testParse(LetPat(termName("a")), pattern.parse("a"))
+    testParse(IdentPat(termName("N")), pattern.parse("N"))
+    testParse(DestructPat(termName("Cons"), Seq(LetPat(termName("h")), LetPat(termName("t")))),
+              pattern.parse("Cons(h, t)"))
+
+    // printParse(program.parse(DestructMatch))
   }
 
   @Test def testCond () :Unit = {

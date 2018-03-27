@@ -16,7 +16,8 @@ class TypesTest {
   def testSym = newModuleSymbol(termName("test"))
   def mkVar (name :String) = {
     val tname = typeName(name)
-    Var(testSym.defineType(tname, Param(tname)), 1)
+    val varSym = new TreeTypeSymbol(testSym, testSym.scope.nestedScope(tname), tname, Param(tname))
+    Var(testSym.scope.enter(varSym), 1)
   }
 
   def assertUnifies (constraints :Seq[(Type, Type)],

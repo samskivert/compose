@@ -95,6 +95,9 @@ object Lower {
     private val syms = new HashMap[hsym.Symbol, Symbol]()
     private var nextIdent = 1
 
+    // whether we're lowering a var or a let
+    var mut = false
+
     /** Returns the low sym for high sym `source`, creating one if necessary. */
     def sym (source :hsym.Symbol) :Symbol = {
       val low = syms.get(source)
@@ -113,11 +116,37 @@ object Lower {
   private def lowerTree (tree :high.Tree, bb :BlockBuilder)
                         (implicit ctx :Context) :ExprTree = tree match {
     case tt :high.TermTree => lowerTerm(tt, bb, bindStmt)
-    case _                 => fail(s"unreachable: $tree")
+    case _                 => unreachable(tree)
   }
 
   private def lowerTerm (tree :high.TermTree, bb :BlockBuilder, target :BindTarget)
                         (implicit ctx :Context) :ExprTree = tree match {
+    case tree @ high.Binding(name, tpe, value) =>
+      val bindSym = ctx.sym(tree.sym)
+      if (needsHoist(value)) {
+        if (ctx.mut) {
+          bb += LetDef(bindSym, true, None)
+          lowerTerm(value, bb, bindTo(bindSym))
+        } else {
+          val hoistSym = ctx.freshIdent(tree.sym.info)
+          bb += LetDef(hoistSym, true, None)
+          lowerTerm(value, bb, bindTo(hoistSym))
+          bb += LetDef(bindSym, false, Some(IdentRef(hoistSym)))
+        }
+      } else {
+        bb += LetDef(bindSym, ctx.mut, Some(lowerTerm(value, bb, bindNone)))
+      }
+      UnitExpr
+    case high.LetDef(binds) =>
+      binds foreach { bind => lowerTerm(bind, bb, target) }
+      UnitExpr
+    case high.VarDef(binds) =>
+      try {
+        ctx.mut = true
+        binds foreach { bind => lowerTerm(bind, bb, target) }
+        UnitExpr
+      } finally ctx.mut = false
+
     case high.OmittedBody =>
       ???
     case high.Literal(const) =>
@@ -137,6 +166,7 @@ object Lower {
       target.bind(Index(lowerHoist(expr, bb), lowerHoist(index, bb)), bb)
     case high.Tuple(exprs) =>
       ???
+
     case high.Lambda(args, body) =>
       // TODO: I think this will lower wonkily, we need bindReturn...
       val bodyStmt = if (needsHoist(body)) {
@@ -146,6 +176,7 @@ object Lower {
       } else ExprStmt(lowerTerm(body, bb, bindNone))
       val dicts = Seq[Symbol]() // TODO: dictionary args?
       target.bind(Lambda(dicts, args.map(_.sym).map(ctx.sym), bodyStmt), bb)
+
     case tree @ high.FunApply(kind, fun, params, args) =>
       val funSym = fun match {
         case ident :high.IdentRef => ctx.sym(ident.sym)
@@ -160,6 +191,7 @@ object Lower {
                     // TODO: if the impl is static and the method unadapted, inline it
                     else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
       target.bind(Apply(funExpr, tree.implArgs.map(lowerImpl), lowerHoist(args, bb)), bb)
+
     case high.If(cond, ifTrue, ifFalse) =>
       val condExpr = lowerHoist(cond, bb)
       val trueBB = new BlockBuilder()
@@ -168,8 +200,14 @@ object Lower {
       // we return the result of the else block, but either is fine (they are same)
       try lowerTerm(ifFalse, falseBB, target.enterBlock)
       finally bb += If(condExpr, trueBB.build(), falseBB.build())
-    case high.Match(cond, cases) =>
-      ???
+
+    case high.LetPat(ident) => ???
+    case high.IdentPat(ident) => ???
+    case high.LiteralPat(const) => ???
+    case high.DestructPat(ctor, binds) => ???
+    case high.Case(pattern, guard, result) => ???
+    case high.Match(cond, cases) => ???
+
     case high.Cond(conds, elseResult) =>
       def loop (bb :BlockBuilder, conds :Seq[high.Condition]) :ExprTree = {
         val cond = conds.head
@@ -182,8 +220,11 @@ object Lower {
         finally bb += If(condExpr, condBB.build(), elseBB.build())
       }
       loop(bb, conds)
-    case high.MonadComp(elem, clauses) =>
-      ???
+
+    case high.Generator(name, expr) => ???
+    case high.Filter(expr) => ???
+    case high.MonadComp(elem, clauses) => ???
+
     case high.DefExpr(df) =>
       lowerDef(df, bb)
     case high.Block(exprs) =>
@@ -212,33 +253,19 @@ object Lower {
       UnitExpr
     case high.For(gens, body) =>
       ???
-    case high.MethodBinding(meth, fun) =>
-      fail(s"unreachable: $tree")
+
+    case tree :high.MethodBinding => unreachable(tree)
+    case tree :high.Condition => unreachable(tree)
   }
 
   private def lowerImpl (tree :ImplTree)(implicit ctx :Context) :ExprTree = tree match {
     case ImplRef(sym) => IdentRef(ctx.sym(sym))
     case ImplApply(impl, args) => Apply(IdentRef(ctx.sym(impl)), Seq(), args map lowerImpl)
+    case _ => unreachable(tree)
   }
 
   private def lowerDef (tree :high.DefTree, bb :BlockBuilder)
                        (implicit ctx :Context) :ExprTree = {
-    def lowerBinding (mut :Boolean)(bind :high.Binding) :Unit = {
-      val bindSym = ctx.sym(bind.sym)
-      if (needsHoist(bind.value)) {
-        if (mut) {
-          bb += LetDef(bindSym, true, None)
-          lowerTerm(bind.value, bb, bindTo(bindSym))
-        } else {
-          val hoistSym = ctx.freshIdent(bind.sym.info)
-          bb += LetDef(hoistSym, true, None)
-          lowerTerm(bind.value, bb, bindTo(hoistSym))
-          bb += LetDef(bindSym, false, Some(IdentRef(hoistSym)))
-        }
-      } else {
-        bb += LetDef(bindSym, mut, Some(lowerTerm(bind.value, bb, bindNone)))
-      }
-    }
     tree match {
       case high.FunDef(docs, name, params, csts, args, result, body) =>
         val bodyBB = new BlockBuilder()
@@ -246,10 +273,6 @@ object Lower {
         // TODO: extract closed over values and pass them as arguments
         bb += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
                      args.map(_.sym).map(ctx.sym), bodyBB.build())
-      case high.LetDef(binds) =>
-        binds foreach lowerBinding(false)
-      case high.VarDef(binds) =>
-        binds foreach lowerBinding(true)
       case high.RecordDef(docs, name, args, fields) =>
         bb += RecordDef(ctx.sym(tree.sym), fields.map(_.sym).map(ctx.sym))
       case high.UnionDef(docs, name, args, cases) =>
@@ -270,7 +293,7 @@ object Lower {
           bodyBB += Return(ctorTree)
           bb += FunDef(implSym, csts.map(_.sym).map(ctx.sym), Seq(), bodyBB.build())
         }
-      case _ => fail("unreachable")
+      case _ => unreachable(tree)
     }
     UnitExpr
   }
@@ -396,4 +419,5 @@ object Lower {
   }
 
   private def fail (msg :String) :Nothing = throw new AssertionError(msg)
+  private def unreachable (tree :AnyRef) = fail(s"unreachable: $tree")
 }

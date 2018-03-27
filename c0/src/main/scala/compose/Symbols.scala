@@ -39,23 +39,7 @@ object Symbols {
     /** The type of the symbol, usually lazily computed. */
     def info :Type
 
-    /** Creates a type symbol owned by this symbol, with a newly nested scope and enters it into
-      * this symbol's scope. */
-    def defineType (name :TypeName, tree :DefTree) :TypeSymbol =
-      scope.enter(new TreeTypeSymbol(this, scope.nestedScope(name), name, tree))
-
-    /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
-      * this symbol's scope. */
-    def defineTerm (name :TermName, tree :DefTree) :TermSymbol =
-      scope.enter(createTerm(name, tree, _ => tree.sig))
-
-    /** Creates a term symbol owned by this symbol, with a newly nested scope and enters it into
-      * this symbol's scope. */
-    def defineTerm (name :TermName, tree :Tree, sigFn :Tree => Type) :TermSymbol =
-      scope.enter(createTerm(name, tree, sigFn))
-
-    /** Creates a term symbol owned by this symbol, with a newly nested scope, but does not enter
-      * it into this symbol's scope. */
+    /** Creates a term symbol owned by this symbol, with a newly nested scope. */
     def createTerm (name :TermName, tree :Tree, sigFn :Tree => Type) :TermSymbol =
       new TreeTermSymbol(this, scope.nestedScope(name), name, tree, sigFn)
 

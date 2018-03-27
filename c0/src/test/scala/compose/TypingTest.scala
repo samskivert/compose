@@ -89,4 +89,32 @@ class TypingTest {
     val trees = parseAndType("code", ParenBlock)
     trees foreach { tree => debugTree(out)(tree) }
   }
+
+  @Test def testBlockScope () :Unit = {
+    val trees = extract(program.parse("""
+      let foo = {
+        let bar = 3
+        bar
+      }
+      let baz = bar
+    """))
+    implicit val ctx = testContext("blockScope")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testSimpleMatch () :Unit = {
+    val trees = parseAndType("code", SimpleMatch)
+    trees foreach { tree => debugTree(out)(tree) }
+  }
+
+  @Test def testDestructMatch () :Unit = {
+    val trees = parseAndType("code", DestructMatch)
+    trees foreach { tree => debugTree(out)(tree) }
+  }
+
+  @Test def testParamDestructMatch () :Unit = {
+    val trees = parseAndType("code", ParamDestructMatch)
+    trees foreach { tree => debugTree(out)(tree) }
+  }
 }

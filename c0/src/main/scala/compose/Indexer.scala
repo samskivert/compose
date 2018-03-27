@@ -19,13 +19,13 @@ object Indexer {
     def log (tree :Tree) = { println(s"indexing ${tree.id}#${tree}") ; tree }
     def apply (sym :Symbol, tree :Tree)(implicit ctx :Context) = tree match {
       case tree @ Param(name) =>
-        tree.index(ctx.owner.defineType(name, tree))
+        tree.index(ctx.defineType(name, tree))
 
       case tree @ Constraint(name, params) =>
         // combine the constraint and its parameters into a name (mostly for debugging clarity, but
         // a backend might choose to use the name as-is to name its dictionaries)
         val dictName = termName(name + params.map(p => "$" + p).mkString)
-        val dictSym = tree.index(ctx.owner.defineTerm(dictName, tree))
+        val dictSym = tree.index(ctx.defineTerm(dictName, tree))
         // enter a symbol for the interface represented by this constraint, as well as any parent
         // interfaces; these will be used to resolve use of the interface methods on the type
         // variable being constrained
@@ -41,13 +41,13 @@ object Indexer {
         dictSym
 
       case tree @ ArgDef(docs, name, typ) =>
-        tree.index(ctx.owner.defineTerm(name, tree))
+        tree.index(ctx.defineTerm(name, tree))
 
       case tree @ FieldDef(docs, name, typ) =>
-        tree.index(ctx.owner.defineTerm(name, tree))
+        tree.index(ctx.defineTerm(name, tree))
 
       case tree @ RecordDef(docs, name, params, fields) =>
-        val recSym = tree.index(ctx.owner.defineType(name, tree))
+        val recSym = tree.index(ctx.defineType(name, tree))
         val recCtx = ctx.withOwner(recSym)
         params foreach { param => apply(sym, param)(recCtx) }
         fields foreach { field => apply(sym, field)(recCtx) }
@@ -61,7 +61,7 @@ object Indexer {
         recSym
 
       case tree @ UnionDef(docs, name, params, cases) =>
-        val unionSym = tree.index(ctx.owner.defineType(name, tree))
+        val unionSym = tree.index(ctx.defineType(name, tree))
         val unionCtx = ctx.withOwner(unionSym)
         params foreach { param => apply(sym, param)(unionCtx) }
         // enter the cases, and lift their symbols into the same scope as the union
@@ -74,7 +74,7 @@ object Indexer {
         unionSym
 
       case tree @ FunDef(docs, name, params, csts, args, result, body) =>
-        val funSym = tree.index(ctx.owner.defineTerm(name, tree))
+        val funSym = tree.index(ctx.defineTerm(name, tree))
         val funCtx = ctx.withOwner(funSym)
         params foreach { param => apply(sym, param)(funCtx) }
         csts foreach { cst => apply(sym, cst)(funCtx) }
@@ -83,7 +83,7 @@ object Indexer {
 
       case tree @ FaceDef(docs, name, params, parents, meths) =>
         // augment the method declarations with the interface type vars
-        val faceSym = tree.index(ctx.owner.defineType(name, tree))
+        val faceSym = tree.index(ctx.defineType(name, tree))
         val faceCtx = ctx.withOwner(faceSym)
         params foreach { param => apply(sym, param)(faceCtx) }
         // enter the methods, and lift their symbols into the same scope as the interface
@@ -91,7 +91,7 @@ object Indexer {
         faceSym
 
       case tree @ ImplDef(docs, name, params, csts, face, binds) =>
-        val implSym = tree.index(ctx.owner.defineTerm(name, tree))
+        val implSym = tree.index(ctx.defineTerm(name, tree))
         val implCtx = ctx.withOwner(implSym)
         params foreach { param => apply(sym, param)(implCtx).asType }
         csts foreach { cst => apply(sym, cst)(implCtx) }
@@ -101,12 +101,6 @@ object Indexer {
         if (faceSym.exists) ctx.scope.enterImpl(faceSym, implSym)
         else println(s"Cannot register impl with invalid interface '${faceName}': $faceSym")
         implSym
-
-      case tree @ Binding(name, typ, value) =>
-        // TODO: put context in let or var mode, so Binding can note mutability
-        tree.index(ctx.owner.defineTerm(name, tree))
-      case tree @ LetDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
-      case tree @ VarDef(bindings) => tree.index(NoTerm) ; foldOver(sym, tree)
 
       case _    :DefTree => throw new Exception(s"Missing DefTree case for $tree")
       case _    :Block   => sym // do not descend into nested blocks
