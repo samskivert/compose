@@ -100,7 +100,7 @@ object TestCode {
     fun i8Add (a :I8, b :I8) :I8 = 0
     impl i8Num = Num[I8](add=i8Add, add2=defAdd2)
     let a = 1, b = 2
-    let c = add(a, b)
+    let c = a + b
     fun foo[A:Num] (a :A, b :A) = defAdd2(a, b)
     let d = foo(a, b)
   """

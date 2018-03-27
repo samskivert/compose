@@ -157,8 +157,8 @@ object Lower {
       }
       val funType = fun.tpe.asInstanceOf[Arrow]
       val funExpr = if (tree.impl == NoImpl) IdentRef(funSym)
-      // TODO: if the impl is static and the method unadapted, inline it
-      else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
+                    // TODO: if the impl is static and the method unadapted, inline it
+                    else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
       target.bind(Apply(funExpr, tree.implArgs.map(lowerImpl), lowerHoist(args, bb)), bb)
     case high.If(cond, ifTrue, ifFalse) =>
       val condExpr = lowerHoist(cond, bb)

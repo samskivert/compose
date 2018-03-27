@@ -47,6 +47,7 @@ object Resolve {
         // an impl is applicable if the params of its interface type match our target params
         def faceParams (arrow :Arrow) = arrow.result.asInstanceOf[Interface].params
         def checkApply (arrow :Arrow) = if (tgtParams != faceParams(arrow)) None
+                                        else if (arrow.csts.isEmpty) Some(ImplRef(impl))
                                         else Some(ImplApply(impl, resolveCsts(arrow.csts)))
         if (arrow.params.isEmpty) checkApply(arrow)
         // if the impl is constrained, it is effectively a function from params/constraints to an
