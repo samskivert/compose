@@ -107,14 +107,20 @@ class TypingTest {
     val trees = parseAndType("code", SimpleMatch)
     trees foreach { tree => debugTree(out)(tree) }
   }
-
+  @Test def testTupleMatch () :Unit = {
+    val trees = parseAndType("code", TupleMatch)
+    trees foreach { tree => debugTree(out)(tree) }
+  }
   @Test def testDestructMatch () :Unit = {
     val trees = parseAndType("code", DestructMatch)
     trees foreach { tree => debugTree(out)(tree) }
   }
-
   @Test def testParamDestructMatch () :Unit = {
     val trees = parseAndType("code", ParamDestructMatch)
+    trees foreach { tree => debugTree(out)(tree) }
+  }
+  @Test def testGuardedMatch () :Unit = {
+    val trees = parseAndType("code", GuardedMatch)
     trees foreach { tree => debugTree(out)(tree) }
   }
 }

@@ -26,7 +26,7 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 - ~~Introduce `RefTree` to bind particular symbol to reference in AST.~~
 - ~~Include synthesized args for typeclass dictionaries in `Arrow` type. (As separate arglist?)~~
 - Actually check that types match when typing trees.
-- Type pattern trees.
+- ~~Type pattern trees.~~
 - Type comprehensions.
 
 ### Resolution
@@ -41,12 +41,12 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 - ~~Make `lower` take a binding target to which to assign lowered expr instead of creating a
   fresh ident for every subexpr~~
 - ~~Inject (or pass along) appropriate dictionaries in `Apply`.~~
-- Lower pattern trees.
+- ~~Lower pattern trees.~~
 - Lower comprehensions.
 
 ### Codegen
 
-- Walk the lowered tree and generate unoptimized JavaScript.
+- ~~Walk the lowered tree and generate unoptimized JavaScript.~~
 
 ### Modules
 

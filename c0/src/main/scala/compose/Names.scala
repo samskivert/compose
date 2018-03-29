@@ -9,9 +9,6 @@ import java.util.HashMap
 object Names {
 
   abstract class Name {
-    /** A type for methods that return `this`. */
-    type ThisName <: Name
-
     def isTypeName :Boolean
     def isTermName :Boolean
     def toTypeName :TypeName
@@ -23,8 +20,6 @@ object Names {
   }
 
   class TermName extends Name {
-    type ThisName = TermName
-
     override def isTypeName = false
     override def isTermName = true
     override lazy val toTypeName = new TypeName(this)
@@ -32,8 +27,6 @@ object Names {
   }
 
   class TypeName (term :TermName) extends Name {
-    type ThisName = TypeName
-
     override def isTypeName = true
     override def isTermName = false
     override def toTypeName = this
@@ -48,18 +41,28 @@ object Names {
 
   private val names = new HashMap[String, SimpleName]()
 
-  // poor man's interning: will fancy up later if needed
+  /** Creates a `TermName` from a `raw` string. */
   def termName (raw :String) :TermName = names.get(raw) match {
     case null =>
       assert(!raw.isEmpty, "Symbol must have non-empty name")
       val name = new SimpleName(raw)
+      // poor man's interning: will fancy up later if needed
       names.put(raw, name)
       name
     case name => name
   }
-  def typeName (raw :String) = termName(raw).toTypeName
 
+  /** Creates a `TypeName` from a `raw` string. */
+  def typeName (raw :String) :TypeName = termName(raw).toTypeName
+
+  /** Returns the (term) name of the tuple type for `rank`. */
+  def tupleName (rank :Int) :TermName = termName(s"Tuple$rank")
+
+  /** A sentinel name used for things that have no name. */
   val NoName = termName("<noname>")
+
+  /** A reserved name for ignoring parts of patterns. */
+  val IgnoreName = termName("_")
 
   // TEMP: magic built-in name for arrays... meh
   val ArrayName = typeName("Array")

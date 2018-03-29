@@ -61,7 +61,8 @@ class ParserTest {
       Literal(Constants.rawString("hello")),
       ArrayLiteral(Seq(intlit("1"), intlit("2"), intlit("3")))
     )
-    testParse(Tuple(expect), parseCode("literals.cz", parenExpr))
+    testParse(FunApply(FunKind.Normal, IdentRef(tupleName(13)), Seq(), expect),
+              parseCode("literals.cz", parenExpr))
   }
 
   @Test def testExprs () :Unit = {
@@ -132,6 +133,7 @@ class ParserTest {
     testParse(DestructPat(termName("Cons"), Seq(LetPat(termName("h")), LetPat(termName("t")))),
               pattern.parse("Cons(h, t)"))
 
+    // printParse(program.parse(TupleMatch), true)
     // printParse(program.parse(DestructMatch))
   }
 

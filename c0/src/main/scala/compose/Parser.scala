@@ -167,7 +167,9 @@ object Parser {
   val letOrIdentPat = P( ident ).map(nm => if (isRefPat(nm)) IdentPat(nm) else LetPat(nm))
   val literalPat = P( constant ).map(LiteralPat)
   val destructPat = P( ident ~ "(" ~/ pattern.rep(sep=",") ~ ")" ).map(DestructPat.tupled)
-  val pattern :P[TermTree] = P( hs ~ (destructPat | letOrIdentPat | literalPat) )
+  val tuplePat = P( "(" ~/ pattern.rep(sep=",") ~ ")" ).
+    map(pats => DestructPat(tupleName(pats.size), pats))
+  val pattern :P[TermTree] = P( hs ~ (tuplePat | destructPat | letOrIdentPat | literalPat) )
 
   // expressions
   def op (glyph :String) :P[TermName] = ws ~ glyph.!.map(termName)
@@ -182,7 +184,7 @@ object Parser {
 
   val parenExpr = P( "(" ~/ expr.rep(sep=",") ~ ws ~ ")" ).map {
     case Seq(expr) => expr
-    case exps      => Tuple(exps)
+    case exps      => FunApply(FunKind.Normal, IdentRef(tupleName(exps.size)), Seq(), exps)
   }
 
   val blockExpr = P( "{" ~/ stmt.rep(1) ~ ws ~ "}" ).map(Block)
@@ -236,8 +238,10 @@ object Parser {
   val lambdaExpr = P( (funArgs | bareArg) ~ hs ~ "=>" ~ expr ).map(Lambda.tupled)
 
   val ifExpr = P( Key("if") ~ expr ~ expr ~ ws ~ Key("else") ~ expr ).map(If.tupled)
-  // TODO: if let?
+  // TODO: binding if (if let)
 
+  // TODO: change if to 'where'; this will be nicer for guarded binding ifs:
+  // if let Foo(bar) where bar > 3 { expr }
   val guardClause = P( hs ~ Key("if") ~ expr ).?
   val caseClause = P( ws ~ (Key("case") ~ pattern ~ guardClause ~ ws ~ "=" ~ expr) ).
     map(Case.tupled)

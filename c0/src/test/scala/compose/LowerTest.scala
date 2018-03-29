@@ -59,4 +59,25 @@ class LowerTest {
     val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
     lower(eqtrees) foreach print
   }
+
+  @Test def testSimpleMatch () :Unit = {
+    val trees = parseAndType("code", SimpleMatch)
+    lower(trees) foreach print
+  }
+  @Test def testTupleMatch () :Unit = {
+    val trees = parseAndType("code", TupleMatch)
+    lower(trees) foreach print
+  }
+  @Test def testDestructMatch () :Unit = {
+    val trees = parseAndType("code", DestructMatch)
+    lower(trees) foreach print
+  }
+  @Test def testParamDestructMatch () :Unit = {
+    val trees = parseAndType("code", ParamDestructMatch)
+    lower(trees) foreach print
+  }
+  @Test def testGuardedMatch () :Unit = {
+    val trees = parseAndType("code", GuardedMatch)
+    lower(trees) foreach print
+  }
 }

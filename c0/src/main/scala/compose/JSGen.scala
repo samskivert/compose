@@ -35,7 +35,11 @@ object JSGen {
       genJS(expr).print(".") ; genSym(field)
     case Index(array, index) =>
       genJS(array).print("[") ; genJS(index).print("]")
-    // case Tuple(exprs) => genSep(exprs, Paren)
+    case Is(expr, what) =>
+      // TODO: do the right thing for tagged union tests
+      genJS(expr) ; pr.print(" === ") ; genJS(what)
+    case And(left, right) =>
+      pr.print("(") ; genJS(left) ; pr.print(" && ") ; genJS(right) ; pr.print(")")
     case Lambda(dicts, args, body) =>
       printSep(dicts ++ args, genSym, Paren).print(" => ") ; genJS(body)
     case Apply(fun, dicts, args) =>
@@ -45,10 +49,12 @@ object JSGen {
       val names = obj.sig match {
         case tpes.Interface(_, _, methods) => methods.map(_.sym.name)
         case tpes.Record(_, _, fields) => fields.map(_.sym.name)
+        case tpe => unreachable(tpe)
       }
       def printProp (nameArg :(Name, ExprTree)) = { pr.print(nameArg._1, ": ") ; genJS(nameArg._2) }
       printSep(names zip args, printProp, Curly)
-    case Block(stmts) =>
+    case Block(stmts, labelOpt) =>
+      labelOpt foreach { lbl => pr.print(s"L${lbl}: ") }
       pr.print("{")
       val npr = pr.nest
       stmts foreach { stmt => npr.println().printIndent() ; genJS(stmt)(npr) }
@@ -59,7 +65,13 @@ object JSGen {
       genSym(ident) ; pr.print(" = ") ; genJS(value) ; pr.print(";")
     case Return(value) =>
       pr.print("return ") ; genJS(value) ; pr.print(";")
-    case If(cond, ifTrue, ifFalse) =>
+    case Break(label) =>
+      pr.print(s"break L${label};")
+    case Raise(value) =>
+      pr.print("throw ") ; genJS(value) ; pr.print(";")
+    case If(cond, ifTrue) =>
+      pr.print("if (") ; genJS(cond) ; pr.print(") ") ; genJS(ifTrue)
+    case IfElse(cond, ifTrue, ifFalse) =>
       pr.print("if (") ; genJS(cond) ; pr.print(") ") ; genJS(ifTrue)
       if (isBlock(ifTrue)) pr.print(" else ") else pr.println().printIndent("else ")
       genJS(ifFalse)

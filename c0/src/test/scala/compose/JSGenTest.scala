@@ -42,4 +42,13 @@ class JSGenTest {
     sysOut.println()
     sysOut.flush()
   }
+
+  @Test def testMatches () :Unit = {
+    for (code <- Seq(SimpleMatch, TupleMatch, DestructMatch, ParamDestructMatch, GuardedMatch)) {
+      val trees = parseAndType("code", code)
+      gen(lower(trees), sysPrint)
+      sysOut.println()
+    }
+    sysOut.flush()
+  }
 }

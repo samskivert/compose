@@ -121,8 +121,14 @@ object TestCode {
     let b = match a
       case 0 = 0
       case 1 = 1
-      case l if (l < 5) = l-1
       case n = n+1
+  """
+
+  val TupleMatch = """
+    let bar = match (0, 0)
+      case (0, 0) = 0
+      case (1, 0) = 1
+      case (_, _) = 2
   """
 
   val DestructMatch = """
@@ -142,5 +148,18 @@ object TestCode {
     let bar = match foo
       case Nil = 1
       case Cons(h, t) = h + 1
+  """
+
+  val GuardedMatch = """
+    fun add (a :I32, b :I32) :I32 = a
+    fun eq (a :I32, b :I32) :Bool = true
+    data List[A] = Nil | Cons(head :A, tail :List[A])
+    let foo :List[I32] = Cons(1, Nil)
+    let bar = match foo
+      case Nil = 1
+      case l if (false) = 2
+      case Cons(h, t) if (h == 1) = 3
+      case Cons(h, t) = 4
+      case l = 5
   """
 }

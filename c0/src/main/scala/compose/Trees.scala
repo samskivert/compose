@@ -259,7 +259,7 @@ object Trees {
   }
 
   case class UnionDef (
-    docs :Seq[String], name :TypeName, params :Seq[Param], cases :Seq[DefTree]
+    docs :Seq[String], name :TypeName, params :Seq[Param], cases :Seq[RecordDef]
   ) extends DefTree {
     override def defParams = params
     protected def computeSig (implicit ctx :Context) = {
@@ -497,18 +497,6 @@ object Trees {
     }
   }
 
-  case class Tuple (exprs :Seq[TermTree]) extends TermTree {
-    protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val elemTypes = proto match {
-        // TODO: fail if record name does not match tuple? (adapt?)
-        case Record(_, _, fields) => fields.map(_.tpe)
-        // TODO: fail if we don't expect a Tuple type?
-        case _ => exprs.map(_ => Untyped)
-      }
-      applyType(Prim.tuple(exprs.size), typedTypes(exprs, elemTypes))
-    }
-  }
-
   case class Lambda (args :Seq[ArgDef], body :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val lamSym = ctx.owner.createTerm(NoName, this, _ => Untyped) // TODO: synthesize lambda name
@@ -530,6 +518,7 @@ object Trees {
     case object UnOp extends FunKind
     case object BinOp extends FunKind
     case object Receiver extends FunKind
+    // TODO: Tuple type, which we'd use to omit TupleN name when printing?
   }
   case class FunApply (kind :FunKind, fun :TermTree, params :Seq[TypeTree],
                        args :Seq[TermTree]) extends TermTree {
@@ -623,7 +612,6 @@ object Trees {
   // different AST node for that...
   case class LetPat (ident :TermName) extends LocalDefTree {
     override protected def computeType (proto :Type)(implicit ctx :Context) = {
-      println(s"LetPat.computeType ${ctx.owner} ++ $ident => $proto")
       setSym(ctx.defineTerm(ident, this, _ => proto))
       proto
     }
@@ -647,7 +635,7 @@ object Trees {
   }
   case class DestructPat (ctor :TermName, binds :Seq[TermTree]) extends RefTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val recSym = ctx.scope.lookup(ctor.toTypeName)
+      val recSym = setSym(ctx.scope.lookup(ctor.toTypeName))
       // TODO: error if record has parameters and proto provides none & vice versa
       val recType = if (proto.params.isEmpty) recSym.info
                     else applyType(recSym.info, proto.params)
@@ -747,7 +735,7 @@ object Trees {
   def tupleTree (rank :Int) :Tree = {
     val paramNames = 1 to rank map { n => typeName(s"T$n") }
     val fields = 1 to rank map { n => FieldDef(Seq(), termName(s"_$n"), TypeRef(paramNames(n-1))) }
-    RecordDef(Seq(), typeName(s"Tuple$rank"), paramNames map Param, fields)
+    RecordDef(Seq(), tupleName(rank).toTypeName, paramNames map Param, fields)
   }
 
   //
@@ -796,7 +784,6 @@ object Trees {
       case IdentRef(ident) => t
       case Select(expr, field) => apply(t, expr)
       case Index(expr, index) => apply(apply(t, expr), index)
-      case Tuple(exprs) => apply(t, exprs)
       case Lambda(args, body) => apply(apply(t, args), body)
       case FunApply(kind, fun, params, args) => apply(apply(apply(t, fun), params), args)
       case If(cond, ifTrue, ifFalse) => apply(apply(apply(t, cond), ifTrue), ifFalse)
@@ -921,7 +908,6 @@ object Trees {
       case IdentRef (ident) => pr.print(ident)
       case Select(expr, field) => printTerm(expr).print(".", field)
       case Index(expr, index) => printTerm(expr).print("@") ; printTerm(index)
-      case Tuple(exprs) => printTuple(exprs)
 
       case Lambda(args, body) =>
         if (args.size == 1) printDef(args(0))
@@ -1074,10 +1060,6 @@ object Trees {
             apply(pr.nest, cond)
             apply(pr.nest, cases)
             pr
-          case Tuple(exprs) =>
-            pr.printIndent(s"<tuple${exprs.size}>").println(" ::", treeType)
-            apply(pr.nest, exprs)
-            pr
           case If(cond, ifTrue, ifFalse) =>
             pr.printIndent(s"<if> ::", treeType).println()
             apply(pr.nest, cond)
@@ -1183,6 +1165,4 @@ object Trees {
     sysOut.println()
     sysOut.flush()
   }
-
-  private def fail (msg :String) :Nothing = throw new AssertionError(msg)
 }
