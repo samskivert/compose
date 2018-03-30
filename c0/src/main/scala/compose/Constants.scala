@@ -13,7 +13,7 @@ object Constants {
   final val FloatTag = 4
   final val CharTag = 5
   final val StringTag = 6
-  final val RawStringTag = 7
+  final val RawStrTag = 7
 
   val Unit = Constant(UnitTag, "")
   val True = Constant(BoolTag, "true")
@@ -26,7 +26,7 @@ object Constants {
   def float (value :String) = Constant(FloatTag, value)
   def char (value :String) = Constant(CharTag, value)
   def string (value :String) = Constant(StringTag, value)
-  def rawString (value :String) = Constant(RawStringTag, value)
+  def rawString (value :String) = Constant(RawStrTag, value)
 
   case class Constant (tag :Int, value :String) {
     lazy val minWidth :Int = tag match {
@@ -36,13 +36,13 @@ object Constants {
       case CharTag  => 16 // TODO
       case _        => 0
     }
-    def kind = if (tag == RawStringTag) StringTag else tag
+    def kind = if (tag == RawStrTag) StringTag else tag
     override def toString = tag match {
       case VoidTag => "<void>"
       case UnitTag => "()"
       case CharTag => s"'${value}'"
       case StringTag => '"' + value + '"'
-      case RawStringTag => s"`${value}`'"
+      case RawStrTag => s"`${value}`'"
       case _ => value
     }
   }

@@ -11,13 +11,12 @@ class LowerTest {
   import Lower._
   import TestCode._
 
-  @Test def testFib () :Unit = {
-    val trees = parseAndType("fib", CondFib)
-    lower(trees) foreach print
-  }
+  def lowerCode (code :String) = lower(parseAndType("code", code))
 
-  @Test def testBindBlock () :Unit = {
-    val code = """
+  @Test def testCondFib () :Unit = lowerCode(CondFib) foreach print
+  @Test def testMatchFib () :Unit = lowerCode(MatchFib) foreach print
+
+  @Test def testBindBlock () :Unit = lowerCode("""
     fun add (a :I32, b :I32) :I32 = 0
     fun less (a :I32, b :I32) :Bool = false
     var a = if true 1 else 2
@@ -29,55 +28,29 @@ class LowerTest {
       let a = 1
       a + a
     }
-    """
-    val trees = parseAndType("code", code)
-    lower(trees) foreach print
-  }
+  """) foreach print
 
-  @Test def testIgnore () :Unit = {
-    val code = """
+  @Test def testIgnore () :Unit = lowerCode("""
     fun less (a :I32, b :I32) :Bool = false
     fun add (a :I32, b :I32) :I32 = 0
     var ii = 0
     while (ii < 10) ii = ii + (if (ii < 5) 1 else 2)
-    """
-    val trees = parseAndType("code", code)
-    lower(trees) foreach print
-  }
+  """) foreach print
 
-  @Test def testParenBlock () :Unit = {
-    val trees = parseAndType("code", ParenBlock)
-    lower(trees) foreach print
-  }
+  @Test def testParenBlock () :Unit = lowerCode(ParenBlock) foreach print
 
-  @Test def testApplyImpl () :Unit = {
-    val trees = parseAndType("code", ApplyImpl)
-    lower(trees) foreach print
-  }
+  @Test def testApplyImpl () :Unit = lowerCode(ApplyImpl) foreach print
 
   @Test def testEq () :Unit = {
     val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
     lower(eqtrees) foreach print
   }
 
-  @Test def testSimpleMatch () :Unit = {
-    val trees = parseAndType("code", SimpleMatch)
-    lower(trees) foreach print
-  }
-  @Test def testTupleMatch () :Unit = {
-    val trees = parseAndType("code", TupleMatch)
-    lower(trees) foreach print
-  }
-  @Test def testDestructMatch () :Unit = {
-    val trees = parseAndType("code", DestructMatch)
-    lower(trees) foreach print
-  }
-  @Test def testParamDestructMatch () :Unit = {
-    val trees = parseAndType("code", ParamDestructMatch)
-    lower(trees) foreach print
-  }
-  @Test def testGuardedMatch () :Unit = {
-    val trees = parseAndType("code", GuardedMatch)
-    lower(trees) foreach print
-  }
+  @Test def testSimpleMatch () :Unit = lowerCode(SimpleMatch) foreach print
+  @Test def testTupleMatch () :Unit = lowerCode(TupleMatch) foreach print
+  @Test def testDestructMatch () :Unit = lowerCode(DestructMatch) foreach print
+  @Test def testParamDestructMatch () :Unit = lowerCode(ParamDestructMatch) foreach print
+  @Test def testGuardedMatch () :Unit = lowerCode(GuardedMatch) foreach print
+
+  @Test def testForeignOps () :Unit = lowerCode(ForeignOps) foreach print
 }

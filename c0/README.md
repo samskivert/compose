@@ -47,6 +47,7 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 ### Codegen
 
 - ~~Walk the lowered tree and generate unoptimized JavaScript.~~
+- ~~Wire up some kind of JavaScript FFI~~
 
 ### Modules
 

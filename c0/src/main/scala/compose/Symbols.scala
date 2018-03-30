@@ -104,6 +104,7 @@ object Symbols {
     override def info = Untyped
   }
 
+  // NOTE: Types defines primitives in the root symbol's scope; see Types.Prim
   def rootSymbol :TermSymbol = new TermSymbol(termName("<root>")) {
     val owner = NoTerm
     val scope = newScope(this.name)

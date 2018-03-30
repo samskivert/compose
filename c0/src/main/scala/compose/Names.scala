@@ -64,7 +64,7 @@ object Names {
   /** A reserved name for ignoring parts of patterns. */
   val IgnoreName = termName("_")
 
-  // TEMP: magic built-in name for arrays... meh
+  // magic built-in name for arrays... meh
   val ArrayName = typeName("Array")
 
   // hacky approach to having functions implement operators

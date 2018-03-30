@@ -13,15 +13,17 @@ class JSGenTest {
   import Printing._
   import TestCode._
 
-  @Test def testFib () :Unit = {
-    val trees = parseAndType("fib", CondFib)
+  def genCode (code :String) :Unit = {
+    val trees = parseAndType("code", code)
     gen(lower(trees), sysPrint)
     sysOut.println()
     sysOut.flush()
   }
 
-  @Test def testIgnore () :Unit = {
-    val code = """
+  @Test def testCondFib () :Unit = genCode(CondFib)
+  @Test def testMatchFib () :Unit = genCode(MatchFib)
+
+  @Test def testIgnore () :Unit = genCode("""
     fun less (a :I32, b :I32) :Bool = false
     fun add (a :I32, b :I32) :I32 = 0
     var ii = 0
@@ -29,26 +31,10 @@ class JSGenTest {
       add(1, 2)
       ii = ii + (if (ii < 5) 1 else 2)
     }
-    """
-    val trees = parseAndType("code", code)
-    gen(lower(trees), sysPrint)
-    sysOut.println()
-    sysOut.flush()
-  }
+  """)
 
-  @Test def testApplyImpl () :Unit = {
-    val trees = parseAndType("code", ApplyImpl)
-    gen(lower(trees), sysPrint)
-    sysOut.println()
-    sysOut.flush()
-  }
+  @Test def testApplyImpl () :Unit = genCode(ApplyImpl)
 
-  @Test def testMatches () :Unit = {
-    for (code <- Seq(SimpleMatch, TupleMatch, DestructMatch, ParamDestructMatch, GuardedMatch)) {
-      val trees = parseAndType("code", code)
-      gen(lower(trees), sysPrint)
-      sysOut.println()
-    }
-    sysOut.flush()
-  }
+  @Test def testMatches () :Unit =
+    Seq(SimpleMatch, TupleMatch, DestructMatch, ParamDestructMatch, GuardedMatch) foreach genCode
 }

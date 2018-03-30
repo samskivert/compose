@@ -53,9 +53,9 @@ object TestCode {
   }
 
   val CondFib = """
-    fun eq (a :I32, b :I32) :Bool = true
-    fun add (a :I32, b :I32) :I32 = 0
-    fun sub (a :I32, b :I32) :I32 = 0
+    fun eq (a :I32, b :I32) :Bool = foreign("return a === b")
+    fun add (a :I32, b :I32) :I32 = foreign("return a + b")
+    fun sub (a :I32, b :I32) :I32 = foreign("return a - b")
     fun fib (n :I32) :I32 = cond
       eq(n, 0) = 0
       eq(n, 1) = 1
@@ -63,12 +63,12 @@ object TestCode {
   """
 
   val MatchFib = """
-    fun add (a :I32, b :I32) :I32 = a
-    fun sub (a :I32, b :I32) :I32 = a
+    fun add (a :I32, b :I32) :I32 = foreign("return a + b")
+    fun sub (a :I32, b :I32) :I32 = foreign("return a - b")
     fun fib (n :I32) :I32 = match n
       case 0 = 0
       case 1 = 1
-      case n = fib(n - 2) + fib(n - 1)
+      case _ = fib(n - 2) + fib(n - 1)
   """
 
   val OrdData = """
@@ -161,5 +161,10 @@ object TestCode {
       case Cons(h, t) if (h == 1) = 3
       case Cons(h, t) = 4
       case l = 5
+  """
+
+  val ForeignOps = """
+    fun not (a :Bool) :Bool = foreign("return !a")
+    fun length[A] (as :Array[A]) :I32 = foreign("return as.length")
   """
 }

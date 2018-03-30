@@ -71,6 +71,7 @@ object Lower {
   case class IfElse (cond :ExprTree, ifTrue :StmtTree, ifFalse :StmtTree) extends StmtTree
   case class While (cond :ExprTree, body :StmtTree) extends StmtTree
   case class DoWhile (body :StmtTree, cond :ExprTree) extends StmtTree
+  case class Foreign (body :String) extends StmtTree
 
   val UnitExpr = Literal(Unit)
 
@@ -177,10 +178,9 @@ object Lower {
       target.bind(Index(lowerHoist(expr, bb), lowerHoist(index, bb)), bb)
 
     case high.Lambda(args, body) =>
-      // TODO: I think this will lower wonkily, we need bindReturn...
       val bodyStmt = if (needsHoist(body)) {
         val bodyBB = new BlockBuilder()
-        bodyBB += Return(lowerHoist(body, bodyBB))
+        lowerTerm(body, bodyBB, bindReturn)
         bodyBB.build()
       } else ExprStmt(lowerTerm(body, bb, bindNone))
       val dicts = Seq[Symbol]() // TODO: dictionary args?
@@ -195,11 +195,19 @@ object Lower {
           lowerTerm(fun, bb, bindTo(argSym))
           argSym
       }
-      val funType = fun.tpe.asInstanceOf[Arrow]
-      val funExpr = if (tree.impl == NoImpl) IdentRef(funSym)
-                    // TODO: if the impl is static and the method unadapted, inline it
-                    else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
-      target.bind(Apply(funExpr, tree.implArgs.map(lowerImpl), lowerHoist(args, bb)), bb)
+      if (funSym == ctx.sym(Prim.foreign)) {
+        assert(args.size == 1)
+        val arg = args(0).asInstanceOf[high.Literal]
+        assert(arg.const.tag == StringTag) // TODO: raw string tag?
+        bb += Foreign(arg.const.value)
+        UnitExpr
+      } else {
+        val funType = fun.tpe.asInstanceOf[Arrow]
+        val funExpr = if (tree.impl == NoImpl) IdentRef(funSym)
+                      // TODO: if the impl is static and the method unadapted, inline it
+                      else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))
+        target.bind(Apply(funExpr, tree.implArgs.map(lowerImpl), lowerHoist(args, bb)), bb)
+      }
 
     case high.If(cond, ifTrue, ifFalse) =>
       val condExpr = lowerHoist(cond, bb)
@@ -283,7 +291,7 @@ object Lower {
     tree match {
       case high.FunDef(docs, name, params, csts, args, result, body) =>
         val bodyBB = new BlockBuilder()
-        bodyBB += Return(lowerHoist(body, bodyBB)) // TODO: bindReturn target?
+        lowerTerm(body, bodyBB, bindReturn)
         // TODO: extract closed over values and pass them as arguments
         bb += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
                      args.map(_.sym).map(ctx.sym), bodyBB.build())
@@ -381,12 +389,14 @@ object Lower {
           val guardExp = lowerHoist(guard, caseBB)
           val ifBB = new BlockBuilder()
           lowerTerm(cse.result, ifBB, target)
-          ifBB += Break(matchLabel)
+          // if we're returning the result, no need to break
+          if (target != bindReturn) ifBB += Break(matchLabel)
           caseBB += If(guardExp, ifBB.build())
         case None =>
           if (tests.isEmpty) fullyMatched = true
           lowerTerm(cse.result, caseBB, target)
-          caseBB += Break(matchLabel)
+          // if we're returning the result, no need to break
+          if (target != bindReturn) caseBB += Break(matchLabel)
       }
       if (tests.isEmpty) matchBB += caseBB.build()
       else matchBB += If(tests reduce And, caseBB.build())
@@ -394,7 +404,8 @@ object Lower {
 
     if (!fullyMatched) matchBB += ExprStmt(Raise(Literal(string("match error"))))
 
-    bb += matchBB.build(Some(matchLabel))
+    // if we're returning our result, we don't need to label the block
+    bb += matchBB.build(if (target == bindReturn) None else Some(matchLabel))
     UnitExpr
   }
 
@@ -408,6 +419,9 @@ object Lower {
   private val bindNone :BindTarget = new BindTarget() {
     def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree = expr
     override def enterBlock = fail("Encountered block in non-binding context.")
+  }
+  private val bindReturn :BindTarget = new BindTarget() {
+    def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree = { bb += Return(expr) ; UnitExpr }
   }
   private def bindFresh (tpe :Type, bb :BlockBuilder)(implicit ctx :Context) :BindTarget = {
     val bindSym = ctx.freshIdent(tpe)
@@ -510,5 +524,7 @@ object Lower {
       pr.print("while (") ; printTree(cond) ; pr.print(") ") ; printTree(body)
     case DoWhile(body, cond) =>
       pr.print("do ") ; printTree(body) ; pr.print(" while (") ; printTree(cond) ; pr.print(")")
+    case Foreign(body) =>
+      pr.print("ffi(", body, ")")
   }
 }

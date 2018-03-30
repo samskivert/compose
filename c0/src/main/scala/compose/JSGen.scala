@@ -18,14 +18,14 @@ object JSGen {
 
   private def genJS (tree :Tree)(implicit pr :Printer) :Printer = tree match {
     case Literal(const) => const.tag match {
-      case VoidTag => pr.print("undefined")
-      case UnitTag => pr.print("{}")
-      case BoolTag => pr.print(const.value)
-      case IntTag => pr.print(const.value) // TODO: syntax conversion?
-      case FloatTag => pr.print(const.value) // TODO: syntax conversion?
-      case CharTag => pr.print(s"'${const.value}'.charAt(0)")
+      case VoidTag   => pr.print("undefined")
+      case UnitTag   => pr.print("{}")
+      case BoolTag   => pr.print(const.value)
+      case IntTag    => pr.print(const.value) // TODO: syntax conversion?
+      case FloatTag  => pr.print(const.value) // TODO: syntax conversion?
+      case CharTag   => pr.print(s"'${const.value}'.charAt(0)")
       case StringTag => pr.print('"' + const.value + '"')
-      case RawStringTag => pr.print(s"`${const.value}`'")
+      case RawStrTag => pr.print(s"`${const.value}`'")
     }
     // case ArrayLiteral(values) =>
     //   pr.print(s"todo($tree)")
@@ -79,6 +79,8 @@ object JSGen {
       pr.print("while (") ; genJS(cond) ; pr.print(") ") ; genJS(body)
     case DoWhile(body, cond) =>
       pr.print("do ") ; genJS(body) ; pr.print(" while (") ; genJS(cond) ; pr.print(")")
+    case Foreign(body) =>
+      pr.print(body)
 
     case LetDef(ident, mut, valopt) =>
       pr.print(if (mut) "let " else "const ") ; genSym(ident)

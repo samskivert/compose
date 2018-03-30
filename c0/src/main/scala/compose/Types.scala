@@ -130,21 +130,22 @@ object Types {
     override def map (f :Type => Type) = this
   }
 
-  // TEMP: some built-in primitive types
+  // some built-in primitive types
   object Prim {
     val sym = Symbols.rootSymbol
     implicit val ctx = Context(sym)
 
-    val Void   = primitive("Void", VoidTag,   0)
-    val Unit   = primitive("Unit", UnitTag,   0)
-    val Bool   = primitive("Bool", BoolTag,   1)
-    val I8     = primitive("I8",   IntTag,    8)
-    val I16    = primitive("I16",  IntTag,   16)
-    val I32    = primitive("I32",  IntTag,   32)
-    val I64    = primitive("I64",  IntTag,   64)
-    val F32    = primitive("F32",  FloatTag, 32)
-    val F64    = primitive("F64",  FloatTag, 64)
-    val Char   = primitive("Char", CharTag,  16)
+    val Void   = primitive("Void",   VoidTag,   0)
+    val Unit   = primitive("Unit",   UnitTag,   0)
+    val Bool   = primitive("Bool",   BoolTag,   1)
+    val I8     = primitive("I8",     IntTag,    8)
+    val I16    = primitive("I16",    IntTag,   16)
+    val I32    = primitive("I32",    IntTag,   32)
+    val I64    = primitive("I64",    IntTag,   64)
+    val F32    = primitive("F32",    FloatTag, 32)
+    val F64    = primitive("F64",    FloatTag, 64)
+    val Char   = primitive("Char",   CharTag,  16)
+    val Str    = primitive("String", StringTag, 0)
 
     val MaxTuple = 16 // yes yes, hack hack, will fix later
     val Tuples = 2 until MaxTuple map { r =>
@@ -165,11 +166,21 @@ object Types {
                         else I8
       case FloatTag  => if (minWidth > 32) F64
                         else F32
-      case StringTag => ??? // TODO: strings?
+      case StringTag => Str
+      case RawStrTag => Str
     }
 
     /** Returns the tuple type with the specified `rank`. */
     def tuple (rank :Int) = Tuples(rank-2)
+
+    /** A symbol for the `foreign` function. */
+    val foreign = Indexer.index(FunDef(
+      Seq("Defines a foreign function."), termName("foreign"),
+      Seq(Param(typeName("T"))), Seq(),
+      Seq(ArgDef(Seq("The source code of the JS function (will be wrapped in function() {}"),
+                 termName("source"), TypeRef(typeName("String")))),
+      TypeRef(typeName("T")),
+      OmittedBody))
 
     /** Defines a primitive type and enters it into the root/primitives scope. */
     private def primitive (name :String, kind :Int, bitWidth :Int) = {
