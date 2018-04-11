@@ -10,5 +10,8 @@ lazy val root = (project in file(".")).
     libraryDependencies ++= Seq(
       "com.lihaoyi" %% "fastparse" % "1.0.0",
       "com.novocode" % "junit-interface" % "0.11" % "test"
-    )
+    ),
+
+    mainClass in assembly := Some("compose.cz2js"),
+    assemblyJarName in assembly := "cz2js.jar"
   )
