@@ -11,7 +11,19 @@ class LowerTest {
   import Lower._
   import TestCode._
 
-  def lowerCode (code :String) = lower(parseAndType("code", code))
+  def lowerTrees (trees :Seq[Trees.Tree]) = {
+    val errs = trees.flatMap(Trees.errors)
+    if (errs.isEmpty) lower(trees)
+    else {
+      errs foreach { case (path, err) =>
+        println(s"Error: $err @ ${Trees.show(path.head)}")
+        path foreach { t => println(s"- ${Trees.show(t)} : ${t.productPrefix}") }
+      }
+      Seq()
+    }
+  }
+
+  def lowerCode (code :String) = lowerTrees(parseAndType("code", code))
 
   @Test def testCondFib () :Unit = lowerCode(CondFib) foreach print
   @Test def testMatchFib () :Unit = lowerCode(MatchFib) foreach print
@@ -37,13 +49,19 @@ class LowerTest {
     while (ii < 10) ii = ii + (if (ii < 5) 1 else 2)
   """) foreach print
 
+  @Test def testForeigns () :Unit = lowerCode("""
+    let Zero :I32 = foreign("0")
+    fun length[A] (as :Array[A]) :I32 = foreign("as.length")
+    fun clear[A] (as :Array[A]) :Unit = foreignBody("as.length = 0")
+  """) foreach print
+
   @Test def testParenBlock () :Unit = lowerCode(ParenBlock) foreach print
 
   @Test def testApplyImpl () :Unit = lowerCode(ApplyImpl) foreach print
 
-  @Test def testEq () :Unit = {
-    val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
-    lower(eqtrees) foreach print
+  @Test def testStdlib () :Unit = {
+    val files = Seq("std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz")
+    lowerTrees(typeFiles(files)) foreach print
   }
 
   @Test def testSimpleMatch () :Unit = lowerCode(SimpleMatch) foreach print

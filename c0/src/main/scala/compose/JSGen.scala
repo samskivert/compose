@@ -60,7 +60,9 @@ object JSGen {
       stmts foreach { stmt => npr.println().printIndent() ; genJS(stmt)(npr) }
       pr.println().printIndent("}")
     case ExprStmt(expr) =>
-      genJS(expr) ; pr.print(";")
+      genJS(expr) // ; pr.print(";")
+      // TODO: lambdas use exprstmt which can cause trouble, need to maybe allow lambda to contain
+      // expr or stmt?
     case Assign(ident, value) =>
       genSym(ident) ; pr.print(" = ") ; genJS(value) ; pr.print(";")
     case Return(value) =>
@@ -79,7 +81,9 @@ object JSGen {
       pr.print("while (") ; genJS(cond) ; pr.print(") ") ; genJS(body)
     case DoWhile(body, cond) =>
       pr.print("do ") ; genJS(body) ; pr.print(" while (") ; genJS(cond) ; pr.print(")")
-    case Foreign(body) =>
+    case ForeignExpr(expr) =>
+      pr.print(expr)
+    case ForeignBody(body) =>
       pr.print(body)
 
     case LetDef(ident, mut, valopt) =>

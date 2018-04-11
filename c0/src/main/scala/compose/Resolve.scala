@@ -32,6 +32,7 @@ object Resolve {
     // the apply params (possibly a prefix thereof) must match the params of the impl
     val faceParams = force(faceSym.info).asInstanceOf[Interface].params
     val implParams = appParams.take(faceParams.size)
+    // println(s"resolveImpl(${ctx.scope.id}) ${faceSym.name} @ ${boxedString(appParams)}")
     ctx.scope.impls(faceSym) flatMap tryApply(implParams) match {
       case Seq() => ErrorImpl(s"Unable to find ${faceSym.name} for ${boxedString(appParams)}")
       case Seq(impl) => impl
@@ -39,14 +40,15 @@ object Resolve {
     }
   }
 
-  def tryApply (tgtParams :Seq[Type])(impl :TermSymbol)(implicit ctx :Context) :Option[ImplTree] =
+  def tryApply (tgtParams :Seq[Type])(impl :TermSymbol)(implicit ctx :Context) :Option[ImplTree] = {
+    // println(s"- tryApply $tgtParams to $impl")
     // an impl symbol will either be an impldef signature type (fun from possibly constrained
     // params to interface), or interface type directly (when we're just passing dicts through)
     force(impl.info) match {
       case arrow :Arrow =>
         // an impl is applicable if the params of its interface type match our target params
         def faceParams (arrow :Arrow) = arrow.result.asInstanceOf[Interface].params
-        def checkApply (arrow :Arrow) = if (tgtParams != faceParams(arrow)) None
+        def checkApply (arrow :Arrow) = if (!checkMatch(tgtParams, faceParams(arrow))) None
                                         else if (arrow.csts.isEmpty) Some(ImplRef(impl))
                                         else Some(ImplApply(impl, resolveCsts(arrow.csts)))
         if (arrow.params.isEmpty) checkApply(arrow)
@@ -59,7 +61,12 @@ object Resolve {
           case _              => None
         }
       case face :Interface =>
-        if (tgtParams == face.params) Some(ImplRef(impl)) else None
-      case tpe => println(s"Zoiks! $tpe") ; ??? // unreachable but scalac don't know it
+        if (checkMatch(tgtParams, face.params)) Some(ImplRef(impl)) else None
+      case tpe => unreachable(tpe)
     }
+  }
+
+  private def checkMatch (tgtParams :Seq[Type], faceParams :Seq[Type]) =
+    if (tgtParams == faceParams) true
+    else { /*println(s"-- $tgtParams != $faceParams") ;*/ false }
 }

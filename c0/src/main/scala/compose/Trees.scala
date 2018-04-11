@@ -88,7 +88,7 @@ object Trees {
   }
   case object OmittedType extends TypeTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = Untyped
-    override def toString = ""
+    override def toString = "<omitted>"
   }
   case class TypeRef (name :TypeName) extends TypeTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
@@ -168,6 +168,7 @@ object Trees {
     /** Assigns a symbol to this tree (called by `Indexer`). */
     def index (sym :Symbol) :sym.type = {
       if (treeSym != null) fail(s"Symbol of $id#$this already assigned")
+      // println(s"index($id#$this)")
       treeSym = sym
       sym
     }
@@ -179,6 +180,9 @@ object Trees {
     def defCsts :Seq[Constraint] = Seq()
 
     override def isDef = true
+
+    // TEMP: this is a terrible hack, hackity hack hack
+    protected def resig (sig :Type) :Unit = { treeSig = sig }
 
     protected def computeSigFlags :Int = TypingDef
     protected def computeSig (implicit ctx :Context) :Type
@@ -201,6 +205,8 @@ object Trees {
     type ThisTree <: Param
     def accum (params :ArrayBuffer[Param], csts :ArrayBuffer[Constraint]) :Unit = params += this
     protected def computeSig (implicit ctx :Context) = Var(sym.asType, ctx.scope.id)
+    // override protected def computeType (proto :Type)(implicit ctx :Context) =
+    //   Var(sym.asType, ctx.scope.id, true)
   }
   case class Constraint (name :TypeName, params :Seq[TypeRef]) extends DefTree with ParamOrConst {
     type ThisTree <: Constraint
@@ -215,25 +221,40 @@ object Trees {
   // TODO: destructuring fun arg bindings
   case class ArgDef (docs :Seq[String], name :TermName, typ :TypeTree) extends DefTree {
     type ThisTree <: ArgDef
-    protected def computeSig (implicit ctx :Context) = typ.typed().tpe
+    protected def computeSig (implicit ctx :Context) =
+      if (typ == OmittedType) Error(s"Sig used before type computed: $name")
+      else typ.typed().tpe
+    override protected def computeType (proto :Type)(implicit ctx :Context) = {
+      if (typ == OmittedType) {
+        // HACK: when we compute the signature of an ArgDef we only have the declared type to work
+        // with, but for lambdas we usually want to infer the type; so we set the initial sig to an
+        // Error and then when we later type the ArgDef tree, we sneakily replace the signature
+        // with the inferred type; nothing uses the sig for lambdas prior to the tree being typed,
+        // so that works out "just fine"; in C1 we'll probably use full Algo W and avoid these
+        // shenanigans
+        resig(proto)
+        proto
+      } else typ.typed().tpe
+    }
   }
   case class FunDef (docs :Seq[String], name :TermName, params :Seq[Param], csts :Seq[Constraint],
                      args :Seq[ArgDef], result :TypeTree, body :TermTree) extends DefTree {
     type ThisTree <: FunDef
     override def defParams = params
     override def defCsts = csts
+
     protected def computeSig (implicit ctx :Context) = {
+      enterCsts(csts)
       val fullParams = sym.owner.params ++ params
-      val paramTypes = fullParams.map(_.typed().tpe)
-      val cstTypes = csts.map(_.typed().tpe)
-      Arrow(sym, paramTypes, cstTypes, args.map(_.typed().tpe), result.typed().tpe)
+      val paramTypes = fullParams.map(_.typed().tpe.asInstanceOf[Var])
+      Arrow(sym, paramTypes, csts.map(_.typed().tpe), args.map(_.typed().tpe), result.typed().tpe)
     }
     override protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val Arrow(_, _, _, _, retType) = this.sig
-      body.typed(retType)(ctx.withOwner(sym))
-      sig
+      try sig // make sure sig is computed before we type our body
+      finally body.typed(sig.asInstanceOf[Arrow].result)(ctx.withOwner(sym))
     }
   }
+
   object FunDef {
     def mk (docs :Seq[String], name :TermName, paramsCsts :Seq[ParamOrConst],
             args :Seq[ArgDef], result :TypeTree, body :TermTree) :FunDef = {
@@ -275,13 +296,12 @@ object Trees {
     override def defCsts = parents
     protected def computeSig (implicit ctx :Context) = {
       params.foreach(_.typed())
-      parents.foreach(_.typed())
-      // TODO: parents should be in type?
+      parents.foreach(_.typed()) // TODO: should parents be in type?
       Interface(sym.asType, params.map(_.tpe), meths.map(m => Method(m.sym.asTerm, m.sig)))
     }
     override protected def computeType (proto :Type)(implicit ctx :Context) = {
-      meths.foreach(m => m.typed())
-      sig
+      try sig // make sure sig is computed before we type our methods
+      finally meths.foreach(_.typed())
     }
   }
 
@@ -293,22 +313,26 @@ object Trees {
       case err :Error => err
       case _ =>
         val targetSym = setSym(ctx.scope.lookup(fun))
-        if (!targetSym.exists) Unknown(fun) else {
+        if (!targetSym.exists) Unknown(fun, ctx.scope.id) else {
           val tgtType = targetSym.info.asInstanceOf[Arrow]
           // TODO: check that it matches proto (that we can join? that the types are equal modulo
           // dictionaries after application?)
           if (tgtType.params.isEmpty) tgtType
           else {
             val Arrow(protoSym, protoParams, protoCsts, protoArgs, protoResult) = proto
-            val methType = unifyApply(tgtType.args zip protoArgs, tgtType)
-            // TODO: when resolving constraints for our bound methods, we will often encounter a
-            // situation where we need to pass in `this` impl to meet a constraint; we don't want
-            // to recursively resolve it (indeed we can't without infinitely looping), so we need
-            // to tell the constraint resolution process about `this` so that it can use a special
-            // ImplThis tree to cut the Gordian knot in this case
-            _impls = resolveCsts(methType.asInstanceOf[Arrow].csts)
-            // if any impl failed to resolve, type ourselves as error
-            _impls collectFirst { case ErrorImpl(msg) => Error(msg) } getOrElse methType
+            val bindCsts = (tgtType.args zip protoArgs) :+ (tgtType.result -> protoResult)
+            unifyApply(bindCsts, tgtType) match {
+              case methType :Arrow =>
+                // TODO: when resolving constraints for our bound methods, we will often encounter
+                // a situation where we need to pass in `this` impl to meet a constraint; we don't
+                // want to recursively resolve it (indeed we can't without infinitely looping), so
+                // we need to tell the constraint resolution process about `this` so that it can
+                // use a special ImplThis tree to cut the Gordian knot in this case
+                _impls = resolveCsts(methType.asInstanceOf[Arrow].csts)
+                // if any impl failed to resolve, type ourselves as error
+                _impls collectFirst { case ErrorImpl(msg) => Error(msg) } getOrElse methType
+              case error => error
+            }
           }
         }
     }
@@ -322,6 +346,7 @@ object Trees {
     override def defCsts = csts
     override protected def computeSigFlags = 0
     protected def computeSig (implicit ctx :Context) = {
+      enterCsts(csts)
       val paramTypes = params.map(_.typed().tpe)
       val cstTypes = csts.map(_.typed().tpe)
       face.typed().tpe match {
@@ -333,6 +358,9 @@ object Trees {
     }
     override protected def computeType (proto :Type)(implicit ctx :Context) = {
       def typedWith (implicit ctx :Context) = {
+        enterCsts(csts)
+        params.map(_.typed().tpe)
+        csts.map(_.typed().tpe)
         face.typed().tpe match {
           case Interface(faceSym, faceParams, faceMeths) =>
             // type the bindings using the interface method types as prototypes
@@ -459,7 +487,7 @@ object Trees {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val idSym = setSym(ctx.scope.lookup(ident))
       // TODO: check that type matches proto?
-      idSym.map(_.info) getOrElse Unknown(ident)
+      idSym.map(_.info) getOrElse Unknown(ident, ctx.scope.id)
     }
   }
 
@@ -499,7 +527,7 @@ object Trees {
 
   case class Lambda (args :Seq[ArgDef], body :TermTree) extends TermTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
-      val lamSym = ctx.owner.createTerm(NoName, this, _ => Untyped) // TODO: synthesize lambda name
+      val lamSym = ctx.createTerm(NoName, this, _ => Untyped) // TODO: synthesize lambda name
       val lamCtx = ctx.withOwner(lamSym)
       args foreach { arg => index(arg)(lamCtx) } // index args in lambda context
       val (argProtos, retProto) = proto match {
@@ -507,8 +535,12 @@ object Trees {
         // TODO: fail if expected type not arrow?
         case _ => (args.map(_ => Untyped), Untyped)
       }
-      typedTypes(args, argProtos)(lamCtx) // and type them in same context
-      body.typed(retProto)(lamCtx).tpe
+      // and type them in same context; TODO: if the prototype is parameterized, we could perhaps
+      // infer a parameterized type for this lambda, but maybe we'll just punt on that and wait for
+      // full inference in C1
+      val argTypes = typedTypes(args, argProtos)(lamCtx)
+      val retType = body.typed(retProto)(lamCtx).tpe
+      Arrow(lamSym, Seq(), Seq(), argTypes, retType)
     }
   }
 
@@ -563,37 +595,58 @@ object Trees {
       // TODO: we need to look at the type constraints on the function we're calling and ensure
       // that we can resolve implementations to meet them
 
-      // first resolve the raw (unapplied) fun type from the fun tree
-      val funProto = Arrow(NoTerm, Seq(), Seq(), args.map(_ => Untyped), proto)
-      fun.typed(funProto).tpe match {
-        case funType @ Arrow(funSym, formalParams, formalCsts, formalArgs, formalResult) =>
-          // next constrain the fun type based on explicit parameters and expected return type
-          val applyParams = params.map(_.typed().tpe)
-          val applyCsts = (formalParams zip applyParams) :+ (formalResult -> proto)
-          unifyApplyMap(applyCsts, funType) { cstFunType =>
-            // use the partially constrained formal argument types to type the actual arguments
-            val argTypes = typedTypes(args, cstFunType.args)
-            // finally unify the resolved function with the apply constraints and any new
-            // constraints generated by the typed arguments
-            val cstFunCsts = applyCsts ++ (cstFunType.args zip argTypes)
-            unifyApplyMap(cstFunCsts, funType) { appFunType =>
+      def typed (funType :Arrow) = {
+        // println(s"funApply (proto: $proto) $fun :: $funType")
+        val Arrow(funSym, formalParams, formalCsts, formalArgs, formalResult) = funType
+        // next constrain the fun type based on explicit parameters and expected return type
+        val applyParams = params.map(_.typed().tpe)
+        val applyCsts = (formalParams zip applyParams) :+ (formalResult -> proto)
+        // println(s"- applyCsts $fun :: $applyCsts")
+        unifyApplyMap(applyCsts, funType) { cstFunType =>
+          // any unapplied params in the partially constrained fun type cannot be used as
+          // prototypes when typing the arguments, so replace with Untyped
+          val argProtos = cstFunType.args.map(
+            tpe => if (formalParams contains tpe) Untyped else tpe)
+          // use the partially constrained formal argument types to type the actual arguments
+          val argTypes = typedTypes(args, argProtos)
+          // finally unify the resolved function with the apply constraints and any new
+          // constraints generated by the typed arguments
+          val cstFunCsts = applyCsts ++ (cstFunType.args zip argTypes)
+          unify(cstFunCsts).map(sols => {
+            val appParams = funType.params map subst(sols)
+            applyType(funType, appParams).map(appliedType => {
+              // println(s"- appliedType $fun :: $appliedType")
+              val appFunType = appliedType.asInstanceOf[Arrow]
               // retype the fun tree with this resolved and applied arrow type
               fun.retype(appFunType)
-
-              // resolve the symbols for any implementations we need to pass
-              _implArgs = resolveCsts(appFunType.csts)
-              // TODO: if any of _implArgs could not be resolved, type the apply as an error?
-
-              // if this is a method application, resolve the impl via which we will obtain the
-              // method (and give ourselves an error type if we cannot resolve an impl)
-              if (!funSym.isMethod) appFunType.result else {
-                resolveImpl(funSym.owner.asType, appFunType.params) match {
-                  case ErrorImpl(msg) => Error(s"Unable to resolve impl for method: ${appFunType.debugString}")
+              // if there are still unapplied params, then we failed to infer everything
+              if (appFunType.params.exists(formalParams.contains)) Error(
+                s"Unable to infer params: $appFunType")
+              else {
+                // resolve the symbols for any implementations we need to pass
+                _implArgs = resolveCsts(appFunType.csts)
+                // TODO: if any of _implArgs could not be resolved, type the apply as an error?
+                if (!funSym.isMethod) appFunType.result
+                // if this is a method application, resolve the impl via which we will obtain the
+                // method (and give ourselves an error type if we cannot resolve an impl)
+                else resolveImpl(funSym.owner.asType, appParams) match {
+                  case ErrorImpl(msg) => Error(
+                    s"Unable to resolve impl for method: ${appFunType.debugString}: ${msg}")
                   case impl => _impl = impl ; appFunType.result
                 }
               }
-            }
-          }
+            })
+          }).merge
+        }
+      }
+
+      // resolve the raw (unapplied) fun type from the fun tree
+      val funProto = Arrow(NoTerm, Seq(), Seq(), args.map(_ => Untyped), proto)
+      fun.typed(funProto).tpe match {
+        // skolemize the type variables in the fun signature so that if this happens to be a
+        // recursive call to the fun we're currently typing, we don't mix up the type variables for
+        // this invocation of the fun with those of the recursive apply
+        case funType :Arrow => typed(funType.skolemize)
         case tpe => Error(s"Target of apply must be an arrow type (got: $tpe)")
       }
     }
@@ -620,7 +673,7 @@ object Trees {
   case class IdentPat (ident :TermName) extends RefTree {
     protected def computeType (proto :Type)(implicit ctx :Context) = {
       val idSym = setSym(ctx.scope.lookup(ident))
-      val identType = idSym.map(_.info) getOrElse Unknown(ident)
+      val identType = idSym.map(_.info) getOrElse Unknown(ident, ctx.scope.id)
       // TODO: this type application should probably be more robust; we technically only want to
       // do it when the prototype is a union/record type and the referent is a singleton record
       // case
@@ -1016,6 +1069,23 @@ object Trees {
     sb.toString
   }
 
+  // TODO: we desperately need tree positions and better error reporting
+  type Path = List[Tree]
+  def errors (tree :Tree) :Seq[(Path, String)] = {
+    case class ErrCtx (path :List[Tree], errs :ArrayBuffer[(Path, String)])
+    val acc = new Accumulator[ErrCtx]() {
+      override def apply (ec :ErrCtx, tree :Tree)(implicit ctx :Context) = {
+        val treeType = (if (tree.isTyped) tree.tpe
+                        else if (tree == OmittedType) Untyped
+                        else Error("Missing"))
+        if (treeType.isError) ec.errs += ((tree :: ec.path) -> treeType.toString)
+        foldOver(ec.copy(path = tree :: ec.path), tree)
+      }
+    }
+    implicit val ctx = moduleContext(termName("errors"))
+    acc.apply(ErrCtx(Nil, new ArrayBuffer[(Path, String)]()), tree).errs
+  }
+
   def debugTree (out :PrintWriter)(tree :Tree) :Unit = {
     val acc = new Accumulator[Printer]() {
       override def apply (pr :Printer, tree :Tree)(implicit ctx :Context) = {
@@ -1023,12 +1093,25 @@ object Trees {
         implicit val ipr = pr
         tree match {
           case DefExpr(dt) => apply(pr, dt)
+          case Param(name) =>
+            pr.printIndent("param ", name)
+            pr.println(" ::", treeType)
+          case Constraint(name, params) =>
+            pr.printIndent("cst ", name)
+            printSep(params, printTree, Square)
+            pr.println(" ::", treeType)
+          case ArgDef(docs, name, typ) =>
+            pr.printIndent("arg ", name, " :", typ)
+            pr.println(" ::", treeType)
           case FunDef(docs, name, params, csts, args, result, body) =>
             pr.printIndent("fun ", name)
             printSep(params ++ csts, printTree, Square, ", ")
             printDefList(args, Paren)
             pr.print(" :", result)
             pr.println(" ::", treeType)
+            apply(pr.nest, params)
+            apply(pr.nest, csts)
+            apply(pr.nest, args)
             apply(pr.nest, body)
             pr
           case Literal(const) =>
@@ -1125,9 +1208,6 @@ object Trees {
         //   case TypeRef(name) => pr.print(name)
         //   case TypeApply(ctor, args) => pr.print(out.println()
         //   case TypeArrow(args, ret) =>
-        //   case Param(name) =>
-        //   case Constraint(name, params) =>
-        //   case ArgDef(docs, name, typ) =>
         //   case Binding (name, typ, value) =>
         //   case Literal (const) =>
         //   case ArrayLiteral (values) =>

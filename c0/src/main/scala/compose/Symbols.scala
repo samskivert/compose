@@ -39,10 +39,6 @@ object Symbols {
     /** The type of the symbol, usually lazily computed. */
     def info :Type
 
-    /** Creates a term symbol owned by this symbol, with a newly nested scope. */
-    def createTerm (name :TermName, tree :Tree, sigFn :Tree => Type) :TermSymbol =
-      new TreeTermSymbol(this, scope.nestedScope(name), name, tree, sigFn)
-
     override def toString = s"$what $name :$info"
     override def hashCode = System.identityHashCode(this)
     override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]

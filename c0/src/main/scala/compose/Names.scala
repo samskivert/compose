@@ -84,6 +84,9 @@ object Names {
         syn("mul", "*"),
         syn("div", "/"),
         syn("mod", "%"),
+        // boolean ops
+        syn("conj", "&&"),
+        syn("disj", "||"),
         )
   }
 }

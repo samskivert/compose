@@ -19,10 +19,9 @@ object Types {
       * If `this` is the `Lazy` type, the type is forced and then `f` is applied. */
     def map (f :Type => Type) :Type = f(this)
 
+    def isError = false
     def canUnify = true
-
     def params :Seq[Type]
-
     def debugString :String = toString
   }
 
@@ -68,7 +67,7 @@ object Types {
 
   // interface type: "interface Eq[A] { fun eq (a :A, b :A) :Bool }"
   case class Interface (sym :TypeSymbol, params :Seq[Type], methods :Seq[Method]) extends Type {
-    override def toString = sym.name + mkString(params, "[]")
+    override def toString = sym.name + mkString(params, "[]") // + mkString(methods, "()")
   }
   case class Method (sym :TermSymbol, tpe :Type) {
     def name :TermName = sym.name
@@ -91,6 +90,13 @@ object Types {
     sym :Symbol, params :Seq[Type], csts :Seq[Type], args :Seq[Type], result :Type
   ) extends Type {
     def name = sym.name
+    /** Generates a fresh copy of this type, where all params are replaced with skolems. */
+    def skolemize :Arrow = {
+      val paramVars = params.map(_.asInstanceOf[Var])
+      val skolems = paramVars.map(_.skolemize)
+      val skolemSubst = subst(paramVars.zip(skolems).toMap) _
+      Arrow(sym, skolems, csts.map(skolemSubst), args.map(skolemSubst), skolemSubst(result))
+    }
     override def toString = mkString(params ++ csts, "[]") +
       args.mkString("(", ", ", ")") + " => " + result
     override def debugString = name + toString
@@ -102,10 +108,14 @@ object Types {
     override def toString = s"alias $source"
   }
 
+  private var nextSkolemId = 1
+
   // type variable: the a in List[a]
-  case class Var (sym :TypeSymbol, scopeId :Int) extends Type {
+  case class Var (sym :TypeSymbol, scopeId :Int, private val skolem :Boolean = false) extends Type {
+    def skolemize = Var(sym, try nextSkolemId finally nextSkolemId += 1, true)
     override def params = Seq()
-    override def toString = s"${sym.name}$$$scopeId"
+    override def toString = s"${sym.name}$sep$scopeId"
+    private def sep :String = if (skolem) "#" else "$"
   }
 
   // lazy type reference, used to handle recursive declarations
@@ -116,15 +126,17 @@ object Types {
   }
 
   // an error type used to record name resolution failure
-  case class Unknown (name :Name) extends Type {
+  case class Unknown (name :Name, scopeId :Int) extends Type {
+    override def isError = true
     override def canUnify = false
     override def params = Seq()
     override def map (f :Type => Type) = this
-    override def toString = s"?$name"
+    override def toString = s"?$name/#$scopeId"
   }
 
   // an error type used to record other kinds of errors
   case class Error (msg :String) extends Type {
+    override def isError = true
     override def canUnify = false
     override def params = Seq()
     override def map (f :Type => Type) = this
@@ -175,9 +187,19 @@ object Types {
 
     /** A symbol for the `foreign` function. */
     val foreign = Indexer.index(FunDef(
-      Seq("Defines a foreign function."), termName("foreign"),
+      Seq("Defines a foreign expression."), termName("foreign"),
       Seq(Param(typeName("T"))), Seq(),
-      Seq(ArgDef(Seq("The source code of the JS function (will be wrapped in function() {}"),
+      Seq(ArgDef(Seq("The source code of the JS expression (will be wrapped in parens)."),
+                 termName("source"), TypeRef(typeName("String")))),
+      TypeRef(typeName("T")),
+      OmittedBody))
+
+    /** A symbol for the `foreignBody` function. */
+    val foreignBody = Indexer.index(FunDef(
+      Seq("Defines a foreign function body."), termName("foreignBody"),
+      Seq(Param(typeName("T"))), Seq(),
+      Seq(ArgDef(Seq("The source code of the JS function (will be wrapped in function() {}).",
+                     "The foreign code should return its value via a return statement."),
                  termName("source"), TypeRef(typeName("String")))),
       TypeRef(typeName("T")),
       OmittedBody))
@@ -258,8 +280,8 @@ object Types {
       case Arrow(sym, params, csts, args, result) => fail // TODO: can we join function types?
       case Lazy(tree) => join(tree.sig, typeB)
       case Interface(sym, params, methods) => fail // TODO
-      case Var(sym, _) => fail
-      case Unknown(name) => fail
+      case vr :Var => fail
+      case Unknown(name, scopeId) => fail
       case Error(msg) => typeA // TODO: should we combine messages if two errors are joined?
     }
   }
@@ -271,7 +293,8 @@ object Types {
     // println(s"applyType($ctor, $params)")
     def apply (tvars :Seq[Var]) =
       if (params.size != tvars.size) Error(s"Cannot match $params to vars of $ctor ($tvars)")
-      else subst((tvars zip params).toMap)(ctor)
+      // filter out degenerate mappings (mapping a parameter to itself)
+      else subst((tvars zip params).filter(tp => tp._1 != tp._2).toMap)(ctor)
     def vars (ps :Seq[Type]) = ps.collect { case tp :Var => tp }
     force(ctor) match {
       case Apply(_, tparams) => apply(vars(tparams))
@@ -284,12 +307,17 @@ object Types {
     }
   }
 
-  private def subst (map :Map[Var, Type])(source :Type) :Type = source match {
-    case vr@Var(_, _) => map.getOrElse(vr, vr)
+  def subst (map :Map[Var, Type], filterParams :Boolean = false)
+            (source :Type) :Type = source match {
+    case param :Var =>
+      if (!filterParams) map.getOrElse(param, param)
+      else if (map.contains(param)) Untyped
+      else param
     case Apply(ctor, params) => Apply(ctor, params.map(subst(map)))
     case Array(elem) => Array(subst(map)(elem))
     case Arrow(sym, params, csts, args, result) => Arrow(
-      sym, params.map(subst(map)), csts.map(subst(map)), args.map(subst(map)), subst(map)(result))
+      sym, params.map(subst(map, true)), csts.map(subst(map)),
+        args.map(subst(map)), subst(map)(result))
     case Union(sym, params, cases) =>
       Union(sym, params.map(subst(map)), cases.map(subst(map)))
     case Record(sym, params, fields) =>
@@ -313,7 +341,7 @@ object Types {
         def fail (msg :String) = Left(Error(s"Can't unify '$ta' and '$tb': $msg"))
         if (ta == tb) loop(cs.tail, accum)
         else (ta, tb) match {
-          case (av @ Var(a, aid), _) =>
+          case (av :Var, _) =>
             loop(cs.tail, if (tb.canUnify) bind(accum, av, tb) else accum)
           case (Array(paramA), Array(paramB)) =>
             loop(cs.tail :+ (paramA -> paramB), accum)

@@ -21,7 +21,7 @@ object TestCode {
 
   def parseCode[T] (path :String, parser :P[T] = program) :Parsed[T, _, _] = {
     val cwd = Paths.get(System.getProperty("user.dir"))
-    val fullPath = cwd.resolve("tests").resolve(path)
+    val fullPath = cwd.resolve(path)
     val sb = new java.lang.StringBuilder
     Files.lines(fullPath).forEach(sb.append(_).append("\n"))
     parser.parse(sb.toString)
@@ -31,7 +31,6 @@ object TestCode {
     (p, pos, extra) => {
       extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
       fail(result.toString)
-      ??? // unreachable
     },
     (res, pos) => res
   )
@@ -50,6 +49,13 @@ object TestCode {
     implicit val ctx = testContext(files.last)
     treess.flatten foreach index
     treess.last map { _.typed() }
+  }
+
+  def typeFiles (files :Seq[String]) :Seq[Tree] = {
+    val trees = files.map(file => extract(parseCode(file))).flatten
+    implicit val ctx = testContext(files.last)
+    trees foreach index
+    trees map { _.typed() }
   }
 
   val CondFib = """
@@ -138,7 +144,7 @@ object TestCode {
     let bar = match foo
       case JSInt(n) = n > 2
       case JSBool(b) = b
-      case JSNone => false
+      case JSNone = false
   """
 
   val ParamDestructMatch = """

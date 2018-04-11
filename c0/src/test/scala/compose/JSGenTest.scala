@@ -13,12 +13,20 @@ class JSGenTest {
   import Printing._
   import TestCode._
 
-  def genCode (code :String) :Unit = {
-    val trees = parseAndType("code", code)
-    gen(lower(trees), sysPrint)
-    sysOut.println()
-    sysOut.flush()
+  def genTrees (trees :Seq[Trees.Tree]) = {
+    val errs = trees.flatMap(Trees.errors)
+    if (errs.isEmpty) {
+      gen(lower(trees), sysPrint)
+      sysOut.println()
+      sysOut.flush()
+    }
+    else {
+      errs foreach { case (tree, err) => println(s"Error: $err\n  $tree") }
+      Seq()
+    }
   }
+
+  def genCode (code :String) :Unit = genTrees(parseAndType("code", code))
 
   @Test def testCondFib () :Unit = genCode(CondFib)
   @Test def testMatchFib () :Unit = genCode(MatchFib)
@@ -37,4 +45,9 @@ class JSGenTest {
 
   @Test def testMatches () :Unit =
     Seq(SimpleMatch, TupleMatch, DestructMatch, ParamDestructMatch, GuardedMatch) foreach genCode
+
+  @Test def testStdlib () :Unit = {
+    val files = Seq("std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz")
+    genTrees(typeFiles(files))
+  }
 }

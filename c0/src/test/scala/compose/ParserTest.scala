@@ -45,6 +45,12 @@ class ParserTest {
   val hello = ident("hello")
   val (a, b, c) = (ident("a"), ident("b"), ident("c"))
 
+  @Test def testDocComments () :Unit = {
+    testParse(Seq("Foo"), docComments.parse("/// Foo\n"))
+    testParse(Seq("Foo", "Bar"), docComments.parse("/// Foo\n/// Bar"))
+    testParse(Seq("Foo", "", "Bar"), docComments.parse("/// Foo\n///\n/// Bar"))
+  }
+
   @Test def testLiterals () :Unit = {
     val expect = Seq(
       Literal(Constants.False),
@@ -62,7 +68,7 @@ class ParserTest {
       ArrayLiteral(Seq(intlit("1"), intlit("2"), intlit("3")))
     )
     testParse(FunApply(FunKind.Normal, IdentRef(tupleName(13)), Seq(), expect),
-              parseCode("literals.cz", parenExpr))
+              parseCode("tests/literals.cz", parenExpr))
   }
 
   @Test def testExprs () :Unit = {
@@ -178,17 +184,17 @@ class ParserTest {
     1 to 10 foreach { ii =>
       val num = String.format("%02d", ii.asInstanceOf[AnyRef])
       println(s"-- Euler $num --------------")
-      printParse(parseCode(s"euler/euler$num.cz"))
+      printParse(parseCode(s"tests/euler/euler$num.cz"))
     }
   }
 
   @Test def testDataDefs () :Unit = {
-    printParse(parseCode("data.cz"))
+    printParse(parseCode("tests/data.cz"))
   }
 
   @Test def testInterfaceDefs () :Unit = {
-    printParse(parseCode("eq.cz"))
-    printParse(parseCode("ord.cz"))
+    printParse(parseCode("std/eq.cz"))
+    printParse(parseCode("std/ord.cz"))
   }
 
   @Test def testNextEuler () :Unit = {
@@ -196,11 +202,11 @@ class ParserTest {
   }
 
   @Test def testFib () :Unit = {
-    printParse(parseCode("fib.cz"))
+    printParse(parseCode("tests/fib.cz"))
   }
 
   @Test def testNestedFun () :Unit = {
-    printParse(parseCode("nested.cz"))
+    printParse(parseCode("tests/nested.cz"))
   }
 
   @Test def testRando () :Unit = {

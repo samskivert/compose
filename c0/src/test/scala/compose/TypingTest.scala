@@ -30,6 +30,31 @@ class TypingTest {
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
 
+  @Test def testId () :Unit = {
+    val trees = extract(program.parse("""
+      fun id[A] (a :A) :A = a
+    """))
+    implicit val ctx = testContext("id")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testInnerLoop () :Unit = {
+    val trees = extract(program.parse("""
+      fun foo () :I32 = {
+        fun bar (a :Bool) :I32 = if (a) bar(false) else 0
+        bar(true)
+      }
+      let baz = {
+        fun bar (a :Bool) :I32 = if (a) bar(false) else 0
+        bar(true)
+      }
+    """))
+    implicit val ctx = testContext("innerLoop")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
   @Test def testFib () :Unit = {
     val trees = extract(program.parse(MatchFib))
     implicit val ctx = testContext("fib")
@@ -37,8 +62,55 @@ class TypingTest {
     trees foreach { tree => debugTree(out)(tree.typed()) }
   }
 
+  @Test def testFunParamInfer () :Unit = {
+    val trees = extract(program.parse("""
+      data List[A] = Nil | Cons(head :A, tail :List[A])
+      fun id[A] (a :A) :A = a
+      fun fst[A] (a :A, b :A) :A = a
+      let foo :List[I32] = fst(id(id(Nil)), id(Cons(32, Nil)))
+    """))
+    implicit val ctx = testContext("funParamInfer")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testParamFunDef () :Unit = {
+    val trees = extract(program.parse("""
+      fun less (i0 :I32, i1 :I32) :Bool = false
+      fun sub (i0 :I32, i1 :I32) :I32 = i0
+      fun id[A] (a :A) :A = a
+      fun foo[A] (a1 :A, ii :I32) :I32 = if (ii < 1) ii else foo(id(id(a1)), ii-1)
+    """))
+    implicit val ctx = testContext("paramFunDef")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testLambdaParamInfer () :Unit = {
+    val trees = extract(program.parse("""
+      fun compose[A,B,C] (f :A => B, g :B => C) :A => C = a => g(f(a))
+      compose(a :I32 => 1, b :I32 => 2)
+    """))
+    implicit val ctx = testContext("lambdaParamInfer")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
+  @Test def testFaceImpl () :Unit = {
+    val trees = extract(program.parse("""
+      interface Foo[A] {
+        fun pick (a1 :A, a2 :A) :A
+      }
+      fun first[T] (t1 :T, t2 :T) :T = t1
+      impl i32Foo = Foo[I32](pick=first)
+    """))
+    implicit val ctx = testContext("faceImpl")
+    trees foreach index
+    trees foreach { tree => debugTree(out)(tree.typed()) }
+  }
+
   @Test def testLiterals () :Unit = {
-    val trees = extract(parseCode("literals.cz"))
+    val trees = extract(parseCode("tests/literals.cz"))
     implicit val ctx = testContext("literals")
     trees foreach index
     trees foreach { tree => debugTree(out)(tree.typed()) }
@@ -63,12 +135,17 @@ class TypingTest {
   }
 
   @Test def testPrelude () :Unit = {
-    parseAndType(Seq("prelude.cz")) foreach debugTree(out)
+    parseAndType(Seq("std/prelude.cz")) foreach debugTree(out)
   }
 
-  @Test def testInterface () :Unit = {
-    val eqtrees = parseAndType(Seq("prelude.cz", "eq.cz"))
-    eqtrees foreach debugTree(out)
+  @Test def testLogic () :Unit = {
+    val files = Seq("std/prelude.cz", "std/logic.cz")
+    typeFiles(files) foreach debugTree(out)
+  }
+
+  @Test def testStdlib () :Unit = {
+    val files = Seq("std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz")
+    typeFiles(files) foreach debugTree(out)
   }
 
   @Test def testApply () :Unit = {

@@ -59,6 +59,7 @@ object Lower {
   case class Lambda (dicts :Seq[Symbol], args :Seq[Symbol], body :StmtTree) extends ExprTree
   case class Apply (fun :ExprTree, dicts :Seq[ExprTree], args :Seq[ExprTree]) extends ExprTree
   case class Construct (obj :Symbol, args :Seq[ExprTree]) extends ExprTree
+  case class ForeignExpr (body :String) extends ExprTree
 
   // statements
   case class Block (stmts :Seq[Tree], label :Option[Int]) extends StmtTree
@@ -71,7 +72,7 @@ object Lower {
   case class IfElse (cond :ExprTree, ifTrue :StmtTree, ifFalse :StmtTree) extends StmtTree
   case class While (cond :ExprTree, body :StmtTree) extends StmtTree
   case class DoWhile (body :StmtTree, cond :ExprTree) extends StmtTree
-  case class Foreign (body :String) extends StmtTree
+  case class ForeignBody (body :String) extends StmtTree
 
   val UnitExpr = Literal(Unit)
 
@@ -195,11 +196,16 @@ object Lower {
           lowerTerm(fun, bb, bindTo(argSym))
           argSym
       }
-      if (funSym == ctx.sym(Prim.foreign)) {
+      def foreignCode = {
         assert(args.size == 1)
         val arg = args(0).asInstanceOf[high.Literal]
-        assert(arg.const.tag == StringTag) // TODO: raw string tag?
-        bb += Foreign(arg.const.value)
+        assert(arg.const.tag == StringTag)
+        arg.const.value
+      }
+      if (funSym == ctx.sym(Prim.foreign)) {
+        target.bind(ForeignExpr(foreignCode), bb)
+      } else if (funSym == ctx.sym(Prim.foreignBody)) {
+        bb += ForeignBody(foreignCode)
         UnitExpr
       } else {
         val funType = fun.tpe.asInstanceOf[Arrow]
@@ -524,7 +530,9 @@ object Lower {
       pr.print("while (") ; printTree(cond) ; pr.print(") ") ; printTree(body)
     case DoWhile(body, cond) =>
       pr.print("do ") ; printTree(body) ; pr.print(" while (") ; printTree(cond) ; pr.print(")")
-    case Foreign(body) =>
-      pr.print("ffi(", body, ")")
+    case ForeignExpr(body) =>
+      pr.print("foreign(", body, ")")
+    case ForeignBody(body) =>
+      pr.print("foreign {", body, "}")
   }
 }

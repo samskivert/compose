@@ -34,7 +34,7 @@ object Contexts {
 
     /** Clones this context with a new owner. */
     def withOwner (owner :Symbol) =
-      if (this.owner == owner) this else copy(owner = owner)
+      if (this.owner == owner) this else copy(owner = owner, scope = owner.scope)
 
     /** Clones this context with a nested scope. */
     def withNestedScope (name :Name) = copy(scope = scope.nestedScope(name))
@@ -56,15 +56,19 @@ object Contexts {
     def defineType (name :TypeName, tree :DefTree) :TypeSymbol =
       scope.enter(new TreeTypeSymbol(owner, scope.nestedScope(name), name, tree))
 
-    /** Creates a term symbol owned by the context owner, with a newly nested scope and enters it
-      * into the context's scope. */
-    def defineTerm (name :TermName, tree :DefTree) :TermSymbol =
-      scope.enter(owner.createTerm(name, tree, _ => tree.sig))
+    /** Creates a term symbol owned by the context owner, with a newly nested scope. */
+    def createTerm (name :TermName, tree :Tree, sigFn :Tree => Type) :TermSymbol =
+      new TreeTermSymbol(owner, scope.nestedScope(name), name, tree, sigFn)
 
     /** Creates a term symbol owned by the context owner, with a newly nested scope and enters it
       * into the context's scope. */
     def defineTerm (name :TermName, tree :Tree, sigFn :Tree => Type) :TermSymbol =
-      scope.enter(owner.createTerm(name, tree, sigFn))
+      scope.enter(createTerm(name, tree, sigFn))
+
+    /** Creates a term symbol owned by the context owner, with a newly nested scope and enters it
+      * into the context's scope. */
+    def defineTerm (name :TermName, tree :DefTree) :TermSymbol =
+      defineTerm(name, tree, _ => tree.sig)
 
     private def isSet (flag :Int) = (flags & flag) == flag
   }
@@ -79,9 +83,9 @@ object Contexts {
 
   /** Returns the type for (type) `ident` in the implied `ctx`. */
   def typeFor (ident :TypeName)(implicit ctx :Context) :Type =
-    ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident)
+    ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident, ctx.scope.id)
 
   /** Returns the type for (term) `ident` in the implied `ctx`. */
   def typeFor (ident :TermName)(implicit ctx :Context) :Type =
-    ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident)
+    ctx.scope.lookup(ident).map(_.info) getOrElse Unknown(ident, ctx.scope.id)
 }

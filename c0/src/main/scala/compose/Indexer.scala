@@ -25,20 +25,7 @@ object Indexer {
         // combine the constraint and its parameters into a name (mostly for debugging clarity, but
         // a backend might choose to use the name as-is to name its dictionaries)
         val dictName = termName(name + params.map(p => "$" + p).mkString)
-        val dictSym = tree.index(ctx.defineTerm(dictName, tree))
-        // enter a symbol for the interface represented by this constraint, as well as any parent
-        // interfaces; these will be used to resolve use of the interface methods on the type
-        // variable being constrained
-        def enterCstImpl (tree :Constraint) :Unit = {
-          val faceSym = ctx.scope.lookup(tree.name)
-          if (faceSym.exists) {
-            ctx.scope.enterImpl(faceSym, dictSym)
-            faceSym.csts foreach enterCstImpl
-          }
-          // else: the constraint tree will be typed with Error
-        }
-        enterCstImpl(tree)
-        dictSym
+        tree.index(ctx.defineTerm(dictName, tree))
 
       case tree @ ArgDef(docs, name, typ) =>
         tree.index(ctx.defineTerm(name, tree))
@@ -102,9 +89,27 @@ object Indexer {
         else println(s"Cannot register impl with invalid interface '${faceName}': $faceSym")
         implSym
 
-      case _    :DefTree => throw new Exception(s"Missing DefTree case for $tree")
-      case _    :Block   => sym // do not descend into nested blocks
-      case tree          => foldOver(sym, tree)
+      case _ :DefTree => throw new Exception(s"Missing DefTree case for $tree")
+      case _ :DefExpr => foldOver(sym, tree)
+      case _          => sym // do not index non-defs
     }
   }).apply(NoTerm, tree)
+
+  def enterCsts (csts :Seq[Constraint])(implicit ctx :Context) :Unit = {
+    // enter a symbol for the interface represented by this constraint, as well as any parent
+    // interfaces; these will be used to resolve use of the interface methods on the type
+    // variable being constrained
+    csts foreach { cstTree =>
+      val dictSym = cstTree.sym.asTerm
+      def enterCstImpl (tree :Constraint) :Unit = {
+        val faceSym = ctx.scope.lookup(tree.name)
+        if (faceSym.exists) {
+          ctx.scope.enterImpl(faceSym, dictSym)
+          faceSym.csts foreach enterCstImpl
+        } else println(s"Missing constraint: ${tree.name}")
+        // else: the constraint tree will be typed with Error
+      }
+      enterCstImpl(cstTree)
+    }
+  }
 }

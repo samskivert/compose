@@ -46,7 +46,7 @@ object Lexer {
   // Whitespace
   val newline = P( "\n" | "\r\n" | "\r" | "\f" )
   val hspace = P( " " | "\t" )
-  val comment = P( "//" ~ !"/" ~ CharsWhile(_ != '\n') )
+  val comment = P( "//" ~ !"/" ~ CharsWhile(_ != '\n').? )
   val hs = P( hspace.rep )
   val ws = P( ( hspace | newline | comment ).rep )
 
@@ -106,8 +106,8 @@ object Parser {
   val optTypeRef = P( (ws ~ ":" ~ typeRef ).? ).map(_ getOrElse OmittedType)
 
   // comments: doc comments are part of AST, other comments are whitespace
-  val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').! ~ "\n" )
-  val docComments = P( ws ~ docComment.rep )
+  val docComment = P( hs ~ "///" ~ " ".? ~ CharsWhile(_ != '\n').?.! )
+  val docComments = P( ws ~ docComment.rep(sep="\n") ~ ws )
 
   // definitions
   val simpleConstraint = P( hs ~ ":" ~/ typeIdent )
@@ -115,7 +115,7 @@ object Parser {
   val cstParamDef :P[ParamOrConst] =
     P( ws ~ typeIdent ~ (simpleConstraint | paramApply).? ).map {
       case (name, None) => Param(name)
-      case (name, Some(Seq(params))) => Constraint(name, params.asInstanceOf[Seq[TypeRef]])
+      case (name, Some(params :Seq[_])) => Constraint(name, params.asInstanceOf[Seq[TypeRef]])
       case (name, Some(ident)) =>
         ConstrainedParam(Param(name), Constraint(ident.asInstanceOf[TypeName], Seq(TypeRef(name))))
     }
@@ -149,11 +149,11 @@ object Parser {
   val parentRef = P( ws ~ typeIdent ~ paramApply ).map(Constraint.tupled)
   val xtends = P( ws ~ ":" ~/ hs ~ parentRef.rep(1, sep=",") )
   val optExtends = P( xtends.? ).map(_ getOrElse Seq())
-  val faceDef = P( docComments ~ Key("interface") ~ hs ~ typeIdent ~ optSeq(params) ~ ws ~
-                   optExtends ~ ws ~ "{" ~/ funDef.rep(1) ~ ws ~ "}" ).map(FaceDef.tupled)
+  val faceDef = P( docComments ~ Key("interface") ~ hs ~/ typeIdent ~ optSeq(params) ~ ws ~
+                   optExtends ~ ws ~ "{" ~/ funDef.rep ~ ws ~ "}" ).map(FaceDef.tupled)
   val methBind = P( ws ~ ident ~ hs ~ "=" ~/ hs ~ ident ).map(MethodBinding.tupled)
   val implDef = P( docComments ~ Key("impl") ~ hs ~ ident ~ hs ~ optSeq(cstParams) ~ hs ~ "=" ~/
-                   ws ~ typeRef ~ ws ~ "(" ~/ methBind.rep(1, sep=",") ~ ws ~ ")" ).
+                  ws ~ typeRef ~ ws ~ "(" ~/ methBind.rep(sep=",") ~ ws ~ ")" ).
     map((ImplDef.mk _).tupled)
 
   val topLevelDef = P( funDef | unionDef | recordDef | faceDef | implDef ).map(DefExpr)
@@ -183,6 +183,7 @@ object Parser {
   val identExpr = P( ident ).map(IdentRef)
 
   val parenExpr = P( "(" ~/ expr.rep(sep=",") ~ ws ~ ")" ).map {
+    case Seq()     => Literal(Constants.Unit)
     case Seq(expr) => expr
     case exps      => FunApply(FunKind.Normal, IdentRef(tupleName(exps.size)), Seq(), exps)
   }
@@ -243,7 +244,7 @@ object Parser {
   // TODO: change if to 'where'; this will be nicer for guarded binding ifs:
   // if let Foo(bar) where bar > 3 { expr }
   val guardClause = P( hs ~ Key("if") ~ expr ).?
-  val caseClause = P( ws ~ (Key("case") ~ pattern ~ guardClause ~ ws ~ "=" ~ expr) ).
+  val caseClause = P( ws ~ (Key("case") ~/ pattern ~ guardClause ~ ws ~ "=" ~ expr) ).
     map(Case.tupled)
   val matchExpr = P( Key("match") ~ expr ~ caseClause.rep(1) ).map(Match.tupled)
 
@@ -274,7 +275,7 @@ object Parser {
   val stmt :P[TermTree] = P( ws ~ (defExpr | effect | pureExpr) )
 
   // a program is a sequence of expressions
-  val program :P[Seq[TermTree]] = P( stmt.rep )
+  val program :P[Seq[TermTree]] = P( stmt.rep ) ~ ws ~ End
 
   def trace[A] (p :fastparse.all.P[A], id :String) =
     p.map(e => { println(e) ; e }).log(id)

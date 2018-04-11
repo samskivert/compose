@@ -26,6 +26,7 @@ object Scopes {
 
     /** A unique integer identifier for this scope. */
     val id = { scopeId += 1 ; scopeId }
+    // println(s"New scope $name/$id (parent ${if (parent == null) 0 else parent.id})")
 
     private def ensureCapacity (tableSize :Int) :Unit =
       if (size >= tableSize * FillFactor) createHash(tableSize*2)
@@ -111,10 +112,16 @@ object Scopes {
       sym
     }
 
-    /** Enters `impl` as an implementation for `face` into this scope. */
+    /** Enters `impl` as an implementation for `face` into this scope iff it is not already
+      * entered. This is idempotent so that we can enter impls both when typing signatures and
+      * trees without having to worry whether both are called with the same context/scope. */
     def enterImpl (face :TypeSymbol, impl :TermSymbol) :impl.type = {
       if (impls == null) impls = new HashMap
-      impls.put(face, scopeImpls(face) :+ impl)
+      val faceImpls = scopeImpls(face)
+      if (!faceImpls.contains(impl)) {
+        // println(s"enterImpl($id): ${face.name} -> $impl")
+        impls.put(face, faceImpls :+ impl)
+      }
       impl
     }
 
