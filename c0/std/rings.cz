@@ -1,0 +1,149 @@
+/// Semiring defines addition and multiplication operations on types.
+/// See https://en.wikipedia.org/wiki/Semiring for the laws by which instances must abide.
+///
+/// Note that though instances are provided for 8- through 64-bit signed and unsigned integers and
+/// floating point numbers, they are not law abiding due to integer overflow and NaN.
+interface Semiring[A] {
+
+  /// The `zero` element, or additive identity, of the semiring.
+  fun zero () :A
+
+  /// Adds `a1` and `a2`.
+  fun add (a1 :A, a2 :A) :A
+
+  /// The `one` element, or multiplicative identity, of the semiring.
+  fun one () :A
+
+  /// Multiplies `a1` and `a2`.
+  fun mul (a1 :A, a2 :A) :A
+}
+
+/// Ring augments Semiring with a subtraction operation. See the definition in
+/// https://en.wikipedia.org/wiki/Ring_(mathematics) for the laws by which instances must abide.
+///
+/// The same caveat applies to Ring as Semiring: the integer and floating point instances are not
+/// fully law abiding due to overflow/underflow and NaN.
+interface Ring[A] : Semiring[A] {
+
+  /// Subtracts `a2` from `a1`.
+  fun sub (a1 :A, a2 :A) :A
+}
+
+/// Returns the negation of `a`, i.e. `0 - a`.
+fun negate[A:Ring] (a :A) :A = zero() - a
+
+/// DivisionRing aguments Ring with a multiplicative inverse on non-zero elements.
+/// See also: https://en.wikipedia.org/wiki/Division_ring
+/// TODO: laws (non-zero, non-zero mul inverse, recip zero undefined)
+interface DivisionRing[A] : Ring[A] {
+
+  /// Returns the multiplicative inverse of `a`. For reals this is `1 / a`.
+  fun recip (a :A) :A
+}
+
+/// Left division, defined as `leftDiv a b = recip b * a`. Left and right division are distinct in
+/// this module because a `DivisionRing` is not necessarily commutative.
+///
+/// If the type `a` is also a `EuclideanRing`, then this function is equivalent to `div` from the
+/// `EuclideanRing` class. When working abstractly, `div` should generally be preferred, unless you
+/// know that you need your code to work with noncommutative rings.
+fun leftDiv[A:DivisionRing] (n :A, d :A) :A = recip(d * n)
+
+/// Right division, defined as `rightDiv a b = a * recip b`. Left and right division are distinct in
+/// this module because a `DivisionRing` is not necessarily commutative.
+///
+/// If the type `a` is also a `EuclideanRing`, then this function is equivalent to `div` from the
+/// `EuclideanRing` class. When working abstractly, `div` should generally be preferred, unless you
+/// know that you need your code to work with noncommutative rings.
+fun rightDiv[A:DivisionRing] (n :A, d :A) :A = n * recip(d)
+
+/// Commutative Ring augments Ring with no additional operations, but one an additional law:
+///
+/// - Commutative multiplication:
+///   - `a * b == b * a`
+///
+/// See also https://en.wikipedia.org/wiki/Commutative_algebra
+interface CommutativeRing[A] :Semiring[A] {}
+
+/// The `EuclideanRing` class is for commutative rings that support division. The mathematical
+/// structure this class is based on is sometimes also called a _Euclidean domain_.
+///
+///
+/// Instances must satisfy the following laws in addition to the `Ring` laws:
+///
+/// - Integral domain: `one /= zero`, and if `a` and `b` are both nonzero then so is their
+///   product `a * b`
+/// - Euclidean function `degree`:
+///   - Nonnegativity: For all nonzero `a`, `degree a >= 0`
+///   - Quotient/remainder: For all `a` and `b`, where `b` is nonzero,
+///     let `q = a / b` and ``r = a `mod` b``; then `a = q*b + r`, and also either
+///     `r = zero` or `degree r < degree b`
+/// - Submultiplicative Euclidean function:
+///   - For all nonzero `a` and `b`, `degree a <= degree (a * b)`
+///
+/// The behaviour of division by `zero` is unconstrained by these laws, meaning that individual
+/// instances are free to choose how to behave in this case. Similarly, there are no restrictions on
+/// what the result of `degree zero` is; it doesn't make sense to ask for `degree zero` in the same
+/// way that it doesn't make sense to divide by `zero`, so again, individual instances may choose
+/// how to handle this case.
+///
+/// For any `EuclideanRing` which is also a `Field`, one valid choice for `degree` is simply
+/// `const 1`. In fact, unless there's a specific reason not to, `Field` types should normally
+/// use this definition of `degree`.
+///
+/// See https://en.wikipedia.org/wiki/Euclidean_domain
+interface EuclideanRing[A] : CommutativeRing[A] {
+
+  /// Computes the _Euclidean function_ for `a`.
+  /// See https://en.wikipedia.org/wiki/Euclidean_domain
+  fun degree (a :A) :I32
+
+  /// Returns the quotient of the Euclidean division of `num` by `denom`.
+  /// See https://en.wikipedia.org/wiki/Euclidean_division
+  fun div (num :A, denom :A) :A
+
+  /// Returns the remainder of the Euclidean division of `num` by `denom`.
+  /// See https://en.wikipedia.org/wiki/Euclidean_division
+  fun mod (num :A, denom :A) :A
+}
+
+/// Computes the _greatest common divisor_ of `a1` and `a2`.
+fun gcd[A, Eq[A], EuclideanRing[A]] (a1 :A, a2 :A) :A =
+  if (a2 == zero[A]()) a1
+  else gcd(a2, a1 % a2)
+
+/// Computes the _least common multiple_ of `a1` and `a2`.
+fun lcm[A, Eq[A], EuclideanRing[A]] (a1 :A, a2 :A) :A =
+  if (a1 == zero[A]() || a2 == zero[A]()) zero()
+  else a1 * a2 / gcd(a1, a2)
+
+/// The `Field` class is for types that are (commutative) fields.
+///
+/// Instances must satisfy the following law in addition to the `EuclideanRing` laws:
+///
+/// - Non-zero multiplicative inverse:
+///   - ``a `mod` b = zero`` for all `a` and `b`
+///
+/// If a type has a `Field` instance, it should also have a `DivisionRing` instance.
+interface Field[A] : EuclideanRing[A] {}
+
+//
+// Arithmetic / Discrete algebra impls
+
+fun i32Zero () :I32 = 0
+fun i32Add (a :I32, b :I32) :I32 = foreign("a + b | 0")
+fun i32One () :I32 = 1
+fun i32Mul (a :I32, b :I32) :I32 = foreign("a * b | 0")
+impl i32SemiRing = Semiring[I32](zero=i32Zero, add=i32Add, one=i32One, mul=i32Mul)
+
+fun i32Sub (a :I32, b :I32) :I32 = foreign("a - b | 0")
+impl i32Ring = Ring[I32](sub=i32Sub)
+
+impl i32CommutativeRing = CommutativeRing[I32]()
+
+fun i32Degree (a :I32) :I32 = foreign("Math.min(Math.abs(a), 2147483647)")
+fun i32Div (num :I32, denom :I32) :I32 = foreign("num / denom | 0")
+fun i32Mod (num :I32, denom :I32) :I32 = foreign("num % denom")
+impl i32EuclideanRing = EuclideanRing[I32](degree=i32Degree, div=i32Div, mod=i32Mod)
+
+impl i32Field = Field[I32]()

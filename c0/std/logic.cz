@@ -1,0 +1,83 @@
+/// The `HeytingAlgebra` type class represents types that are bounded lattices with an implication
+/// operator such that the following laws hold:
+///
+/// - Associativity:
+///   - `a || (b || c) = (a || b) || c`
+///   - `a && (b && c) = (a && b) && c`
+/// - Commutativity:
+///   - `a || b = b || a`
+///   - `a && b = b && a`
+/// - Absorption:
+///   - `a || (a && b) = a`
+///   - `a && (a || b) = a`
+/// - Idempotent:
+///   - `a || a = a`
+///   - `a && a = a`
+/// - Identity:
+///   - `a || ff = a`
+///   - `a && tt = a`
+/// - Implication:
+///   - ``a `implies` a = tt``
+///   - ``a && (a `implies` b) = a && b``
+///   - ``b && (a `implies` b) = b``
+///   - ``a `implies` (b && c) = (a `implies` b) && (a `implies` c)``
+/// - Complemented:
+///   - ``not a = a `implies` ff``
+///
+/// See https://en.wikipedia.org/wiki/Heyting_algebra for a mathematical treatment.
+interface HeytingAlgebra[A] {
+  /// The bottom of the bounded lattice. `false` in the algebra on `Bool`.
+  fun ff () :A
+  /// The top of the bounded lattice. `true` in the algebra on `Bool`.
+  fun tt () :A
+  /// Computes the implication `a1 implies a2`.
+  fun implies (a1 :A, a2 :A) :A
+  /// Computes the conjunction of `a1` and `a2` (their 'meet' in the lattice).
+  fun conj (a1 :A, a2 :A) :A
+  /// Computes the disjunction of `a1` and `a2` (their 'join' in the lattice).
+  fun disj (a1 :A, a2 :A) :A
+  /// Computes the negation of `a`.
+  fun not (a :A) :A
+}
+
+fun boolFF () :Bool = false
+fun boolTT () :Bool = true
+fun boolImplies (a :Bool, b :Bool) :Bool = !a || b
+fun boolConj (a :Bool, b :Bool) :Bool = foreign("a && b")
+fun boolDisj (a :Bool, b :Bool) :Bool = foreign("a || b")
+fun boolNot (a :Bool) :Bool = foreign("!a")
+impl boolHeytingAlgebra = HeytingAlgebra[Bool](
+  ff=boolFF, tt=boolTT, implies=boolImplies, conj=boolConj, disj=boolDisj, not=boolNot
+)
+
+fun unitFF () :Unit = unit
+fun unitTT () :Unit = unit
+fun unitImplies (u1 :Unit, u2 :Unit) :Unit = unit
+fun unitConj (u1 :Unit, u2 :Unit) :Unit = unit
+fun unitDisj (u1 :Unit, u2 :Unit) :Unit = unit
+fun unitNot (u :Unit) :Unit = unit
+impl unitHeytingAlgebra = HeytingAlgebra[Unit](
+  ff=unitFF, tt=unitTT, implies=unitImplies, conj=unitConj, disj=unitDisj, not=unitNot
+)
+
+fun funFF[A, B:HeytingAlgebra] () :A => B = a => ff[B]()
+fun funTT[A, B:HeytingAlgebra] () :A => B = a => tt[B]()
+fun funImplies[A, B:HeytingAlgebra] (f :A => B, g :A => B) :A => B = a => implies(f(a), g(a))
+fun funConj[A, B:HeytingAlgebra] (f :A => B, g :A => B) :A => B = a => f(a) && g(a)
+fun funDisj[A, B:HeytingAlgebra] (f :A => B, g :A => B) :A => B = a => f(a) || g(a)
+fun funNot[A, B:HeytingAlgebra] (f :A => B) :A => B = a => !f(a)
+impl funHeytingAlgebra[A, B:HeytingAlgebra] = HeytingAlgebra[A => B](
+  ff=funFF, tt=funTT, implies=funImplies, conj=funConj, disj=funDisj, not=funNot
+)
+
+/// The `BooleanAlgebra` type class represents types that behave like boolean values.
+///
+/// Instances should satisfy the following laws in addition to the `HeytingAlgebra` laws:
+///
+/// - Excluded middle:
+///   - `a || not a = tt`
+interface BooleanAlgebra[A] : HeytingAlgebra[A] {}
+
+impl boolBooleanAlgebra = BooleanAlgebra[Bool]()
+impl unitBooleanAlgebra = BooleanAlgebra[Unit]()
+impl funBooleanAlgebra[A, B:BooleanAlgebra] = BooleanAlgebra[A => B]()

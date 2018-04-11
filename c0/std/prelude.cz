@@ -1,0 +1,9 @@
+// Defines built-in and foundational types, funs and interfaces.
+
+fun id[A] (a :A) :A = a
+
+fun length[A] (as :Array[A]) :I32 = foreign("as.length")
+
+let unit :Unit = ()
+
+let absurd :Void = foreign("undefined")

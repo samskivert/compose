@@ -16,13 +16,20 @@ fun voidEq (v1 :Void, v2 :Void) :Bool = true
 impl eqVoid = Eq[Void](eq=voidEq, notEq=defNotEq)
 
 fun unitEq (u1 :Unit, u2 :Unit) :Bool = true
-impl eqUnit = Eq[Unit](eq=unitEq, notEq=defNotEq)
+fun unitNotEq (u1 :Unit, u2 :Unit) :Bool = false
+impl eqUnit = Eq[Unit](eq=unitEq, notEq=unitNotEq)
 
-fun boolEq (a :Bool, b :Bool) :Bool = foreign
-impl eqBool = Eq[Bool](eq=boolEq, notEq=defNotEq)
+fun boolEq (a :Bool, b :Bool) :Bool = foreign("a === b")
+fun boolNotEq (a :Bool, b :Bool) :Bool = foreign("a !== b")
+impl eqBool = Eq[Bool](eq=boolEq, notEq=boolNotEq)
 
-fun i32Eq (a :I32, b :I32) :Bool = foreign
-impl eqI32 = Eq[I32](eq=i32Eq, notEq=defNotEq)
+fun i32Eq (a :I32, b :I32) :Bool = foreign("a === b")
+fun i32NotEq (a :I32, b :I32) :Bool = foreign("a !== b")
+impl eqI32 = Eq[I32](eq=i32Eq, notEq=i32NotEq)
+
+fun stringEq (a :String, b :String) :Bool = foreign("a === b")
+fun stringNotEq (a :String, b :String) :Bool = foreign("a !== b")
+impl eqString = Eq[String](eq=stringEq, notEq=stringNotEq)
 
 fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
   fun loop (ii :I32) :Bool =
@@ -32,7 +39,3 @@ fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
   if (a1.length == a2.length) loop(0) else false
 }
 impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq, notEq=defNotEq)
-
-// fun test (a1 :Array[I32], a2 :Array[I32]) :Bool = a1 == a2
-
-// fun test (a1 :Array[Bool], a2 :Array[Bool]) :Bool = a1 == a2
