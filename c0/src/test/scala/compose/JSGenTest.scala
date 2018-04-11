@@ -4,7 +4,6 @@
 
 package compose
 
-import org.junit.Assert._
 import org.junit._
 
 class JSGenTest {
@@ -13,12 +12,17 @@ class JSGenTest {
   import Printing._
   import TestCode._
 
+  val PrintGennedCode = false
+
   def genTrees (trees :Seq[Trees.Tree]) = {
     val errs = trees.flatMap(Trees.errors)
     if (errs.isEmpty) {
-      gen(lower(trees), sysPrint)
-      sysOut.println()
-      sysOut.flush()
+      val pr = if (PrintGennedCode) sysPrint else printInto(new java.lang.StringBuilder())
+      gen(lower(trees), pr)
+      if (PrintGennedCode) {
+        sysOut.println()
+        sysOut.flush()
+      }
     }
     else {
       errs foreach { case (tree, err) => println(s"Error: $err\n  $tree") }
@@ -26,7 +30,7 @@ class JSGenTest {
     }
   }
 
-  def genCode (code :String) :Unit = genTrees(parseAndType("code", code))
+  def genCode (code :String) :Unit = genTrees(typeCode("code", code))
 
   @Test def testCondFib () :Unit = genCode(CondFib)
   @Test def testMatchFib () :Unit = genCode(MatchFib)
@@ -47,7 +51,17 @@ class JSGenTest {
     Seq(SimpleMatch, TupleMatch, DestructMatch, ParamDestructMatch, GuardedMatch) foreach genCode
 
   @Test def testStdlib () :Unit = {
-    val files = Seq("std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz")
+    val files = Seq("std/prelude.cz", "std/semigroup.cz")
     genTrees(typeFiles(files))
+  }
+
+  @Test def testEulers () :Unit = {
+    def genEuler (ii :Int) = {
+      val num = String.format("%02d", ii.asInstanceOf[AnyRef])
+      println(s"-- Euler $num --------------")
+      genTrees(typeFiles(StdlibFiles :+ s"tests/euler/euler$num.cz"))
+    }
+    // 1 to 10 foreach genEuler
+    genEuler(1)
   }
 }

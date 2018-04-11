@@ -4,7 +4,8 @@
 
 package compose
 
-import java.io.PrintWriter
+import java.io.{PrintWriter, Writer}
+import java.lang.StringBuilder
 
 object Printing {
 
@@ -27,6 +28,16 @@ object Printing {
 
   val sysOut = new PrintWriter(System.out)
   val sysPrint = new Printer(sysOut)
+
+  def printInto (target :StringBuilder) :Printer = new Printer(new PrintWriter(new Writer() {
+    override def write (c :Int) = target.append(c.asInstanceOf[Char])
+    override def write (cs :Array[Char]) = target.append(cs)
+    override def write (cs :Array[Char], off :Int, len :Int) = target.append(cs, off, len)
+    override def write (s :String) = target.append(s)
+    override def write (s :String, off :Int, len :Int) = target.append(s, off, len)
+    override def close () :Unit = {}
+    override def flush () :Unit = {}
+  }))
 
   def printSep[T] (ts :Seq[T], printT :T => Unit, brackets :Brackets, sep :String = ", ")
                   (implicit pr :Printer) = {

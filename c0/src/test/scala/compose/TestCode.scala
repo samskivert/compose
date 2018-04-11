@@ -8,7 +8,6 @@ import java.io.PrintWriter
 import java.nio.file.{Paths, Files}
 import fastparse.all.P
 import fastparse.core.Parsed
-import org.junit.Assert._
 
 object TestCode {
   import Contexts._
@@ -18,6 +17,10 @@ object TestCode {
   import Trees._
 
   val out = new PrintWriter(System.out)
+
+  val StdlibFiles = Seq(
+    "std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz", "std/semigroup.cz"
+  )
 
   def parseCode[T] (path :String, parser :P[T] = program) :Parsed[T, _, _] = {
     val cwd = Paths.get(System.getProperty("user.dir"))
@@ -37,25 +40,31 @@ object TestCode {
 
   def testContext (name :String) = moduleContext(termName(s"${name}.cz"))
 
-  def parseAndType (module :String, code :String) :Seq[Tree] = {
-    val trees = extract(program.parse(code))
-    implicit val ctx = testContext(module)
-    trees foreach index
-    trees map { tree => tree.typed() }
-  }
-
-  def parseAndType (files :Seq[String]) :Seq[Tree] = {
-    val treess = files map { file => extract(parseCode(file)) }
-    implicit val ctx = testContext(files.last)
-    treess.flatten foreach index
-    treess.last map { _.typed() }
-  }
-
-  def typeFiles (files :Seq[String]) :Seq[Tree] = {
-    val trees = files.map(file => extract(parseCode(file))).flatten
-    implicit val ctx = testContext(files.last)
+  def typeTrees (modname :String, trees :Seq[Tree]) :Seq[Tree] = {
+    implicit val ctx = testContext(modname)
     trees foreach index
     trees map { _.typed() }
+  }
+
+  def typeCode (module :String, code :String) :Seq[Tree] =
+    typeTrees(module, extract(program.parse(code)))
+
+  def typeFile (file :String) :Seq[Tree] =
+    typeTrees(file, extract(parseCode(file)))
+
+  def typeFiles (files :Seq[String]) :Seq[Tree] =
+    typeTrees(files.last, files.map(file => extract(parseCode(file))).flatten)
+
+  def checkTrees (trees :Seq[Tree]) :Seq[Tree] = {
+    val errs = trees.flatMap(Trees.errors)
+    if (errs.isEmpty) trees
+    else {
+      errs foreach { case (path, err) =>
+        println(s"Error: $err @ ${Trees.show(path.head)}")
+        path foreach { t => println(s"- ${Trees.show(t)} : ${t.productPrefix}") }
+      }
+      fail("Trees had errors")
+    }
   }
 
   val CondFib = """

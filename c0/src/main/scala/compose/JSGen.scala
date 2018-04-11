@@ -96,9 +96,9 @@ object JSGen {
     case FunDef(ident, dicts, args, body) =>
       pr.print("function ") ; genSym(ident) ; pr.print(" ") ; printSep(dicts ++ args, genSym, Paren)
       pr.print(" ")
-      if (!isBlock(body)) pr.print("{ ")
+      if (!isBlock(body)) pr.print("{")
       genJS(body)
-      if (!isBlock(body)) pr.print(" }")
+      if (!isBlock(body)) pr.print("}")
       pr
   }
 
