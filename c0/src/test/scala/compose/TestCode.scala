@@ -22,6 +22,11 @@ object TestCode {
     "std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz", "std/semigroup.cz"
   )
 
+  // our junit test runner sets a system property so that we can know when a test is running if
+  // we're running a single test (filter is set to the test name) or running all the tests (no
+  // filter); we use that to print extra info when running a single test
+  def runningSingleTest :Boolean = System.getProperty("junit.filter", "") != ""
+
   def parseCode[T] (path :String, parser :P[T] = program) :Parsed[T, _, _] = {
     val cwd = Paths.get(System.getProperty("user.dir"))
     val fullPath = cwd.resolve(path)

@@ -14,16 +14,9 @@ class TypingTest {
   import TestCode._
   import Trees._
 
-  val PrintTypedTrees = false
-
   def check (trees :Seq[Tree]) :Seq[Tree] = {
-    debugPrint(trees)
+    if (runningSingleTest) trees foreach debugTree(out)
     checkTrees(trees)
-  }
-
-  def debugPrint (trees :Seq[Tree]) :Seq[Tree] = {
-    if (PrintTypedTrees) trees foreach debugTree(out)
-    trees
   }
 
   @Test def testConstants () :Unit = check(typeCode("consts", "0"))
@@ -77,7 +70,26 @@ class TypingTest {
     impl i32Foo = Foo[I32](pick=first)
   """))
 
+  @Test def testCurried () :Unit = check(typeCode("curried", """
+    fun flip[A, B, C] (f :A => B => C) :B => A => C = b => a => f(a)(b)
+    fun flop[A, B, C] (f :(A, B) => C) :(B, A) => C = (b, a) => f(a, b)
+  """))
+
   @Test def testLiterals () :Unit = check(typeFile("tests/literals.cz"))
+
+  @Test def testDataResolve () :Unit = check(typeCode("curried", """
+    interface Eq[A] { fun eq (a1 :A, a2 :A) :Bool }
+    data Ordering = LT | EQ | GT
+    fun orderingEq (a :Ordering, b :Ordering) = a is b
+    impl eqOrdering = Eq[Ordering](eq=orderingEq)
+    let foo :Ordering = LT
+    let bar :Bool = foo == GT
+  """))
+
+  @Test def testJoinUnionCases () :Unit = check(typeCode("joinUnionCases", """
+    data Ordering = LT | EQ | GT
+    let foo = if (false) LT else GT
+  """))
 
   @Test def testIndexData () :Unit = {
     val trees = extract(program.parse(OrdData))
@@ -101,8 +113,12 @@ class TypingTest {
   }
 
   @Test def testPrelude () :Unit = check(typeFile("std/prelude.cz"))
+  @Test def testLattice () :Unit = check(typeFiles(Seq(
+    "std/prelude.cz", "std/logic.cz", "std/rings.cz", "std/eq.cz", "std/ord.cz")))
   @Test def testLogic () :Unit = check(typeFiles(Seq("std/prelude.cz", "std/logic.cz")))
-  @Test def testSemigroup () :Unit = check(typeFiles(Seq("std/prelude.cz", "std/semigroup.cz")))
+  @Test def testControl () :Unit = check(typeFiles(Seq(
+    "std/prelude.cz", "std/function.cz", "std/semigroup.cz", "std/logic.cz", "std/rings.cz",
+    "std/eq.cz", "std/ord.cz", "std/monoid.cz")))
   @Test def testStdlib () :Unit = check(typeFiles(StdlibFiles))
   @Test def testApply () :Unit = check(typeCode("listApply", ListApply))
   @Test def testApplyImpl () :Unit = check(typeCode("applyImpl", ApplyImpl))

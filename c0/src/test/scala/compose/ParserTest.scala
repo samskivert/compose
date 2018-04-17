@@ -14,8 +14,6 @@ class ParserTest {
   import Names._
   import TestCode._
 
-  val PrintParsedTrees = false
-
   def check (result :Parsed[Seq[TermTree], _, _], tree :Boolean = false) = result.fold(
     (p, pos, extra) => {
       extra.traced.trace.split(" / " ).foreach(f => println(s"- $f"))
@@ -23,7 +21,7 @@ class ParserTest {
     },
     (res, pos) => res.foreach { expr =>
       if (tree) println(pos + ": " + showTree(expr))
-      if (PrintParsedTrees) print(expr)
+      if (runningSingleTest) print(expr)
     }
   )
 

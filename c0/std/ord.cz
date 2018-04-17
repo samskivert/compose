@@ -1,6 +1,9 @@
 
 data Ordering = LT | EQ | GT
 
+fun orderingEq (a :Ordering, b :Ordering) = a is b
+impl eqOrdering = Eq[Ordering](eq=orderingEq, notEq=defNotEq)
+
 /// Defines an ordering relationship on elements of a type. This allows one to compare two elements
 /// to determine which is the _lesser_ and _greater_ element, or whether they are _equal_.
 interface Ord[A] : Eq[A] {
@@ -10,42 +13,53 @@ interface Ord[A] : Eq[A] {
   fun compare (a1 :A, a2 :A) :Ordering
 
   /// @return `true` if `a1` is less than `a2`, `false` otherwise.
-  fun lessThan (a1 :A, a2 :A) :Bool = compare(a1, a2) == LT
+  fun less (a1 :A, a2 :A) :Bool
 
   /// @return `true` if `a1` is greater than `a2`, `false` otherwise.
-  fun greaterThan (a1 :A, a2 :A) :Bool = compare(a1, a2) == GT
+  fun greater (a1 :A, a2 :A) :Bool
 
   /// @return `true` if `a1` is less than or equal to `a2`, `false` otherwise.
-  fun lessThanEq (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == GT)
+  fun lessEq (a1 :A, a2 :A) :Bool
 
   /// @return `true` if `a1` is greater than or equal to `a2`, `false` otherwise.
-  fun greaterThanEq (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == LT)
+  fun greaterEq (a1 :A, a2 :A) :Bool
 
   /// @return whichever of `a1` or `a2` is greater, or `a1` if they are equal.
-  fun max (a1 :A, a2 :A) :A = if (a1 < a2) a2 else a1
+  fun max (a1 :A, a2 :A) :A
 
   /// @return whichever of `a1` or `a2` is lesser, or `a1` if they are equal.
-  fun min (a1 :A, a2 :A) :A = if (a1 > a2) a2 else a1
+  fun min (a1 :A, a2 :A) :A
 }
+
+fun defLess[A:Ord] (a1 :A, a2 :A) :Bool = compare(a1, a2) == LT
+fun defGreater[A:Ord] (a1 :A, a2 :A) :Bool = compare(a1, a2) == GT
+fun defLessEq[A:Ord] (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == GT)
+fun defGreaterEq[A:Ord] (a1 :A, a2 :A) :Bool = !(compare(a1, a2) == LT)
+fun defMax[A:Ord] (a1 :A, a2 :A) :A = if (a1 < a2) a2 else a1
+fun defMin[A:Ord] (a1 :A, a2 :A) :A = if (a1 > a2) a2 else a1
 
 fun boolCompare (a :Bool, b :Bool) = cond
   !a && b = LT
   a && !b = GT
   else    = EQ
-impl ordBool = Ord[Bool](compare=boolCompare)
+impl ordBool = Ord[Bool](
+  compare=boolCompare,
+  less=defLess, greater=defGreater,
+  lessEq=defLessEq, greaterEq=defGreaterEq,
+  max=defMax, min=defMin
+)
 
-fun i32LessThan (a :I32, b :I32) :Bool = foreign
-fun i32LessThanEq (a :I32, b :I32) :Bool = foreign
-fun i32GreaterThan (a :I32, b :I32) :Bool = foreign
-fun i32GreatherThanEq (a :I32, b :I32) :Bool = foreign
+fun i32Less (a :I32, b :I32) :Bool = foreign
+fun i32LessEq (a :I32, b :I32) :Bool = foreign
+fun i32Greater (a :I32, b :I32) :Bool = foreign
+fun i32GreaterEq (a :I32, b :I32) :Bool = foreign
 fun i32Compare (a :I32, b :I32) = cond
-  i32LessThan(a, b)    = LT
-  i32GreaterThan(a, b) = GT
+  i32Less(a, b)    = LT
+  i32Greater(a, b) = GT
   else                 = EQ
 impl ordI32 = Ord[I32](
   compare=i32Compare,
-  lessThan=i32LessThan,
-  lessThanEq=i32LessThanEq,
-  greaterThan=i32GreaterThan,
-  greaterThanEq=i32GreaterThanEq
+  less=i32Less, lessEq=i32LessEq,
+  greater=i32Greater, greaterEq=i32GreaterEq,
+  max=defMax, min=defMin
 )

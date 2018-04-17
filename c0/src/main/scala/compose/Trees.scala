@@ -313,27 +313,29 @@ object Trees {
       case err :Error => err
       case _ =>
         val targetSym = setSym(ctx.scope.lookup(fun))
-        if (!targetSym.exists) Unknown(fun, ctx.scope.id) else {
-          val tgtType = targetSym.info.asInstanceOf[Arrow]
-          // TODO: check that it matches proto (that we can join? that the types are equal modulo
-          // dictionaries after application?)
-          if (tgtType.params.isEmpty) tgtType
-          else {
-            val Arrow(protoSym, protoParams, protoCsts, protoArgs, protoResult) = proto
-            val bindCsts = (tgtType.args zip protoArgs) :+ (tgtType.result -> protoResult)
-            unifyApply(bindCsts, tgtType) match {
-              case methType :Arrow =>
-                // TODO: when resolving constraints for our bound methods, we will often encounter
-                // a situation where we need to pass in `this` impl to meet a constraint; we don't
-                // want to recursively resolve it (indeed we can't without infinitely looping), so
-                // we need to tell the constraint resolution process about `this` so that it can
-                // use a special ImplThis tree to cut the Gordian knot in this case
-                _impls = resolveCsts(methType.asInstanceOf[Arrow].csts)
-                // if any impl failed to resolve, type ourselves as error
-                _impls collectFirst { case ErrorImpl(msg) => Error(msg) } getOrElse methType
-              case error => error
+        if (!targetSym.exists) Unknown(fun, ctx.scope.id) else targetSym.info match {
+          case tgtType :Arrow =>
+            // TODO: check that it matches proto (that we can join? that the types are equal modulo
+            // dictionaries after application?)
+            if (tgtType.params.isEmpty) tgtType
+            else {
+              val Arrow(protoSym, protoParams, protoCsts, protoArgs, protoResult) = proto
+              val bindCsts = (tgtType.args zip protoArgs) :+ (tgtType.result -> protoResult)
+              unifyApply(bindCsts, tgtType) match {
+                case methType :Arrow =>
+                  // TODO: when resolving constraints for our bound methods, we will often encounter
+                  // a situation where we need to pass in `this` impl to meet a constraint; we don't
+                  // want to recursively resolve it (indeed we can't without infinitely looping), so
+                  // we need to tell the constraint resolution process about `this` so that it can
+                  // use a special ImplThis tree to cut the Gordian knot in this case
+                  _impls = resolveCsts(methType.asInstanceOf[Arrow].csts)
+                  // if any impl failed to resolve, type ourselves as error
+                  _impls collectFirst { case ErrorImpl(msg) => Error(msg) } getOrElse methType
+                case error => error
+              }
             }
-          }
+          case tpe => Error(
+            s"Cannot bind interface method to non-function: '${targetSym.name} :$tpe'")
         }
     }
   }
@@ -1199,6 +1201,23 @@ object Trees {
             apply(pr.nest, face)
             apply(pr.nest, binds)
             pr
+          case Lambda (args, body) =>
+            pr.printIndent("lambda ")
+            printSep(args, printTree, Paren)
+            pr.println(" ::", treeType)
+            apply(pr.nest, args)
+            apply(pr.nest, body)
+            pr
+          case Condition (guard, result) =>
+            apply(pr, guard)
+            pr.println(" ::", treeType)
+            apply(pr.nest, result)
+            pr
+          case Cond (conds, elseResult) =>
+            pr.printIndent("cond ::").println(treeType)
+            apply(pr.nest, conds)
+            apply(pr.nest, elseResult)
+            pr
           case _ =>
             pr.printIndent(tree).println(" ::", treeType)
             foldOver(pr.nest, tree)
@@ -1213,9 +1232,6 @@ object Trees {
         //   case ArrayLiteral (values) =>
         //   case Select (expr, field) =>
         //   case Index (expr, index) =>
-        //   case Lambda (args, body) =>
-        //   case Condition (guard, result) =>
-        //   case Cond (conds, elseResult) =>
         //   case Generator (name, expr) =>
         //   case Filter (expr) =>
         //   case MonadComp(elem, clauses) =>

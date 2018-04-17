@@ -11,10 +11,18 @@ object Resolve {
 
   // a simple AST for resolved implementations
   sealed trait ImplTree
-  case object NoImpl extends ImplTree
-  case class ErrorImpl (msg :String) extends ImplTree
-  case class ImplRef (impl :TermSymbol) extends ImplTree
-  case class ImplApply (impl :TermSymbol, args :Seq[ImplTree]) extends ImplTree
+  case object NoImpl extends ImplTree {
+    override def toString = s"<noimpl>"
+  }
+  case class ErrorImpl (msg :String) extends ImplTree {
+    override def toString = s"<error: $msg>"
+  }
+  case class ImplRef (impl :TermSymbol) extends ImplTree {
+    override def toString = impl.name.toString
+  }
+  case class ImplApply (impl :TermSymbol, args :Seq[ImplTree]) extends ImplTree {
+    override def toString = s"${impl.name}${boxedString(args)}"
+  }
 
   /** Resolves the implementations for `csts` in the implied `ctx`.
     * Any unresolvable implementations will yield an error tree. */
@@ -36,7 +44,7 @@ object Resolve {
     ctx.scope.impls(faceSym) flatMap tryApply(implParams) match {
       case Seq() => ErrorImpl(s"Unable to find ${faceSym.name} for ${boxedString(appParams)}")
       case Seq(impl) => impl
-      case impls => ErrorImpl(s"Multiple matching impls: $impls")
+      case impls => ErrorImpl(s"Multiple matching impls: ${boxedString(impls)}")
     }
   }
 

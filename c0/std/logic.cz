@@ -40,6 +40,14 @@ interface HeytingAlgebra[A] {
   fun not (a :A) :A
 }
 
+/// The `BooleanAlgebra` type class represents types that behave like boolean values.
+///
+/// Instances should satisfy the following laws in addition to the `HeytingAlgebra` laws:
+///
+/// - Excluded middle:
+///   - `a || not a = tt`
+interface BooleanAlgebra[A] : HeytingAlgebra[A] {}
+
 fun boolFF () :Bool = false
 fun boolTT () :Bool = true
 fun boolImplies (a :Bool, b :Bool) :Bool = !a || b
@@ -69,14 +77,6 @@ fun funNot[A, B:HeytingAlgebra] (f :A => B) :A => B = a => !f(a)
 impl funHeytingAlgebra[A, B:HeytingAlgebra] = HeytingAlgebra[A => B](
   ff=funFF, tt=funTT, implies=funImplies, conj=funConj, disj=funDisj, not=funNot
 )
-
-/// The `BooleanAlgebra` type class represents types that behave like boolean values.
-///
-/// Instances should satisfy the following laws in addition to the `HeytingAlgebra` laws:
-///
-/// - Excluded middle:
-///   - `a || not a = tt`
-interface BooleanAlgebra[A] : HeytingAlgebra[A] {}
 
 impl boolBooleanAlgebra = BooleanAlgebra[Bool]()
 impl unitBooleanAlgebra = BooleanAlgebra[Unit]()

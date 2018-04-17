@@ -1,0 +1,80 @@
+/// Flips the order of the arguments to a function of two arguments.
+///
+/// ```
+/// flip const 1 2 = const 2 1 = 2
+/// ```
+fun flip[A, B, C] (f :(A, B) => C) :(B, A) => C = (b, a) => f(a, b)
+
+/// Returns its first argument and ignores its second.
+///
+/// ```
+/// const 1 "hello" = 1
+/// ```
+fun const[A, B] (a :A) :B => A = _ => a
+// const :: forall a b. a -> b -> a
+// const a _ = a
+
+/// Applies a function to an argument. This is primarily used as the operator `($)` which allows
+/// parentheses to be omitted in some cases, or as a natural way to apply a chain of composed
+/// functions to a value.
+fun apply[A, B] (f :A => B, a :A) :B = f(a)
+// apply :: forall a b. (a -> b) -> a -> b
+// apply f x = f x
+
+// /// Applies a function to an argument: the reverse of `(#)`.
+// ///
+// /// ```
+// /// length $ groupBy productCategory $ filter isInStock $ products
+// /// ```
+// ///
+// /// is equivalent to:
+// ///
+// /// ```
+// /// length (groupBy productCategory (filter isInStock products))
+// /// ```
+// ///
+// /// Or another alternative equivalent, applying chain of composed functions to a value:
+// ///
+// /// ```
+// /// length <<< groupBy productCategory <<< filter isInStock $ products
+// /// ```
+// infixr 0 apply as $
+
+/// Applies an argument to a function. This is primarily used as the `(#)` operator, which allows
+/// parentheses to be ommitted in some cases, or as a natural way to apply a value to a chain of
+/// composed functions.
+fun applyFlipped[A, B] (a :A, f :A => B) :B = f(a)
+// applyFlipped :: forall a b. a -> (a -> b) -> b
+// applyFlipped x f = f x
+
+// /// Applies an argument to a function: the reverse of `($)`.
+// ///
+// /// ```
+// /// products # filter isInStock # groupBy productCategory # length
+// /// ```
+// ///
+// /// is equivalent to:
+// ///
+// /// ```
+// /// length (groupBy productCategory (filter isInStock products))
+// /// ```
+// ///
+// /// Or another alternative equivalent, applying a value to a chain of composed functions:
+// ///
+// /// ```
+// /// products # filter isInStock >>> groupBy productCategory >>> length
+// /// ```
+// infixl 1 applyFlipped as #
+
+/// The `on` function is used to change the domain of a binary operator.
+///
+/// For example, we can create a function which compares two records based on the values of their
+/// `x` properties:
+///
+/// ```
+/// compareX :: forall r. { x :: Number | r } -> { x :: Number | r } -> Ordering
+/// compareX = compare `on` _.x
+/// ```
+fun on[A, B, C] (f :(B, B) => C, g :A => B) :(A, A) => C = (x, y) => f(g(x), g(y))
+// on :: forall a b c. (b -> b -> c) -> (a -> b) -> a -> a -> c
+// on f g x y = g x `f` g y

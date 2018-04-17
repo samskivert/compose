@@ -1,0 +1,54 @@
+// depends: prelude, functions, Semigroup, Eq, Ord
+
+/// A `Monoid` is a `Semigroup` with a value `mempty`, which is both a left and right unit for the
+/// associative operation `<>`:
+///
+/// ```text
+/// forall x. mempty <> x = x <> mempty = x
+/// ```
+///
+/// `Monoid`s are commonly used as the result of fold operations, where `<>` is used to combine
+/// individual results, and `mempty` gives the result of folding an empty collection of elements.
+interface Monoid[M] : Semigroup[M] {
+  fun mempty () :M
+}
+
+fun memptyUnit () :Unit = unit
+impl unitMonoid = Monoid[Unit](mempty=memptyUnit)
+
+fun memptyOrdering () :Ordering = EQ
+impl orderingMonoid = Monoid[Ordering](mempty=memptyOrdering)
+
+fun memptyFun[A, B:Monoid] () :A => B = const(mempty)
+impl funMonoid[A, B:Monoid] = Monoid[A => B](mempty=memptyFun)
+
+fun memptyString () :String = ""
+impl stringMonoid = Monoid[String](mempty=memptyString)
+
+fun memptyArray[A] () :Array[A] = foreign("[]")
+impl arrayMonoid[A] = Monoid[Array[A]](mempty=memptyArray)
+
+/// Append a value to itself a certain number of times. For the `Multiplicative` type, and for a
+/// non-negative power, this is the same as normal number exponentiation.
+///
+/// If the second argument is negative this function will return `mempty`, _unlike_ normal number
+/// exponentiation. The `Monoid` constraint alone is not enough to write a `power` function with the
+/// property that `power x n` cancels with `power x (-n)`, i.e. `power x n <> power x (-n) =
+/// mempty`. For that, we would additionally need the ability to invert elements, i.e. a `Group`.
+fun power[M:Monoid] (x :M, exp :I32) :M = {
+  fun loop (exp :I32) :M = cond
+    exp <= 0     = mempty()
+    exp == 1     = x
+    exp % 2 == 0 = {
+      let x2 = loop(exp/2)
+      append(x2, x2)
+    }
+    else         = {
+      let x2 = loop(exp/2)
+      append(append(x2, x2), x)
+    }
+  loop(exp)
+}
+
+/// Allow or "truncate" a Monoid to its `mempty` value based on a condition.
+fun guard[M:Monoid] (test :Bool, m :M) :M = if (test) m else mempty()

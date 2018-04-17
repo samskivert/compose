@@ -1,0 +1,32 @@
+// depends: prelude
+
+/// The `Semigroup` type class identifies an associative operation on a type.
+///
+/// Instances are required to satisfy the following law:
+///
+/// - Associativity: `(x <> y) <> z = x <> (y <> z)`
+///
+/// One example of a `Semigroup` is `String`, with `(<>)` defined as string concatenation.
+interface Semigroup[A] {
+  fun append (a1 :A, a2 :A) :A
+  // TODO: alias to <>?
+}
+
+fun appendVoid (a :Void, b :Void) :Void = absurd
+impl voidSemigroup = Semigroup[Void](append=appendVoid)
+
+fun appendUnit (a :Unit, b :Unit) :Unit = unit
+impl unitSemigroup = Semigroup[Unit](append=appendUnit)
+
+fun concatString (a :String, b :String) :String = foreign("a.concat(b)")
+impl stringSemigroup = Semigroup[String](append=concatString)
+
+fun concatArray[A] (a1s :Array[A], a2s :Array[A]) :Array[A] = foreignBody("""
+  if (a1s.length === 0) return a2s;
+  if (a2s.length === 0) return a1s;
+  return a1s.concat(a2s);
+""")
+impl arraySemigroup[A] = Semigroup[Array[A]](append=concatArray)
+
+fun appendFun[A, B:Semigroup] (f :A => B, g :A => B) :A => B = x => append(f(x), g(x))
+impl funSemigroup[A, B:Semigroup] = Semigroup[A => B](append=appendFun)

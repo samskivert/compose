@@ -28,6 +28,7 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 - Actually check that types match when typing trees.
 - ~~Type pattern trees.~~
 - Type comprehensions.
+- ~~Type `is` op for ADTs.~~
 
 ### Resolution
 
@@ -43,6 +44,7 @@ uncommitted file in the top-level directory of a project, but this time I'll sha
 - ~~Inject (or pass along) appropriate dictionaries in `Apply`.~~
 - ~~Lower pattern trees.~~
 - Lower comprehensions.
+- Lower `is` op.
 
 ### Codegen
 
