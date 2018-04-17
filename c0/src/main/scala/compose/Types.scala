@@ -204,6 +204,15 @@ object Types {
       TypeRef(typeName("T")),
       OmittedBody))
 
+    /** A symbol for the `is` function. */
+    val is = Indexer.index(FunDef(
+      Seq("Tests an expression for equality with an ADT."), termName("is"),
+      Seq(Param(typeName("T"))), Seq(),
+      Seq(ArgDef(Seq("The left operand."), termName("a"), TypeRef(typeName("T"))),
+          ArgDef(Seq("The right operand."), termName("b"), TypeRef(typeName("T")))),
+      TypeRef(typeName("Bool")),
+      OmittedBody))
+
     /** Defines a primitive type and enters it into the root/primitives scope. */
     private def primitive (name :String, kind :Int, bitWidth :Int) = {
       val tname = typeName(name)
@@ -269,7 +278,8 @@ object Types {
         case _ => fail // TODO
       }
       case Record(sym, params, fields) => typeB match {
-        case unionType :Union => join(typeB, typeA)
+        case _ :Union => join(typeB, typeA)
+        case Record(osym, _, _) if (sym.owner == osym.owner) => sym.owner.info
         case _ => fail // TODO
       }
       case Field(sym, tpe) => fail

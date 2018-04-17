@@ -225,7 +225,7 @@ object Parser {
   val bitXorExpr = P( binOp(bitAndExpr, op("^")) )
   val bitOrExpr = P( binOp(bitXorExpr, op("|")) )
 
-  val equalExpr = P( binOp(bitOrExpr, op("==") | op("!=")) )
+  val equalExpr = P( binOp(bitOrExpr, op("==") | op("!=") | op("is")) )
   val relExpr = P( binOp(equalExpr, op("<=") | op(">=") | op("<") | op(">")) )
   val logAndExpr = P( binOp(relExpr, op("&&")) )
   val logOrExpr = P( binOp(logAndExpr, op("||")) )
