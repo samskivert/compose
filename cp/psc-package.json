@@ -1,0 +1,16 @@
+{
+  "name": "cp",
+  "set": "compose",
+  "source": "https://github.com/samskivert/package-sets.git",
+  "depends": [
+    "arrays",
+    "assert",
+    "console",
+    "generics-rep",
+    "halogen",
+    "lists",
+    "prelude",
+    "psci-support",
+    "st"
+  ]
+}

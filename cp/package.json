@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "pulp build --to dist/editor.js",
+    "watch": "pulp --watch build --to dist/editor.js"
+  },
+  "devDependencies": {
+    "purescript-language-server": "^0.11.0"
+  },
+  "dependencies": {}
+}
