@@ -1,13 +1,13 @@
 module Format where
 
-import Control.Monad.ST (ST, run, foreach)
-import Control.Monad.ST.Ref (STRef, new, read, modify)
+import Control.Monad.State (State, modify, execState)
 import Data.Array (length, snoc)
+import Data.FoldableWithIndex (traverseWithIndex_)
 import Prelude
 
 import Constants (Constant(..))
 import Markup as M
-import Names (Name(..))
+import Names (Name(..), toString)
 import Trees as T
 import Types (Type(..))
 
@@ -19,10 +19,10 @@ import Types (Type(..))
 -- | Ref Name => append span
 -- | + foo
 -- |
--- | App Tree Tree => append spans
+-- | App Expr Expr => append spans
 -- | + foo bar
 -- |
--- | Let Name Type Tree Tree => append spans, merge nested lets, opt newline before in
+-- | Let Name Type Expr Expr => append spans, merge nested lets, opt newline before in
 -- | + let name = exp in body
 -- |
 -- | + let name = exp
@@ -38,12 +38,12 @@ import Types (Type(..))
 -- |   in
 -- |     body
 -- |
--- | Abs Name Type Tree => append spans
+-- | Abs Name Type Expr => append spans
 -- | + x = body
 -- |
 -- | + x y = body  (nested abs)
 -- |
--- | If Tree Tree Tree => append spans, opt newline before then & else
+-- | If Expr Expr Expr => append spans, opt newline before then & else
 -- | + if test then texp else fexp
 -- |
 -- | + if test
@@ -57,13 +57,13 @@ import Types (Type(..))
 -- |   else
 -- |     fexp
 -- |
--- | CaseCase Tree Tree => append spans, opt format cexp to nested block
+-- | CaseCase Expr Expr => append spans, opt format cexp to nested block
 -- | + pat = cexp
 -- |
 -- | x pat =
 -- |     cexp
 -- |
--- | Case Tree (Array Tree) => append spans, format cases to nested block
+-- | Case Expr (Array Expr) => append spans, format cases to nested block
 -- | + case scrut of
 -- |     casecase
 -- |     casecase
@@ -72,41 +72,31 @@ import Types (Type(..))
 -- | x case scrut of casecase casecase ...
 
 type AccLine = Array M.Span
-type AccBlock = Array M.CodeElem
-data State = State AccLine AccBlock
+type AccBlock = Array M.Elem
+data Acc = Acc AccLine AccBlock
 
 -- Operations:
 
 -- - append span:
 --   - adds span to acc line
-addSpan :: M.Span -> State -> State
-addSpan span (State line block) = State (snoc line span) block
-
-appendSpan :: forall h. STRef h State -> M.Span -> ST h Unit
-appendSpan stref span = do
-  _ <- modify (addSpan span) stref
+appendSpan :: M.Span -> State Acc Unit
+appendSpan span = do
+  _ <- modify (addSpan span)
   pure unit
+ where
+  addSpan sp (Acc line block) = Acc (snoc line sp) block
 
 -- - new line:
 --   - adds acc line to acc block, sets acc line to []
 --   - only if current acc line non-empty? otherwise noop?
-commitLine :: State -> State
-commitLine state @ (State line block) =
-  if (length line == 0) then state
-  else State [] (snoc block (M.Line line))
-
-newLine :: forall h. STRef h State -> ST h Unit
-newLine stref = do
-  _ <- modify commitLine stref
+newLine :: State Acc Unit
+newLine = do
+  _ <- modify commitLine
   pure unit
-
-addBlock :: M.CodeElem -> State -> State
-addBlock block (State aline ablock) = State aline (snoc ablock block)
-
-appendBlock :: forall h. STRef h State -> M.CodeElem -> ST h Unit
-appendBlock stref block = do
-  _ <- modify (addBlock block) stref
-  pure unit
+ where
+  commitLine state @ (Acc line block) =
+    if (length line == 0) then state
+    else Acc [] (snoc block (M.Line line))
 
 -- - append nested block:
 --   - create new block (starts with blank acc line)
@@ -114,91 +104,145 @@ appendBlock stref block = do
 --   - finalize nested block (append acc line if non-empty)
 --   - do 'new line' operation
 --   - append new block to acc block
+appendBlock :: M.Elem -> State Acc Unit
+appendBlock block = do
+  _ <- modify (addBlock block)
+  pure unit
+ where
+  addBlock bl (Acc aline ablock) = Acc aline (snoc ablock bl)
 
-appendType :: forall h. STRef h State -> Type -> ST h Unit
-appendType stref tpe = case tpe of
+appendType :: T.Path -> Type -> State Acc Unit
+appendType path tpe = case tpe of
   Unknown -> pure unit
   otherwise -> do
-    appendSpan stref $ M.span_ " "
-    appendSpan stref $ M.keySpan ":"
-    appendBareType tpe
-  where
-    appendBareType tpe = case tpe of
-      Unknown -> pure unit
-      Const const -> do
-        appendSpan stref $ M.typeSpan $ (show const)
-      Data tag size -> do
-        appendSpan stref $ M.typeSpan $ (show tag) <> (show size)
-      Arrow arg ret -> do
-        appendBareType arg
-        appendSpan stref $ M.keySpan " -> "
-        appendBareType ret
-      Ctor (Name name) -> do
-        appendSpan stref $ M.typeSpan name
-      Var (Name name) -> do
-        appendSpan stref $ M.typeSpan name
-      Apply ctor arg -> do
-        appendBareType ctor
-        appendSpan stref $ M.span_ " "
-        appendBareType arg
+    -- appendSpan $ M.span_ " "
+    appendSpan $ M.keySpan T.emptyPath ":"
+    appendBareType path tpe
+ where
+  appendBareType kpath ktpe = case ktpe of
+    Unknown -> pure unit
+    Const const -> do
+      appendSpan $ M.typeSpan kpath (show const)
+    Data tag size -> do
+      appendSpan $ M.typeSpan kpath (show tag <> show size)
+    Arrow arg ret -> do
+      appendBareType (T.extendPath kpath 0) arg
+      appendSpan $ M.keySpan T.emptyPath " → "
+      appendBareType (T.extendPath kpath 1) ret
+    Ctor (Name name) -> do
+      appendSpan $ M.typeSpan kpath name
+    Var (Name name) -> do
+      appendSpan $ M.typeSpan kpath name
+    Apply ctor arg -> do
+      appendBareType (T.extendPath kpath 0) ctor
+      appendSpan $ M.span_ T.emptyPath " "
+      appendBareType (T.extendPath kpath 1) arg
 
-appendAbs :: forall h. STRef h State -> Name -> Type -> T.Tree -> ST h Unit
-appendAbs stref (Name arg) tpe body = case body of
+appendAbs :: T.Path -> Name -> Type -> T.Expr -> State Acc Unit
+appendAbs path (Name arg) tpe body = case body of
   T.Abs arg1 tpe1 body1 -> do
-    appendSpan stref $ M.defSpan arg
-    appendType stref tpe
-    appendSpan stref $ M.span_ " "
-    appendAbs stref arg1 tpe1 body1
+    appendSpan $ M.defSpan (T.extendPath path 0) arg
+    appendType (T.extendPath path 1) tpe
+    appendSpan $ M.span_ T.emptyPath " "
+    appendAbs (T.extendPath path 2) arg1 tpe1 body1
   otherwise -> do
-    appendSpan stref $ M.defSpan arg
-    appendType stref tpe
-    appendSpan stref $ M.keySpan " = "
-    newLine stref
-    appendBlock stref $ M.Block (formatTree body)
+    appendSpan $ M.defSpan (T.extendPath path 0) arg
+    appendType (T.extendPath path 1) tpe
+    appendSpan $ M.keySpan T.emptyPath " = "
+    newLine
+    appendBlock $ formatSubExpr (T.extendPath path 2) body
 
-appendTree :: forall h. STRef h State -> T.Tree -> ST h Unit
-appendTree stref tree = do
-  case tree of
-    T.Def name body -> do
-      -- appendSpan stref $ M.keySpan "def "
-      appendAbs stref name Unknown body
-    T.Lit (Constant tag text) -> appendSpan stref $ M.constantSpan text
-    T.Ref (Name name) -> appendSpan stref $ M.identSpan name
-    T.App ftree atree -> do
-      appendTree stref ftree
-      appendSpan stref $ M.span_ " "
-      appendTree stref atree
-    T.Let name tpe exp body -> do
-      appendSpan stref $ M.keySpan "let "
-      appendAbs stref name tpe exp
-      newLine stref
-      appendSpan stref $ M.keySpan "in "
-      appendTree stref body
-    T.Abs arg tpe exp -> appendAbs stref arg tpe exp
-    T.If test tt ff -> appendSpan stref $ M.keySpan "todo if"
-    T.CaseCase pat exp -> do
-      appendTree stref pat
-      appendSpan stref $ M.keySpan " -> "
-      appendTree stref exp
-    T.Case scrut cases -> do
-      appendSpan stref $ M.keySpan "case "
-      appendTree stref scrut
-      appendSpan stref $ M.keySpan " of"
-      foreach cases \cc -> do
-        newLine stref
-        appendBlock stref $ M.Block (formatTree cc)
+appendExpr :: T.Path -> T.Expr -> State Acc Unit
+appendExpr path expr = case expr of
+  T.Lit (Constant tag text) -> do
+    appendSpan $ M.constantSpan path text
+  T.Ref (Name name) -> do
+    appendSpan $ M.identSpan path name
+  T.Hole tpe -> do
+    appendSpan $ M.holeSpan path
+  T.App fexpr aexpr -> do
+    appendExpr (T.extendPath path 0) fexpr
+    appendSpan $ M.span_ T.emptyPath " "
+    appendExpr (T.extendPath path 1) aexpr
+  T.Let name tpe exp body -> do
+    appendSpan $ M.keySpan path "let "
+    appendAbs path name tpe exp
+    newLine
+    appendSpan $ M.keySpan T.emptyPath "in "
+    appendExpr (T.extendPath path 2) body
+  T.Abs arg tpe exp -> do
+    appendAbs path arg tpe exp
+  T.If test tt ff -> do
+    appendSpan $ M.keySpan T.emptyPath "todo if"
+  T.CaseCase pat exp -> do
+    appendExpr (T.extendPath path 0) pat
+    appendSpan $ M.keySpan T.emptyPath " → "
+    appendExpr (T.extendPath path 1) exp
+  T.Case scrut cases -> do
+    appendSpan $ M.keySpan path "case "
+    appendExpr (T.extendPath path 0) scrut
+    appendSpan $ M.keySpan T.emptyPath " of"
+    traverseWithIndex_ appendCase cases
+ where
+   appendCase idx cc = do
+     newLine
+     appendBlock $ formatSubExpr (T.extendPath path (idx + 1)) cc
 
-formatTree :: T.Tree -> Array M.CodeElem
-formatTree tree = run do
-  stref <- new $ State [] []
-  appendTree stref tree
-  newLine stref
-  State _ block <- read stref
--- TODO: assert that line is empty?
-  pure $ block
+appendField :: T.Path -> T.FieldDef -> State Acc Unit
+appendField path { name, tpe } = do
+  appendSpan $ M.identSpan (T.extendPath path 0) (toString name)
+  appendType (T.extendPath path 0) tpe
 
--- format :: T.Tree -> M.Defn
--- format tree = runPure $ run $ do
+appendRecord :: T.Path -> T.RecordDef -> State Acc Unit
+appendRecord path { name, fields } = do
+  appendSpan $ M.identSpan (T.extendPath path 0) (toString name)
+  appendSpan $ M.keySpan T.emptyPath " ("
+  traverseWithIndex_ appendField0 fields
+  appendSpan $ M.keySpan T.emptyPath ")"
+ where
+  appendField0 idx ff = do
+    appendBlock $ M.Block []
+    -- TODO: comma separate, or newline separate if documented...
+
+appendDef :: T.Path -> T.Def -> State Acc Unit
+appendDef path def = case def of
+  T.Term name expr -> do
+    -- appendSpan $ M.keySpan "def "
+    appendAbs path name Unknown expr
+  T.Union (Name name) records -> do
+    appendSpan $ M.keySpan T.emptyPath "data "
+    appendSpan $ M.identSpan (T.extendPath path 0) name
+    appendSpan $ M.keySpan T.emptyPath " ="
+    newLine
+    traverseWithIndex_ appendFormattedRecord records
+  T.Record recdef -> do
+    appendSpan $ M.keySpan (T.extendPath path 0) "data "
+    appendRecord (T.extendPath path 1) recdef
+ where
+  appendFormattedRecord idx rr = do
+    appendBlock $ formatRecord (T.extendPath path (idx+1)) rr
+  formatRecord rpath rr = format (appendRecord rpath rr)
+
+formatSubExpr :: T.Path -> T.Expr -> M.Elem
+formatSubExpr path expr = format $ appendExpr path expr
+
+formatDef :: T.Def -> M.Elem
+formatDef def = format $ appendDef T.emptyPath def
+
+formatExpr :: T.Expr -> M.Elem
+formatExpr expr = format $ appendExpr T.emptyPath expr
+
+format :: State Acc Unit -> M.Elem
+format ff =
+  let Acc _ block = execState op (Acc [] []) in M.Block block
+  where
+   op = do
+     ff
+     newLine
+     -- TODO: assert that line is empty?
+
+-- format :: T.Expr -> M.Defn
+-- format expr = runPure $ run $ do
 --   state <- new $ State [] []
 --   pure { docs: [], code: [] }
 
