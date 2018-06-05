@@ -13,14 +13,29 @@ problems. For more details, read the [manifesto] and [FAQ].
 
 ## Status
 
-Work is currently underway on [C0](c0), the Compose Mark Zero compiler. Multiple marathons remain
-to be run before I get anywhere close to the lofty ideals in the manifesto, but I've hopefully got
-a few more decades before I die, so I feel good about my chances of achieving them.
+Work originally started on [C0](c0), the Compose Mark Zero compiler, written in [Scala]. The
+original plan was to make a batch compiler for a language similar to the final form of Compose
+(though with different syntax) and then use that to build an editor/compiler combo, which would
+work on the real language. But at some point I decided that was a bad idea.
+
+Next, I started on an editor/compiler combo written in [PureScript]: [PC0](pc0). This allowed me to
+start tackling some of the thorny editor problems earlier, which I was comfortable with, having
+gotten so far down the road on the type system and compiler. But PureScript turned out to be too
+annoying to work with (for reasons detailed on the PC0 page). So I took off and nuked everything
+from orbit again.
+
+Presently, I am working on an editor/compiler combo written in [Reason]: [RC0](rc0). The goals here
+are the same as for PC0: start making progress on the major editor challenges and build the
+compiler slowly along the way. Hopefully Reason and I will get along better than I did with
+PureScript.
 
 ## Contact
 
 Compose is being created by Michael Bayne <mdb@samskivert.com>. Feel free to contact me if you like
 to talk about the utter insanity of trying to foist another programming language on the world.
 
-[manifesto]: https://samskivert.github.io/compose/posts/manifesto/
 [FAQ]: https://samskivert.github.io/compose/faq/
+[PureScript]: http://www.purescript.org/
+[Reason]: https://reasonml.github.io/
+[Scala]: https://www.scala-lang.org/
+[manifesto]: https://samskivert.github.io/compose/posts/manifesto/
