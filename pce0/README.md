@@ -166,3 +166,4 @@ that it would be worthwhile to enumerate the difficulties I encountered, before 
 my head against some other language ecosystem for a while.
 
 [C0]: ../c0
+[PureScript]: http://www.purescript.org/
