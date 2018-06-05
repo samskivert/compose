@@ -3,7 +3,7 @@ module Editor where
 import Control.Monad.State (modify_)
 import Data.Array (mapWithIndex)
 import Data.Foldable (traverse_)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Debug.Trace (trace)
 import Effect (Effect)
 import Effect.Aff (Aff)
@@ -55,18 +55,6 @@ emptySelection = {start: [], end: []}
 data Mode = Normal | Selected | Edited
 derive instance eqMode :: Eq Mode
 
-testDefn :: M.Defn
-testDefn =
-  { docs: M.Para [ M.span_ T.emptyPath "Reverses the supplied list." ]
-  , code: F.formatDef T.revExample
-  }
-
-testPath :: M.Path
-testPath = M.mkPath [1, 0] 0
-
-testState :: State
-testState = State testDefn {path: testPath, editing: false} emptySelection
-
 -- -----------------
 -- Definition editor
 -- -----------------
@@ -79,7 +67,12 @@ data Query a
 data Message = Toggled Boolean
 
 -- | The editor state is the def being edited, the current cursor, and the current selection.
-data State = State M.Defn Cursor Selection
+data State = State T.Def M.Elem Cursor Selection
+
+mkState :: T.Def -> State
+mkState def =
+  let elem = F.formatDef def
+  in State def elem {path: (M.mkPath (M.firstEditable elem) 0), editing: false} emptySelection
 
 -- | TODO
 data SpanSlot = SpanSlot
@@ -102,17 +95,29 @@ handleKey ev = case KE.code ev of
   "Enter"      -> toggleEdit
   _            -> identity
  where
-  moveCursor mover (State {docs, code} {path, editing} sel) =
-    let newPath = mover code path
-    in State {docs, code} {path: newPath, editing: false} sel
-  toggleEdit (State defn {path, editing} sel) =
-    State defn {path, editing: true} sel
+  moveCursor mover (State def elem {path, editing} sel) =
+    let newPath = mover elem path
+    in State def elem {path: newPath, editing: false} sel
+  toggleEdit (State def elem {path, editing} sel) =
+    trace "toggleEdit" \_ -> State def elem {path, editing: true} sel
 
-defnEditor :: H.Component HH.HTML Query Unit Message Aff
-defnEditor = H.lifecycleParentComponent {
+handleEditingKey ev = case KE.code ev of
+  "Enter" -> do
+    op <- H.query SpanSlot $ H.request SE.CommitEdit
+    modify_ $ applyEdit (fromMaybe identity op)
+    pure unit
+  _ -> pure unit
+
+applyEdit :: (T.Def -> T.Def) -> State -> State
+applyEdit op (State def elem {path, editing} sel) =
+  let ndef = op def
+  in trace "applyEdit" \_ -> State ndef (F.formatDef ndef) {path, editing: false} sel
+
+defEditor :: T.Def -> H.Component HH.HTML Query Unit Message Aff
+defEditor initDef  = H.lifecycleParentComponent {
   initialState, initializer, finalizer, receiver, eval, render
 } where
-  initialState = const testState
+  initialState = const $ mkState initDef
   initializer = Just (H.action Init)
   finalizer = Nothing
 
@@ -124,15 +129,18 @@ defnEditor = H.lifecycleParentComponent {
     H.subscribe $ ES.eventSource' (onKeyUp document) (Just <<< H.request <<< HandleKey)
     pure next
   eval (HandleKey ev reply) = trace ev \_ -> do
-    modify_ $ handleKey ev
+    State _ _ {path, editing} _ <- H.get
+    _ <- if editing then handleEditingKey ev
+         else modify_ $ handleKey ev
     pure (reply H.Listening)
-  eval (HandleSpan (SE.CommitEdit span) next) = trace span \_ -> do
+  eval (HandleSpan (SE.DisabledCommitEdit op) next) = trace op \_ -> do
+    modify_ (applyEdit op)
     pure next
 
   render :: State -> H.ParentHTML Query SE.Query SpanSlot Aff
-  render (State {docs, code} curs sel) = HH.div
-    [HP.classes [HH.ClassName "defn"]]
-    [renderElem curs docs, renderElem curs code]
+  render (State def elem curs sel) = HH.div
+    [HP.classes [HH.ClassName "def"]]
+    [renderElem curs elem]
 
   followCursor {path, editing} idx = M.popPath nullCursor {path: _, editing} idx path
 
@@ -149,8 +157,8 @@ defnEditor = H.lifecycleParentComponent {
                    else if editing then Edited else Selected
     in mapWithIndex (\idx span -> renderSpan (mode idx) span) spans
 
-  renderSpan mode span @ {text, styles, path} = case mode of
+  renderSpan mode span @ {text, styles, editor} = case mode of
     Edited -> HH.slot SpanSlot (SE.spanEditor span) unit (HE.input HandleSpan)
     _ ->
       let sstyles = if (mode == Selected) then styles <> ["selected"] else styles
-      in HH.span [HP.classes (HH.ClassName <$> sstyles), HP.title $ show path] [HH.text text]
+      in HH.span [HP.classes (HH.ClassName <$> sstyles)] [HH.text text]

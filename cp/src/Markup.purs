@@ -1,9 +1,15 @@
 module Markup where
 
+import Control.Monad.State as CMS
 import Control.MonadZero (guard)
 import Data.Array ((!!), snoc, uncons, unsnoc, null, head, last, length)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Generic.Rep (class Generic)
+import Data.Generic.Rep.Show (genericShow)
+import Data.Maybe (Maybe(..), fromMaybe, isNothing)
+import Data.String.Common (joinWith)
 import Debug.Trace (trace)
+import Effect (Effect, foreachE)
+import Effect.Class.Console (log)
 import Prelude
 
 import Trees as T
@@ -16,10 +22,24 @@ import Trees as T
 -- "syntax highlighted, formatted text" format, but the text itself is not editable. Edits are made
 -- on the underlying AST and those changes propagate back out to the visualization.
 
+-- | A function used to update a `Def` tree based on the new text provided for a span.
+type EditFn = String -> T.Def -> T.Def
+
 -- | A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
 -- | If the span represents a component of an AST node, its path will reflect the path to that node
 -- | (from the AST root used to generate the markup). Otherwise the path will be `Nil`.
-type Span = {text :: String, styles :: Array String, path :: T.Path}
+type Span = {
+  text :: String,
+  styles :: Array String,
+  editor :: Maybe EditFn
+  -- TODO: other stuff like completion functions, indications on how many trailing spans
+  -- get slurped up if we edit this span, etc.
+}
+
+showSpan :: Span -> String
+showSpan {text, styles, editor} = case editor of
+  Just _ -> "[" <> text <> "]"
+  Nothing -> "<" <> text <> ")"
 
 -- TODO: do we want a separate visualization model for docs?
 -- could allow the HTML layout engine to handle wrapping...
@@ -35,16 +55,39 @@ type Span = {text :: String, styles :: Array String, path :: T.Path}
 -- | TODO: do we need special support for inline code identifiers?
 data Elem = Block (Array Elem) | Para (Array Span) | Line (Array Span)
 
--- | A definition combines documentation and code.
-type Defn = {docs :: Elem, code :: Elem}
+-- derive instance genericElem :: Generic Elem _
+-- instance showElem :: Show Elem where
+--   show elem = genericShow elem
 
 -- | Creates a span containing `text` with `styles`.
-span :: Array String -> T.Path -> String -> Span
-span styles path text = {text, styles, path}
+span :: Array String -> Maybe EditFn -> String -> Span
+span styles editor text = {text, styles, editor}
 
 -- | Creates a span containing `text` and no styles.
-span_ :: T.Path -> String -> Span
+span_ :: Maybe EditFn -> String -> Span
 span_ = span []
+
+-- ----------------------------
+-- Styled spans for code markup
+-- ----------------------------
+
+constantSpan :: Maybe EditFn -> String -> Span
+constantSpan = span ["constant"]
+
+identSpan :: Maybe EditFn -> String -> Span
+identSpan = span ["ident"]
+
+defSpan :: Maybe EditFn -> String -> Span
+defSpan = span ["ident", "def"]
+
+keySpan :: Maybe EditFn -> String -> Span
+keySpan = span ["keyword"]
+
+typeSpan :: Maybe EditFn -> String -> Span
+typeSpan = span ["type"]
+
+holeSpan :: Maybe EditFn -> Span
+holeSpan editor = span ["hole"] editor "?"
 
 -- ----------
 -- Path model
@@ -112,7 +155,7 @@ moveSpanH dir idx spans = scan spans idx where
   scan spans cidx = fromMaybe idx $ do
     let nidx = cidx + deltaH dir
     span <- spans !! nidx
-    pure $ if null span.path then scan spans nidx else nidx
+    pure $ if isNothing span.editor then scan spans nidx else nidx
 
 -- | Used to "move" a path up or down. See `moveVert`.
 data VDir = Up | Down
@@ -126,7 +169,8 @@ moveVert Down relem rpath@{idxs, span} =
   let fidxs = forward idxs          -- move forward to the next valid path
       felem = xelem relem fidxs     -- obtain the element at that path position
       suff  = firstEditable felem   -- get the path from that element to the first line/para
-  in {idxs: fidxs <> suff, span: 0} -- combine the path prefix and suffix into a full path
+      vpath = fidxs <> suff         -- combine the path prefix and suffix into a full path
+  in {idxs: vpath, span: 0}
   where
     -- try to move forward in the current element, otherwise move up
     -- the path one component and then try to move forward there
@@ -145,6 +189,9 @@ moveVert Up   relem rpath@{idxs, span} =
     backup idxs = unsnoc idxs <#> check # fromMaybe idxs
     check {init, last} = if (last > 0) then (snoc init (last-1)) else backup init
 
+lastidx :: forall a. Array a -> Int
+lastidx elems = length elems - 1
+
 firstEditable :: Elem -> Array Int
 firstEditable = findEditable (const 0)
 
@@ -160,27 +207,18 @@ findEditable pickelem = loop []
     Para  _     -> suff
     Line  _     -> suff
 
-lastidx :: forall a. Array a -> Int
-lastidx elems = length elems - 1
+-- --------------
+-- Debug printing
+-- --------------
 
--- ----------------------------
--- Styled spans for code markup
--- ----------------------------
+debugShowElem :: Elem -> Array String
+debugShowElem elem = debugShow "" elem
+ where
+  debugShow indent = case _ of
+    Block elems -> elems >>= (debugShow (indent <> "  "))
+    Para  spans -> debugShowSpans indent spans
+    Line  spans -> debugShowSpans indent spans
+  debugShowSpans indent spans = [indent <> (joinWith "" (spans <#> (_.text)))]
 
-constantSpan :: T.Path -> String -> Span
-constantSpan = span ["constant"]
-
-identSpan :: T.Path -> String -> Span
-identSpan = span ["ident"]
-
-defSpan :: T.Path -> String -> Span
-defSpan = span ["ident", "def"]
-
-keySpan :: T.Path -> String -> Span
-keySpan = span ["keyword"]
-
-typeSpan :: T.Path -> String -> Span
-typeSpan = span ["type"]
-
-holeSpan :: T.Path -> Span
-holeSpan path = span ["hole"] path "?"
+logElem :: Elem -> Effect Unit
+logElem elem = foreachE (debugShowElem elem) log

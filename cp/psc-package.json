@@ -3,6 +3,7 @@
   "set": "compose",
   "source": "https://github.com/samskivert/package-sets.git",
   "depends": [
+    "test-unit",
     "debug",
     "arrays",
     "assert",

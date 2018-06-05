@@ -22,6 +22,7 @@ data Type
 -- | Interface Name Params Methods
 -- | Method Name Type
 
+derive instance eqType :: Eq Type
 derive instance genericType :: Generic Type _
 
 instance showType :: Show Type where

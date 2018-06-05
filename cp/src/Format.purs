@@ -3,6 +3,7 @@ module Format where
 import Control.Monad.State (State, modify, execState)
 import Data.Array (length, snoc)
 import Data.FoldableWithIndex (traverseWithIndex_)
+import Data.Maybe (Maybe(..))
 import Prelude
 
 import Constants (Constant(..))
@@ -111,77 +112,85 @@ appendBlock block = do
  where
   addBlock bl (Acc aline ablock) = Acc aline (snoc ablock bl)
 
+nameEditor :: T.Path -> Maybe M.EditFn
+nameEditor path =
+  let editName text = T.editName path (const $ Name text)
+  in Just editName
+
+todoEditor :: T.Path -> Maybe M.EditFn
+todoEditor path = Nothing
+
 appendType :: T.Path -> Type -> State Acc Unit
 appendType path tpe = case tpe of
   Unknown -> pure unit
   otherwise -> do
     -- appendSpan $ M.span_ " "
-    appendSpan $ M.keySpan T.emptyPath ":"
+    appendSpan $ M.keySpan Nothing ":"
     appendBareType path tpe
  where
   appendBareType kpath ktpe = case ktpe of
     Unknown -> pure unit
     Const const -> do
-      appendSpan $ M.typeSpan kpath (show const)
+      appendSpan $ M.typeSpan (todoEditor kpath) (show const)
     Data tag size -> do
-      appendSpan $ M.typeSpan kpath (show tag <> show size)
+      appendSpan $ M.typeSpan (todoEditor kpath) (show tag <> show size)
     Arrow arg ret -> do
       appendBareType (T.extendPath kpath 0) arg
-      appendSpan $ M.keySpan T.emptyPath " → "
+      appendSpan $ M.keySpan Nothing " → "
       appendBareType (T.extendPath kpath 1) ret
     Ctor (Name name) -> do
-      appendSpan $ M.typeSpan kpath name
+      appendSpan $ M.typeSpan (nameEditor kpath) name
     Var (Name name) -> do
-      appendSpan $ M.typeSpan kpath name
+      appendSpan $ M.typeSpan (nameEditor kpath) name
     Apply ctor arg -> do
       appendBareType (T.extendPath kpath 0) ctor
-      appendSpan $ M.span_ T.emptyPath " "
+      appendSpan $ M.span_ Nothing " "
       appendBareType (T.extendPath kpath 1) arg
 
 appendAbs :: T.Path -> Name -> Type -> T.Expr -> State Acc Unit
 appendAbs path (Name arg) tpe body = case body of
   T.Abs arg1 tpe1 body1 -> do
-    appendSpan $ M.defSpan (T.extendPath path 0) arg
+    appendSpan $ M.defSpan (nameEditor (T.extendPath path 0)) arg
     appendType (T.extendPath path 1) tpe
-    appendSpan $ M.span_ T.emptyPath " "
+    appendSpan $ M.span_ Nothing " "
     appendAbs (T.extendPath path 2) arg1 tpe1 body1
   otherwise -> do
-    appendSpan $ M.defSpan (T.extendPath path 0) arg
+    appendSpan $ M.defSpan (nameEditor (T.extendPath path 0)) arg
     appendType (T.extendPath path 1) tpe
-    appendSpan $ M.keySpan T.emptyPath " = "
+    appendSpan $ M.keySpan Nothing " = "
     newLine
     appendBlock $ formatSubExpr (T.extendPath path 2) body
 
 appendExpr :: T.Path -> T.Expr -> State Acc Unit
 appendExpr path expr = case expr of
   T.Lit (Constant tag text) -> do
-    appendSpan $ M.constantSpan path text
+    appendSpan $ M.constantSpan (todoEditor path) text
   T.Ref (Name name) -> do
-    appendSpan $ M.identSpan path name
+    appendSpan $ M.identSpan (nameEditor path) name
   T.Hole tpe -> do
-    appendSpan $ M.holeSpan path
+    appendSpan $ M.holeSpan (todoEditor path)
   T.App fexpr aexpr -> do
     appendExpr (T.extendPath path 0) fexpr
-    appendSpan $ M.span_ T.emptyPath " "
+    appendSpan $ M.span_ Nothing " "
     appendExpr (T.extendPath path 1) aexpr
   T.Let name tpe exp body -> do
-    appendSpan $ M.keySpan path "let "
+    appendSpan $ M.keySpan Nothing "let "
     appendAbs path name tpe exp
     newLine
-    appendSpan $ M.keySpan T.emptyPath "in "
+    appendSpan $ M.keySpan Nothing "in "
     appendExpr (T.extendPath path 2) body
   T.Abs arg tpe exp -> do
     appendAbs path arg tpe exp
   T.If test tt ff -> do
-    appendSpan $ M.keySpan T.emptyPath "todo if"
+    appendSpan $ M.keySpan Nothing "todo if"
   T.CaseCase pat exp -> do
     appendExpr (T.extendPath path 0) pat
-    appendSpan $ M.keySpan T.emptyPath " → "
+    appendSpan $ M.keySpan Nothing " → "
     appendExpr (T.extendPath path 1) exp
   T.Case scrut cases -> do
-    appendSpan $ M.keySpan path "case "
+    appendSpan $ M.keySpan Nothing "case "
     appendExpr (T.extendPath path 0) scrut
-    appendSpan $ M.keySpan T.emptyPath " of"
+    appendSpan $ M.keySpan Nothing " of"
     traverseWithIndex_ appendCase cases
  where
    appendCase idx cc = do
@@ -190,15 +199,15 @@ appendExpr path expr = case expr of
 
 appendField :: T.Path -> T.FieldDef -> State Acc Unit
 appendField path { name, tpe } = do
-  appendSpan $ M.identSpan (T.extendPath path 0) (toString name)
+  appendSpan $ M.identSpan (nameEditor $ T.extendPath path 0) (toString name)
   appendType (T.extendPath path 0) tpe
 
 appendRecord :: T.Path -> T.RecordDef -> State Acc Unit
 appendRecord path { name, fields } = do
-  appendSpan $ M.identSpan (T.extendPath path 0) (toString name)
-  appendSpan $ M.keySpan T.emptyPath " ("
+  appendSpan $ M.identSpan (nameEditor $ T.extendPath path 0) (toString name)
+  appendSpan $ M.keySpan Nothing " ("
   traverseWithIndex_ appendField0 fields
-  appendSpan $ M.keySpan T.emptyPath ")"
+  appendSpan $ M.keySpan Nothing ")"
  where
   appendField0 idx ff = do
     appendBlock $ M.Block []
@@ -210,13 +219,13 @@ appendDef path def = case def of
     -- appendSpan $ M.keySpan "def "
     appendAbs path name Unknown expr
   T.Union (Name name) records -> do
-    appendSpan $ M.keySpan T.emptyPath "data "
-    appendSpan $ M.identSpan (T.extendPath path 0) name
-    appendSpan $ M.keySpan T.emptyPath " ="
+    appendSpan $ M.keySpan Nothing "data "
+    appendSpan $ M.identSpan (nameEditor $ T.extendPath path 0) name
+    appendSpan $ M.keySpan Nothing " ="
     newLine
     traverseWithIndex_ appendFormattedRecord records
   T.Record recdef -> do
-    appendSpan $ M.keySpan (T.extendPath path 0) "data "
+    appendSpan $ M.keySpan Nothing "data "
     appendRecord (T.extendPath path 1) recdef
  where
   appendFormattedRecord idx rr = do

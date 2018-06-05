@@ -12,6 +12,8 @@ data Tag
  | StringTag
  | RawStrTag
 
+derive instance eqTag :: Eq Tag
+
 instance showTag :: Show Tag where
   show VoidTag = "v"
   show UnitTag = "u"
@@ -24,6 +26,7 @@ instance showTag :: Show Tag where
 
 data Constant = Constant Tag String
 
+derive instance eqConstant :: Eq Constant
 instance showConstant :: Show Constant where
   show (Constant tag cst) = (show tag) <> "@" <> (show cst)
 
