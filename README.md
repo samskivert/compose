@@ -18,14 +18,14 @@ original plan was to make a batch compiler for a language similar to the final f
 (though with different syntax) and then use that to build an editor/compiler combo, which would
 work on the real language. But at some point I decided that was a bad idea.
 
-Next, I started on an editor/compiler combo written in [PureScript]: [PC0](pc0). This allowed me to
-start tackling some of the thorny editor problems earlier, which I was comfortable with, having
+Next, I started on an editor/compiler combo written in [PureScript]: [PCE0](pce0). This allowed me
+to start tackling some of the thorny editor problems earlier, which I was comfortable with, having
 gotten so far down the road on the type system and compiler. But PureScript turned out to be too
 annoying to work with (for reasons detailed on the PC0 page). So I took off and nuked everything
 from orbit again.
 
-Presently, I am working on an editor/compiler combo written in [Reason]: [RC0](rc0). The goals here
-are the same as for PC0: start making progress on the major editor challenges and build the
+Presently, I am working on an editor/compiler combo written in [Reason]: [RCE0](rce0). The goals
+here are the same as for PC0: start making progress on the major editor challenges and build the
 compiler slowly along the way. Hopefully Reason and I will get along better than I did with
 PureScript.
 
