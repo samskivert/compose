@@ -91,10 +91,6 @@ extendPath path idx = snoc path idx
 class Editable a where
   -- | Replaces the expression (`expr`) at `path` in `tree` with the result of `exprfn expr`.
   editTree :: Path -> (Name -> Name) -> (Expr -> Expr) -> (Type -> Type) -> a -> a
-  -- | Replaces the name (`name`) at `path` in `tree` with the result of `namefn name`.
-  -- editName :: Path -> (Name -> Name) -> a -> a
-  -- | Replaces the type (`type`) at `path` in `tree` with the result of `typefn type`.
-  -- editType :: Path -> (Type -> Type) -> a -> a
 
 -- A tree edit is simply a function from tree to tree, but we provide functions to construct edits
 -- out of paths and subtrees or edit operations to existing tree nodes.
