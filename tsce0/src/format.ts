@@ -139,9 +139,9 @@ class Acc {
     if (expr instanceof T.Lit) {
       this.appendSpan(M.constantSpan(expr.cnst.value, todoEditor(path)))
     } else if (expr instanceof T.Ref) {
-      this.appendSpan(M.identSpan(expr.name, nameEditor(path)))
+      this.appendSpan(M.identSpan(expr.name, nameEditor(T.extendPath(path, 0))))
     } else if (expr instanceof T.Hole) {
-      this.appendSpan(M.holeSpan(todoEditor(path)))
+      this.appendSpan(M.holeSpan(todoEditor(T.extendPath(path, 0))))
     } else if (expr instanceof T.App) {
       this.appendExpr(T.extendPath(path, 0), expr.fun)
       this.appendSpan(M.span(" "))
@@ -151,7 +151,7 @@ class Acc {
       this.appendAbs(path, expr.name, expr.tpe, expr.value)
       this.newLine()
       this.appendSpan(M.keySpan("in "))
-      this.appendExpr(T.extendPath(path, 2), expr.body)
+      this.appendExpr(T.extendPath(path, 3), expr.body)
     } else if (expr instanceof T.Abs) {
       this.appendAbs(path, expr.name, expr.tpe, expr.body)
     } else if (expr instanceof T.If) {
@@ -161,9 +161,8 @@ class Acc {
       this.appendExpr(T.extendPath(path, 0), expr.scrut)
       this.appendSpan(M.keySpan(" of"))
       for (let ii = 0; ii < expr.cases.length; ii += 1) {
-        const ctree = expr.cases[ii]
         this.newLine()
-        this.appendBlock(formatSubExpr(T.extendPath(path, (ii+1)), ctree))
+        this.appendBlock(formatSubExpr(T.extendPath(path, (ii+1)), expr.cases[ii]))
       }
     } else if (expr instanceof T.CaseCase) {
       this.appendExpr(T.extendPath(path, 0), expr.pat)
@@ -172,37 +171,34 @@ class Acc {
     }
   }
 
-  appendField (path :T.Path, {name, tpe} :T.FieldDef) {
-    this.appendSpan(M.identSpan(name, nameEditor(T.extendPath(path, 0))))
-    this.appendType(T.extendPath(path, 0), tpe)
-  }
-
-  appendRecord (path :T.Path, {name, fields} :T.RecordDef) {
-    this.appendSpan(M.identSpan(name, nameEditor(T.extendPath(path, 0))))
-    this.appendSpan(M.keySpan(" ("))
-    for (let ii = 0; ii < fields.length; ii += 1) {
-      //     appendBlock $ M.Block []
-      // TODO: comma separate, or newline separate if documented...
-    }
-    this.appendSpan(M.keySpan(")"))
-  }
-
   appendDef (path :T.Path, def :T.Def) {
     if (def instanceof T.Term) {
       // appendSpan $ M.keySpan "def "
       this.appendAbs(path, def.name, TP.typeUnknown, def.expr)
+
     } else if (def instanceof T.Union) {
       this.appendSpan(M.keySpan("data "))
-      this.appendSpan(M.identSpan(name, nameEditor(T.extendPath(path, 0))))
+      this.appendSpan(M.identSpan(def.name, nameEditor(T.extendPath(path, 0))))
       this.appendSpan(M.keySpan(" ="))
-      this.newLine()
       for (let ii = 0; ii < def.records.length; ii += 1) {
-        this.appendBlock(format(acc => acc.appendRecord(T.extendPath(path, ii+1), def.records[ii])))
+        this.newLine()
+        this.appendBlock(formatSubExpr(T.extendPath(path, (ii+1)), def.records[ii]))
       }
 
     } else if (def instanceof T.Record) {
-      this.appendSpan(M.keySpan("data "))
-      this.appendRecord(T.extendPath(path, 1), def.record)
+      // this.appendSpan(M.keySpan("data ")) // TODO: only if not union case
+      this.appendSpan(M.identSpan(def.name, nameEditor(T.extendPath(path, 0))))
+      this.appendSpan(M.keySpan(" ("))
+      for (let ii = 0; ii < def.fields.length; ii += 1) {
+        // TODO: newline separate if documented...
+        if (ii > 0) this.appendSpan(M.span(", "))
+        this.appendBlock(formatSubExpr(T.extendPath(path, (ii+1)), def.fields[ii]))
+      }
+      this.appendSpan(M.keySpan(")"))
+
+    } else if (def instanceof T.Field) {
+      this.appendSpan(M.identSpan(def.name, nameEditor(T.extendPath(path, 0))))
+      this.appendType(T.extendPath(path, 0), def.tpe)
     }
   }
 }

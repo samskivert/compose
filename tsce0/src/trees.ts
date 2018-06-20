@@ -26,6 +26,11 @@ export type Path = number[]
 export const emptyPath :Path = []
 export const extendPath = (path :Path, idx :number) :Path => path.concat([idx])
 
+type Edit = {
+  namefn :(old :Name) => Name,
+  exprfn :(old :Expr) => Expr,
+  typefn :(old :Type) => Type }
+
 // ---
 // AST
 // ---
@@ -36,36 +41,38 @@ export abstract class Tree {
   // A tree edit is a function from tree to tree. We provide methods to construct
   // edits out of paths and subtrees, or edit operations to existing tree nodes.
 
-  /** Edits this tree at `path`, applying `namefn` if `path` resolves to a `Name`, `exprfn` if
-    * `path` resolves to an `Expr` and `typefn` if `path` resolves to a `Type`. */
-  edit (namefn :(old :Name) => Name, exprfn :(old :Expr) => Expr, typefn :(old :Type) => Type,
-        path :Path) :Tree {
-    return (path.length == 0) ?
-      this.editSelf(namefn, exprfn, typefn) :
-      this.editAt(namefn, exprfn, typefn, path[0], path.slice(1))
+  /** Returns an edited copy of this tree obtained by applying `edit` to the appropriate `Name`,
+    * sub-`Expr` or `Type` to which `path` resolves. */
+  edit (edit :Edit, path :Path) :Tree {
+    switch (path.length) {
+    case  0: throw new Error(`Invalid (empty) path for edit of ${this}`)
+    case  1: return this.editSelf(edit, path[0])
+    default: return this.editChild(edit, path[0], path.slice(1))
+    }
   }
 
   /** Edits the name in `this` tree at `path` via `namefn`. */
   editName (namefn :(old :Name) => Name, path :Path) :Tree {
-    return this.edit(namefn, x => x, x => x, path)
+    return this.edit({namefn, exprfn: x => x, typefn: x => x}, path)
   }
   /** Edits the expr in `this` tree at `path` via `exprfn`. */
   editExpr (exprfn :(old :Expr) => Expr, path :Path) :Tree {
-    return this.edit(x => x, exprfn, x => x, path)
+    return this.edit({namefn: x => x, exprfn, typefn: x => x}, path)
   }
   /** Edits the type in `this` tree at `path` via `typefn`. */
   editType (typefn :(old :Type) => Type, path :Path) :Tree {
-    return this.edit(x => x, x => x, typefn, path)
+    return this.edit({namefn: x => x, exprfn: x => x, typefn}, path)
   }
 
-  protected abstract editSelf (namefn :(old :Name) => Name,
-                               exprfn :(old :Expr) => Expr,
-                               typefn :(old :Type) => Type) :Tree
+  toString () { return `${this.constructor.name}`}
 
-  protected abstract editAt (namefn :(old :Name) => Name,
-                             exprfn :(old :Expr) => Expr,
-                             typefn :(old :Type) => Type,
-                             idx :number, tail :Path) :Tree
+  protected editSelf (edit :Edit, idx :number) :Tree {
+    throw new Error(`Invalid self edit: ${this} @ ${idx}`)
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    throw new Error(`Invalid child edit: ${this} @ ${idx} with ${tail}`)
+  }
 }
 
 // follow :: forall a. Path -> (Path -> Int -> a) -> a
@@ -90,90 +97,92 @@ export abstract class Tree {
 // Definition model
 // ----------------
 
-export type FieldDef = {name :Name, tpe :Type}
-export type RecordDef = {name :Name, fields :FieldDef[]}
-
 /** Definition AST. */
 export abstract class Def extends Tree {
 
-  protected editSelf (namefn :(old :Name) => Name, exprfn :(old :Expr) => Expr,
-                      typefn :(old :Type) => Type) :Tree {
-    return this
-  }
 }
 
 export class Term extends Def {
   readonly kind = "term"
   constructor (readonly name :Name, readonly expr :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editSelf (edit :Edit, idx :number) :Tree {
     switch (idx) {
-    case 0: return new Term(namefn(this.name), this.expr);
+    case  0: return new Term(edit.namefn(this.name), this.expr)
     // TODO: 1 -> return new Term(this.name, typefn(this.tpe), this.expr);
-    case 2: return new Term(this.name, this.expr.edit(namefn, exprfn, typefn, tail) as Expr);
-    default: throw new Error(`Invalid edit index $idx: $this`)
+    default: return super.editSelf(edit, idx)
     }
-
-    return this
   }
-}
 
-function editField (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    path :Path, field :FieldDef) :FieldDef {
-  if (path.length != 1) throw new Error(`Invalid path for field edit $field @ $path`)
-  let {name, tpe} = field
-  switch (path[0]) {
-  case 0: return {name: namefn(name), tpe}
-  case 1: return {name, tpe: typefn(tpe)}
-  default: throw new Error(`Invalid path for field edit $field @ $path`)
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  2: return new Term(this.name, this.expr.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
   }
-}
 
-function editRecord (namefn :(old :Name) => Name,
-                     exprfn :(old :Expr) => Expr,
-                     typefn :(old :Type) => Type,
-                     idx :number, tail :Path, record :RecordDef) :RecordDef {
-  let {name, fields} = record
-  switch (idx) {
-  case 0:
-    return {name: namefn(name), fields}
-  default:
-    let efield = editField(namefn, exprfn, typefn, tail, fields[idx-1])
-    return {name, fields: fields.splice(idx-1, 1, efield)}
-  }
+  toString () { return `Term:${this.name}`}
 }
 
 export class Union extends Def {
   readonly kind = "union"
-  constructor (readonly name :Name, readonly records :RecordDef[]) { super() }
+  constructor (readonly name :Name, readonly records :Record[]) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-  //       0 -> Union (namefn name) records
-  //       _ -> case modifyAt (idx-1) (editRecord tail) records of
-  //         Just nrecords -> Union name nrecords
-  //         Nothing -> def
-    return this
+  protected editSelf (edit :Edit, idx :number) :Tree {
+    switch (idx) {
+    case  0: return new Union(edit.namefn(this.name), this.records)
+    default: return super.editSelf(edit, idx)
+    }
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    const cidx = idx-1
+    if (cidx >= 0 && cidx < this.records.length) {
+      const erecord = this.records[cidx].edit(edit, tail) as Record
+      return new Union(this.name, update(this.records, cidx, erecord))
+    } else {
+      return super.editChild(edit, idx, tail)
+    }
+  }
+
+  toString () { return `Union:${this.name}`}
+}
+
+export class Field extends Def {
+  readonly kind = "field"
+  constructor (readonly name :Name, readonly tpe :Type) { super() }
+
+  protected editSelf (edit :Edit, idx :number) :Tree {
+    switch (idx) {
+    case  0: return new Field(edit.namefn(this.name), this.tpe)
+    case  1: return new Field(this.name, edit.typefn(this.tpe))
+    default: return super.editSelf(edit, idx)
+    }
   }
 }
 
 export class Record extends Def {
   readonly kind = "record"
-  constructor (readonly record :RecordDef) { super() }
+  constructor (readonly name :Name, readonly fields :Field[]) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-    return new Record(editRecord(namefn, exprfn, typefn, idx, tail, this.record))
+  protected editSelf (edit :Edit, idx :number) :Tree {
+    switch (idx) {
+    case  0: return new Record(edit.namefn(this.name), this.fields)
+    default: return super.editSelf(edit, idx)
+    }
   }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    const cidx = idx-1
+    if (cidx >= 0 && cidx < this.fields.length) {
+      const efield = this.fields[cidx].edit(edit, tail) as Field
+      return new Record(this.name, update(this.fields, cidx, efield))
+    } else {
+      return super.editChild(edit, idx, tail)
+    }
+  }
+
+  toString () { return `Union:${this.name}`}
 }
 
 // ----------------
@@ -186,66 +195,54 @@ export class Record extends Def {
 /** Expression AST. */
 export abstract class Expr extends Tree {
 
-  protected editSelf (namefn :(old :Name) => Name, exprfn :(old :Expr) => Expr,
-                      typefn :(old :Type) => Type) :Tree {
-    return exprfn(this)
-  }
-
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-    throw new Error(`Invalid path for expr edit: $this @ $idx ++ $tail`)
+  edit (edit :Edit, path :Path) :Expr {
+    return (path.length == 0) ? edit.exprfn(this) : super.edit(edit, path)
   }
 }
 
 export class Lit extends Expr {
   readonly kind = "lit"
   constructor (readonly cnst :Constant) { super() }
+
+  toString () { return `Lit:${this.cnst}`}
 }
 
 export class Ref extends Expr {
   readonly kind = "ref"
   constructor (readonly name :Name) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editSelf (edit :Edit, idx :number) :Tree {
     switch (idx) {
-    case 0: return new Ref(namefn(this.name))
-    default: return super.editAt(namefn, exprfn, typefn, idx, tail)
+    case  0: return new Ref(edit.namefn(this.name))
+    default: return super.editSelf(edit, idx)
     }
   }
-}
 
+  toString () { return `Ref:${this.name}`}
+}
 export class Hole extends Expr {
   readonly kind = "hole"
   constructor (readonly tpe :Type) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editSelf (edit :Edit, idx :number) :Tree {
     switch (idx) {
-    case 0: return new Hole(typefn(this.tpe))
-    default: return super.editAt(namefn, exprfn, typefn, idx, tail)
+    case  0: return new Hole(edit.typefn(this.tpe))
+    default: return super.editSelf(edit, idx)
     }
   }
+
+  toString () { return `Hole:${this.tpe}`}
 }
 
 export class App extends Expr {
   readonly kind = "app"
   constructor (readonly fun :Expr, readonly arg :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
     switch (idx) {
-    case 0: return new App(exprfn(this.fun), this.arg)
-    case 1: return new App(this.fun, exprfn(this.arg))
-    default: return super.editAt(namefn, exprfn, typefn, idx, tail)
+    case  0: return new App(this.fun.edit(edit, tail), this.arg)
+    case  1: return new App(this.fun, this.arg.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
     }
   }
 }
@@ -255,51 +252,58 @@ export class Let extends Expr {
   constructor (readonly name :Name, readonly tpe :Type, readonly value :Expr,
                readonly body :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editSelf (edit :Edit, idx :number) :Tree {
     switch (idx) {
-    case 0: return new Let(namefn(this.name), this.tpe, this.value, this.body)
-    case 1: return new Let(this.name, typefn(this.tpe), this.value, this.body)
-    case 2: return new Let(this.name, this.tpe, exprfn(this.value), this.body)
-    case 3: return new Let(this.name, this.tpe, this.value, exprfn(this.body))
-    default: return super.editAt(namefn, exprfn, typefn, idx, tail)
+    case  0: return new Let(edit.namefn(this.name), this.tpe, this.value, this.body)
+    case  1: return new Let(this.name, edit.typefn(this.tpe), this.value, this.body)
+    default: return super.editSelf(edit, idx)
     }
   }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  2: return new Let(this.name, this.tpe, this.value.edit(edit, tail), this.body)
+    case  3: return new Let(this.name, this.tpe, this.value, this.body.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
+  }
+
+  toString () { return `Let:${this.name}`}
 }
 
 export class Abs extends Expr {
   readonly kind = "abs"
   constructor (readonly name :Name, readonly tpe :Type, readonly body :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
+  protected editSelf (edit :Edit, idx :number) :Tree {
     switch (idx) {
-    case 0: return new Abs(namefn(this.name), this.tpe, this.body)
-    case 1: return new Abs(this.name, typefn(this.tpe), this.body)
-    case 3: return new Abs(this.name, this.tpe, exprfn(this.body))
-    default: return super.editAt(namefn, exprfn, typefn, idx, tail)
+    case  0: return new Abs(edit.namefn(this.name), this.tpe, this.body)
+    case  1: return new Abs(this.name, edit.typefn(this.tpe), this.body)
+    default: return super.editSelf(edit, idx)
     }
   }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  2: return new Abs(this.name, this.tpe, this.body.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
+  }
+
+  toString () { return `Abs:${this.name}`}
 }
 
 export class If extends Expr {
   readonly kind = "if"
   constructor (readonly test :Expr, readonly texp :Expr, readonly fexp :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-  //       If test texp fexp -> case idx of
-  //         0 -> If (editSubExpr test) texp fexp
-  //         1 -> If test (editSubExpr texp) fexp
-  //         2 -> If test texp (editSubExpr fexp)
-  //         _ -> expr
-    return this
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new If(this.test.edit(edit, tail), this.texp, this.fexp)
+    case  1: return new If(this.test, this.texp.edit(edit, tail), this.fexp)
+    case  1: return new If(this.test, this.texp, this.fexp.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
   }
 }
 
@@ -307,16 +311,13 @@ export class Case extends Expr {
   readonly kind = "case"
   constructor (readonly scrut :Expr, readonly cases :Expr[]) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-  //       Case scrut cases -> case idx of
-  //         0 -> Case (editSubExpr scrut) cases
-  //         _ -> case modifyAt (idx-1) editSubExpr cases of
-  //           Just ncases -> Case scrut ncases
-  //           Nothing -> expr
-    return this
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    const cidx = idx-1
+    if (idx == 0) return new Case(this.scrut.edit(edit, tail), this.cases)
+    else if (cidx < this.cases.length) {
+      const ecase = this.cases[cidx].edit(edit, tail)
+      return new Case(this.scrut, update(this.cases, cidx, ecase))
+    } else return super.editChild(edit, idx, tail)
   }
 }
 
@@ -325,16 +326,19 @@ export class CaseCase extends Expr {
   constructor (readonly pat :Expr, // TODO: this should be a pattern tree
                readonly body :Expr) { super() }
 
-  protected editAt (namefn :(old :Name) => Name,
-                    exprfn :(old :Expr) => Expr,
-                    typefn :(old :Type) => Type,
-                    idx :number, tail :Path) :Tree {
-  //       CaseCase pat body -> case idx of
-  //         0 -> CaseCase (editSubExpr pat) body
-  //         1 -> CaseCase pat (editSubExpr body)
-  //         _ -> expr
-    return this
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new CaseCase(this.pat.edit(edit, tail), this.body)
+    case  1: return new CaseCase(this.pat, this.body.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
   }
+}
+
+function update<A> (elems :A[], idx :number, elem :A) :A[] {
+  const nelems = elems.slice(0)
+  nelems[idx] = elem
+  return nelems
 }
 
 // --   | Cond Array CondCase

@@ -1,6 +1,54 @@
 <html>
   <head>
     <title>CE0</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 800px;
+        margin: 20px;
+        background-color: #424242;
+        color: #FFFFFF;
+      }
+      .docs {
+        font-size: medium;
+        color: #CCCCCC;
+      }
+      .block {
+        font-family: monospace;
+        padding-left: 10px;
+      }
+      .topdef > .block {
+        padding-left: 0px;
+      }
+
+      .selected {
+        border: 1px solid #FF0000;
+      }
+
+      .constant {
+        color: #0000FF;
+      }
+      .ident {
+        color: #00AAFF;
+      }
+      .hole {
+        color: #00AAFF;
+        padding: 0px 5px;
+        border: 1px solid white;
+      }
+      .keyword {
+        color: #FFCB00;
+      }
+      .type {
+        color: #FF0000;
+      }
+      .def {
+        font-style: italic;
+      }
+      .fun {
+        text-decoration: underline;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

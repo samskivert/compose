@@ -141,7 +141,7 @@ export function popPath<A> (dflt :A, op :(path :Path) => A, idx :number, path :P
 /** Used to "move" a path left or right. See `moveHoriz`. */
 export const enum HDir { Left = -1, Right = 1 }
 
-export function moveHoriz (dir :HDir, relem :Elem, {idxs, span} :Path) :Path {
+export const moveHoriz = (dir :HDir) => (relem :Elem, {idxs, span} :Path) :Path => {
   let delta :number = dir, spans = relem.spansAt(idxs)
   function moveSpanH (idx :number) :number {
     let nidx = idx + delta
@@ -158,10 +158,11 @@ export function moveHoriz (dir :HDir, relem :Elem, {idxs, span} :Path) :Path {
 /** Used to "move" a path up or down. See `moveVert`. */
 export const enum  VDir { Up= -1, Down = 1 }
 
-export function moveVert (dir :VDir, relem :Elem, {idxs, span} :Path) :Path {
+export const moveVert = (dir :VDir) => (relem :Elem, {idxs, span} :Path) :Path => {
   // tries to move forward in the current element, otherwise moves up
   // the path one component and then tries to move forward there
   function forward (idxs :number[]) :number[] {
+    if (idxs.length == 0) return idxs
     const {init, last} = unsnoc(idxs) ; const ielem = relem.elemAt(init)
     if (ielem instanceof Block) {
       return (last < lastidx(ielem.elems)) ? init.concat([last+1]) : forward(init)
@@ -170,22 +171,30 @@ export function moveVert (dir :VDir, relem :Elem, {idxs, span} :Path) :Path {
   }
   // tries to move backward in the current element, otherwise moves up
   // the path one component and then tries to move backward there
-  function backup (idx :number[]) :number[] {
+  function backup (idxs :number[]) :number[] {
+    if (idxs.length == 0) return idxs
     const {init, last} = unsnoc(idxs)
     return (last > 0) ? init.concat([last-1]) : backup(init)
+  }
+  function findEditable (idxs :number[]) :number {
+    const spans = relem.spansAt(idxs)
+    let span = 0
+    while (span < spans.length && !spans[span].editor) span += 1
+    return span == spans.length ? 0 : span
   }
   switch (dir) {
   case VDir.Down:
     const fidxs = forward(idxs)        // move forward to the next valid path
-    const felem = relem.elemAt(idxs)   // obtain the element at that path position
+    const felem = relem.elemAt(fidxs)  // obtain the element at that path position
     const dsuff = firstEditable(felem) // get the path from that element to the first line/para
-    const vpath = fidxs.concat(dsuff)  // combine the path prefix and suffix into a full path
-    return {idxs: vpath, span: 0}
+    const dpath = fidxs.concat(dsuff)  // combine the path prefix and suffix into a full path
+    return {idxs: dpath, span: findEditable(dpath)}
   case VDir.Up:
     const bidxs = backup(idxs)         // move backward to the next valid path
     const lelem = relem.elemAt(bidxs)  // obtain the element at that path position
     const usuff = lastEditable(lelem)  // get the path from that element to the first line/para
-    return {idxs: bidxs.concat(usuff), span: 0} // combine the prefix and suffix into a full path
+    const upath = bidxs.concat(usuff)  // combine the prefix and suffix into a full path
+    return {idxs: upath, span: findEditable(upath)}
   }
 }
 
@@ -195,7 +204,7 @@ function lastidx<A> (elems :A[]) :number {
 
 function unsnoc<A> (elems :A[]) :{init :A[], last :A} {
   const len = elems.length
-  return {init: elems.slice(0, len-2), last :elems[len-1]}
+  return {init: elems.slice(0, len-1), last :elems[len-1]}
 }
 
 function findEditable (picker :(elems :Elem[]) => number, elem :Elem) :number[] {
@@ -209,5 +218,5 @@ function findEditable (picker :(elems :Elem[]) => number, elem :Elem) :number[] 
   }
   return loop([], elem)
 }
-const firstEditable = (elem :Elem) => findEditable(x => 0, elem)
-const lastEditable = (elem :Elem) => findEditable(lastidx, elem)
+export const firstEditable = (elem :Elem) => findEditable(x => 0, elem)
+export const lastEditable = (elem :Elem) => findEditable(lastidx, elem)
