@@ -1,5 +1,4 @@
 import * as T from './trees'
-import * as TP from './types'
 import * as F from './format'
 
 it('edit expr: app', () => {
@@ -16,13 +15,13 @@ it('edit expr: let', () => {
   const pants = "pants"
   const slacks = new T.Ref("slacks")
   const outfit = new T.Ref("outfit")
-  const orig = new T.Let(pants, TP.Unknown, slacks, outfit)
+  const orig = new T.Let(pants, T.Unknown, slacks, outfit)
   expect(orig.editName(old => "bottoms",  [0])).
-    toEqual(new T.Let("bottoms", TP.Unknown, slacks, outfit))
+    toEqual(new T.Let("bottoms", T.Unknown, slacks, outfit))
   expect(orig.editExpr(old => new T.Ref("jeans"), [2])).
-    toEqual(new T.Let(pants, TP.Unknown, new T.Ref("jeans"), outfit))
+    toEqual(new T.Let(pants, T.Unknown, new T.Ref("jeans"), outfit))
   expect(orig.editExpr(old => new T.Ref("suitcase"), [3])).
-    toEqual(new T.Let(pants, TP.Unknown, slacks, new T.Ref("suitcase")))
+    toEqual(new T.Let(pants, T.Unknown, slacks, new T.Ref("suitcase")))
 })
 
 it('formats things', () => {
