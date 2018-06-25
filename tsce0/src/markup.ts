@@ -1,4 +1,4 @@
-import { Tree } from './trees'
+import * as T from './trees'
 
 // ------------
 // Markup model
@@ -9,7 +9,7 @@ import { Tree } from './trees'
 // on the underlying AST and those changes propagate back out to the visualization.
 
 /** A function used to update a tree based on the new text provided for a span. */
-export type EditFn = (text :string) => (old :Tree) => Tree
+export type EditFn = (text :string, old :T.Tree) => {tree :T.Tree, focus? :T.Path}
 
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * If the span represents a component of an AST node, its path will reflect the path to that node
@@ -101,17 +101,6 @@ export function span (text :string, editor? :EditFn, styles :string[] = []) :Spa
   return {text, styles, editor}
 }
 
-// ----------------------------
-// Styled spans for code markup
-// ----------------------------
-
-export const constantSpan = (text :string, editor? :EditFn) => span(text, editor, ["constant"])
-export const identSpan    = (text :string, editor? :EditFn) => span(text, editor, ["ident"])
-export const defSpan      = (text :string, editor? :EditFn) => span(text, editor, ["def"])
-export const keySpan      = (text :string, editor? :EditFn) => span(text, editor, ["keyword"])
-export const typeSpan     = (text :string, editor? :EditFn) => span(text, editor, ["type"])
-export const holeSpan     = (              editor? :EditFn) => span("?",  editor, ["type"])
-
 // ----------
 // Path model
 // ----------
@@ -141,24 +130,39 @@ export function popPath<A> (dflt :A, op :(path :Path) => A, idx :number, path :P
 /** Used to "move" a path left or right. See `moveHoriz`. */
 export const enum HDir { Left = -1, Right = 1 }
 
-export const moveHoriz = (dir :HDir) => (relem :Elem, {idxs, span} :Path) :Path => {
-  let delta :number = dir, spans = relem.spansAt(idxs)
-  function moveSpanH (idx :number) :number {
-    let nidx = idx + delta
-    while (nidx >= 0 && nidx < spans.length) {
-      const span = spans[nidx]
-      if (span.editor) return nidx
-      nidx += delta
-    }
-    return idx
-  }
-  return {idxs, span: moveSpanH(span) }
+export const moveHoriz = (dir :HDir) => (relem :Elem, path :Path) :Path => {
+  let {idxs, span} = path, delta :number = dir
+  // if we're able to move left or right, then we're done
+  let nspan = findEditableSpan(relem.spansAt(idxs), delta, span)
+  if (nspan !== undefined) return {idxs, span: nspan}
+  // otherwise we need to either move down a line (to first editable span)
+  if (dir == HDir.Right) return moveVert(VDir.Down)(relem, path)
+  // or move up a line (to last editable span)
+  const vpath = advanceVert(VDir.Up, relem, path)
+  const vspans = relem.spansAt(vpath)
+  return {idxs: vpath, span: findEditableSpan(vspans, -1, vspans.length) || 0}
 }
 
 /** Used to "move" a path up or down. See `moveVert`. */
-export const enum  VDir { Up= -1, Down = 1 }
+export const enum  VDir { Up = -1, Down = 1 }
 
-export const moveVert = (dir :VDir) => (relem :Elem, {idxs, span} :Path) :Path => {
+export const moveVert = (dir :VDir) => (relem :Elem, path :Path) :Path => {
+  const vpath = advanceVert(dir, relem, path)
+  const vspans = relem.spansAt(vpath)
+  return {idxs: vpath, span: findEditableSpan(vspans, 1, -1) || 0}
+}
+
+function findEditableSpan (spans :Span[], delta :number, idx :number) :number|undefined {
+  let nidx = idx + delta
+  while (nidx >= 0 && nidx < spans.length) {
+    const span = spans[nidx]
+    if (span.editor) return nidx
+    nidx += delta
+  }
+  return undefined
+}
+
+function advanceVert (dir :VDir, relem :Elem, {idxs, span} :Path) :number[] {
   // tries to move forward in the current element, otherwise moves up
   // the path one component and then tries to move forward there
   function forward (idxs :number[]) :number[] {
@@ -176,25 +180,19 @@ export const moveVert = (dir :VDir) => (relem :Elem, {idxs, span} :Path) :Path =
     const {init, last} = unsnoc(idxs)
     return (last > 0) ? init.concat([last-1]) : backup(init)
   }
-  function findEditable (idxs :number[]) :number {
-    const spans = relem.spansAt(idxs)
-    let span = 0
-    while (span < spans.length && !spans[span].editor) span += 1
-    return span == spans.length ? 0 : span
-  }
   switch (dir) {
   case VDir.Down:
     const fidxs = forward(idxs)        // move forward to the next valid path
     const felem = relem.elemAt(fidxs)  // obtain the element at that path position
     const dsuff = firstEditable(felem) // get the path from that element to the first line/para
     const dpath = fidxs.concat(dsuff)  // combine the path prefix and suffix into a full path
-    return {idxs: dpath, span: findEditable(dpath)}
+    return dpath
   case VDir.Up:
     const bidxs = backup(idxs)         // move backward to the next valid path
     const lelem = relem.elemAt(bidxs)  // obtain the element at that path position
     const usuff = lastEditable(lelem)  // get the path from that element to the first line/para
     const upath = bidxs.concat(usuff)  // combine the prefix and suffix into a full path
-    return {idxs: upath, span: findEditable(upath)}
+    return upath
   }
 }
 
@@ -218,5 +216,5 @@ function findEditable (picker :(elems :Elem[]) => number, elem :Elem) :number[] 
   }
   return loop([], elem)
 }
-export const firstEditable = (elem :Elem) => findEditable(x => 0, elem)
-export const lastEditable = (elem :Elem) => findEditable(lastidx, elem)
+const firstEditable = (elem :Elem) => findEditable(x => 0, elem)
+const lastEditable = (elem :Elem) => findEditable(lastidx, elem)

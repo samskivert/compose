@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { observable, computed } from 'mobx'
+import { observable, transaction } from 'mobx'
 import { observer } from 'mobx-react'
 
 import * as M from './markup'
@@ -39,8 +39,9 @@ const enum Mode { Normal, Selected, Edited }
 type State = { def :T.Def, elem :M.Elem, curs :Cursor, sel :Selection }
 
 export function mkState (def :T.Def) :State {
-  const elem = F.formatDef(def)
-  const curs = {path: M.mkPath(M.firstEditable(elem), 0), editing: false}
+  const {elem, path} = F.formatDef(def, def.firstEditable())
+  // M.mkPath(M.firstEditable(elem), 0)
+  const curs = {path, editing: false}
   return {def, elem, curs, sel: emptySelection}
 }
 
@@ -49,14 +50,27 @@ function followCursor ({path, editing} :Cursor, idx :number) :Cursor {
 }
 
 export class DefStore {
-  @observable def :T.Def
-  @computed get elem () :M.Elem { return F.formatDef(this.def) }
-  @observable curs :Cursor
-  @observable sel :Selection = emptySelection
+  @observable def  :T.Def
+  @observable elem :M.Elem
+  @observable curs :Cursor = {path: M.emptyPath, editing: false}
+  @observable sel  :Selection = emptySelection
 
   constructor(def :T.Def) {
-    this.def = def
-    this.curs = {path: M.mkPath(M.firstEditable(this.elem), 0), editing: false}
+    this.setDef(def, def.firstEditable())
+  }
+
+  setDef (def :T.Def, focus? :T.Path) {
+    let {elem, path} = F.formatDef(def, focus || T.emptyPath)
+    transaction(() => {
+      this.def = def
+      this.elem = elem
+      if (focus) {
+        console.log(`New cursor, and editing: ${path}`)
+        this.curs = {path, editing: true}
+      } else {
+        this.curs.editing = false
+      }
+    })
   }
 }
 
@@ -80,6 +94,11 @@ export class DefEditor extends React.Component<{store :DefStore}> {
     case "ArrowUp":    this._moveCursor(M.moveVert(M.VDir.Up))     ; break
     case "ArrowDown":  this._moveCursor(M.moveVert(M.VDir.Down))   ; break
     case "Enter":      this._startEdit()                           ; break
+    case "Tab":
+      const dir = ev.shiftKey ? M.HDir.Left : M.HDir.Right
+      this._moveCursor(M.moveHoriz(dir))
+      ev.preventDefault()
+      break;
     default:           console.log(`TODO: handleKey ${ev.code}`)   ; break
     }
     return true
@@ -127,11 +146,12 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   renderSpan (mode :Mode, {text, styles, editor} :M.Span) :JSX.Element {
     if (mode == Mode.Edited) {
       const stopEditing = () => { this.props.store.curs.editing = false }
-      const commitEdit = (text :string) => {
+      const commitEdit = (text :string, advance :boolean) => {
         if (editor) {
-          this.props.store.def = editor(text)(this.props.store.def) as T.Def
+          let {tree, focus} = editor(text, this.props.store.def)
+          this.props.store.setDef(tree as T.Def, focus)
         }
-        stopEditing()
+        if (advance) this._moveCursor(M.moveHoriz(M.HDir.Right))
       }
       return <SpanEditor store={new SpanStore(text)} onCommit={commitEdit} onCancel={stopEditing} />
     } else {
@@ -151,11 +171,12 @@ export class SpanStore {
 
 @observer
 export class SpanEditor  extends React.Component<{
-  store :SpanStore, onCommit :(text :string) => void, onCancel :() => void
+  store :SpanStore, onCommit :(text :string, advance :boolean) => void, onCancel :() => void
 }> {
 
   render () { return (
     <input type="text" placeholder="..." autoFocus={true} value={this.props.store.text}
+           className={"spanEditor"}
            onChange={this.onChange.bind(this)} onBlur={this.onBlur.bind(this)}
            onKeyDown={this.onKeyDown.bind(this)} />
   )}
@@ -166,16 +187,17 @@ export class SpanEditor  extends React.Component<{
 
   onKeyDown (ev :React.KeyboardEvent<HTMLInputElement>) {
     switch (ev.key) {
-    case "Enter": this.commit() ; break
+    case "Enter" : this.commit(false) ; break
     case "Escape": this.props.onCancel() ; break
+    case "Tab"   : this.commit(true) ; ev.preventDefault() ; break
     }
   }
 
   onBlur (ev :React.FormEvent<HTMLInputElement>) {
-    this.commit()
+    this.commit(false)
   }
 
-  commit () {
-    this.props.onCommit(this.props.store.text)
+  commit (advance :boolean) {
+    this.props.onCommit(this.props.store.text, advance)
   }
 }
