@@ -91,36 +91,30 @@ export abstract class Type extends Tree {
 }
 
 export class Unknown extends Type {
-  readonly kind = "unknown"
 }
 export const typeUnknown :Unknown = new Unknown()
 
 export class Const extends Type {
-  readonly kind = "const"
   constructor (readonly cnst :Constant) { super() }
   toString () { return `Const:${this.cnst}`}
 }
 
 export class Data extends Type {
-  readonly kind = "data"
   constructor (readonly tag :Tag, readonly size :number) { super () }
   toString () { return `Data:${this.tag}${this.size}`}
 }
 
 export class TRef extends Type {
-  readonly kind = "tref"
   constructor (readonly name :Name) { super() }
   toString () { return `TRef:${this.name}`}
 }
 
 export class TVar extends Type {
-  readonly kind = "tvar"
-  constructor(readonly name :Name) { super () }
+  constructor (readonly name :Name) { super () }
   toString () { return `TVar:${this.name}`}
 }
 
 export class Arrow extends Type {
-  readonly kind = "arrow"
   constructor (readonly from :Type, readonly to :Type) { super() }
   toString () { return `${this.from} -> ${this.to}`}
 
@@ -138,7 +132,6 @@ export class Arrow extends Type {
 }
 
 export class TApp extends Type {
-  readonly kind = "tapp"
   constructor (readonly ctor :Type, readonly arg :Type) { super () }
   toString () { return `${this.ctor} ${this.arg}`}
 
@@ -150,6 +143,23 @@ export class TApp extends Type {
     switch (idx) {
     case  0: return new TApp(this.ctor.edit(edit, tail), this.arg)
     case  1: return new TApp(this.ctor, this.arg.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
+  }
+}
+
+export class TAbs extends Type {
+  constructor (readonly name :Name, readonly body :Expr) { super() }
+  toString () { return `TAbs:${this.name}`}
+
+  firstEditable (pre :Path = []) :Path {
+    return extendPath(pre, 0)
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new TAbs(edit.namefn(this.name), this.body)
+    case  1: return new TAbs(this.name, this.body.edit(edit, tail))
     default: return super.editChild(edit, idx, tail)
     }
   }
@@ -173,7 +183,6 @@ export abstract class Def extends Tree {
 }
 
 export class Term extends Def {
-  readonly kind = "term"
   constructor (readonly name :Name, readonly tpe :Type, readonly expr :Expr) { super() }
   toString () { return `Term:${this.name}`}
 
@@ -192,7 +201,6 @@ export class Term extends Def {
 }
 
 export class Union extends Def {
-  readonly kind = "union"
   constructor (readonly name :Name, readonly records :Record[]) { super() }
   toString () { return `Union:${this.name}`}
 
@@ -213,7 +221,6 @@ export class Union extends Def {
 }
 
 export class Field extends Def {
-  readonly kind = "field"
   constructor (readonly name :Name, readonly tpe :Type) { super() }
   toString () { return `Field:${this.name}`}
 
@@ -231,7 +238,6 @@ export class Field extends Def {
 }
 
 export class Record extends Def {
-  readonly kind = "record"
   constructor (readonly name :Name, readonly fields :Field[]) { super() }
   toString () { return `Record:${this.name}`}
 
@@ -267,13 +273,11 @@ export abstract class Expr extends Tree {
 }
 
 export class Lit extends Expr {
-  readonly kind = "lit"
   constructor (readonly cnst :Constant) { super() }
   toString () { return `Lit:${this.cnst}`}
 }
 
 export class Ref extends Expr {
-  readonly kind = "ref"
   constructor (readonly name :Name) { super() }
   toString () { return `Ref:${this.name}`}
 
@@ -285,16 +289,14 @@ export class Ref extends Expr {
   }
 }
 
-export class Hole extends Expr {
-  readonly kind = "hole"
+export class ExprHole extends Expr {
   constructor (readonly tpe :Type) { super() }
-  toString () { return `Hole:${this.tpe}`}
+  toString () { return `ExprHole:${this.tpe}`}
 }
 
-export const exprHole = new Hole(typeUnknown)
+export const exprHole = new ExprHole(typeUnknown)
 
 export class App extends Expr {
-  readonly kind = "app"
   constructor (readonly fun :Expr, readonly arg :Expr) { super() }
 
   firstEditable (pre :Path = []) :Path {
@@ -311,7 +313,6 @@ export class App extends Expr {
 }
 
 export class Let extends Expr {
-  readonly kind ="let"
   constructor (readonly name :Name, readonly tpe :Type, readonly value :Expr,
                readonly body :Expr) { super() }
   toString () { return `Let:${this.name}`}
@@ -332,7 +333,6 @@ export class Let extends Expr {
 }
 
 export class Abs extends Expr {
-  readonly kind = "abs"
   constructor (readonly name :Name, readonly tpe :Type, readonly body :Expr) { super() }
   toString () { return `Abs:${this.name}`}
 
@@ -351,7 +351,6 @@ export class Abs extends Expr {
 }
 
 export class If extends Expr {
-  readonly kind = "if"
   constructor (readonly test :Expr, readonly texp :Expr, readonly fexp :Expr) { super() }
 
   firstEditable (pre :Path = []) :Path {
@@ -369,7 +368,6 @@ export class If extends Expr {
 }
 
 export class Case extends Expr {
-  readonly kind = "case"
   constructor (readonly scrut :Expr, readonly cases :Expr[]) { super() }
 
   firstEditable (pre :Path = []) :Path {
@@ -387,7 +385,6 @@ export class Case extends Expr {
 }
 
 export class CaseCase extends Expr {
-  readonly kind = "casecase"
   constructor (readonly pat :Expr, // TODO: this should be a pattern tree
                readonly body :Expr) { super() }
 
@@ -436,7 +433,7 @@ const revAccDef = new Abs(
       new Ref("as"), [
         new CaseCase(
           new Ref("Nil"),
-          new Hole(typeUnknown)
+          new ExprHole(typeUnknown)
         ),
         new CaseCase(
           new App(new App(new Ref("Cons"), new Ref("h")), new Ref("t")),

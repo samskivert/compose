@@ -8,18 +8,20 @@ import * as T from './trees'
 // "syntax highlighted, formatted text" format, but the text itself is not editable. Edits are made
 // on the underlying AST and those changes propagate back out to the visualization.
 
-/** A function used to update a tree based on the new text provided for a span. */
-export type EditFn = (text :string, old :T.Tree) => {tree :T.Tree, focus? :T.Path}
-
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * If the span represents a component of an AST node, its path will reflect the path to that node
   * (from the AST root used to generate the markup). Otherwise the path will be `Nil`. */
 export type Span = {
   text :string,
   styles :string[],
-  editor? :EditFn
+  editor? :Editor
   // TODO: other stuff like completion functions, indications on how many trailing spans
   // get slurped up if we edit this span, etc.
+}
+
+/** Creates a span containing `text` optional edit function and styles. */
+export function span (text :string, editor? :Editor, styles :string[] = []) :Span {
+  return {text, styles, editor}
 }
 
 export function showSpan (span :Span) :string {
@@ -96,9 +98,50 @@ export class Line extends Elem {
   }
 }
 
-/** Creates a span containing `text` optional edit function and styles. */
-export function span (text :string, editor? :EditFn, styles :string[] = []) :Span {
-  return {text, styles, editor}
+// ----------
+// Edit model
+// ----------
+
+// When a tree is formatted into a span, an "editor" is provided with the span such that when the
+// span is edited, we know how to propagate those edits back to the original AST. On every key
+// press, the editor receives the current edited text (prior to the key press being applied) and the
+// key code for the pressed key. It then decides whether to extend the edit with the key, abort the
+// edit (usually only when the escape key is pressed), or commit the edit, in which case it provides
+// the replacement tree and an optional new focus, where the cursor will move.
+//
+// This allows the editor to trigger different kinds of changes based on the key press that results
+// in an edit being committed. For example, when editing the name introduced by a let binding,
+// pressing `=` will jump immediately to the expression bound to that name, whereas pressing ` `
+// (space) will introduce a nested abstraction (effectively adding an argument to the function being
+// defined by the let).
+
+/** The action to take in response to a keypress when editng a term:
+  * - extend: extend the currently edited text with the character
+  * - cancel: abort the current edit
+  * - {tree, focus}: commit the edit, using the replacement tree and (optional) new focus
+  */
+export type EditAction = "extend" | "cancel" | {tree :T.Tree, focus? :T.Path}
+
+/** Handles the interactive editing process for a particular span. */
+export abstract class Editor {
+
+  /** The placeholder text to show when the span is empty. */
+  abstract get placeHolder () :string
+
+  /** Starts the edit of a span.
+    * @param text the initial text of the span.
+    * @return the initial text to display in the editor.
+    */
+  startEdit (text :string) :string {
+    return text
+  }
+
+  /** Handles a key press from an active span editor.
+    * @param text the current text of the span (prior to the key press).
+    * @param key the JavaScript description of the pressed key.
+    * @return the action to take based on the key press.
+    */
+  abstract handleKey (text :string, key :string) :EditAction
 }
 
 // ----------

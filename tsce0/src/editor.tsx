@@ -129,9 +129,9 @@ export class DefEditor extends React.Component<{store :DefStore}> {
     if (elem instanceof M.Block) {
       return (<div className="block">{this.renderElems(curs, elem.elems)}</div>)
     } else if (elem instanceof M.Para) {
-      return (<div className="docs" >{this.renderSpans(curs, elem.spans)}</div>)
+      return (<div className="docs">{this.renderSpans(curs, elem.spans)}</div>)
     } else if (elem instanceof M.Line) {
-      return (<div              >{this.renderSpans(curs, elem.spans)}</div>)
+      return (<div>{this.renderSpans(curs, elem.spans)}</div>)
     } else {
       return (<div>Unknown elem: {elem}</div>)
     }
@@ -144,16 +144,10 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   renderSpan (mode :Mode, {text, styles, editor} :M.Span) :JSX.Element {
-    if (mode == Mode.Edited) {
-      const stopEditing = () => { this.props.store.curs.editing = false }
-      const commitEdit = (text :string, advance :boolean) => {
-        if (editor) {
-          let {tree, focus} = editor(text, this.props.store.def)
-          this.props.store.setDef(tree as T.Def, focus)
-        }
-        if (advance) this._moveCursor(M.moveHoriz(M.HDir.Right))
-      }
-      return <SpanEditor store={new SpanStore(text)} onCommit={commitEdit} onCancel={stopEditing} />
+    if (mode == Mode.Edited && editor) {
+      return <SpanEditor store={new SpanStore(text)} defStore={this.props.store} editor={editor}
+                         stopEditing={() => { this.props.store.curs.editing = false }}
+                         advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
       const sstyles = (mode == Mode.Selected) ? styles.concat(["selected"]) : styles
       return <span className={sstyles.join(" ")}>{text}</span>
@@ -171,33 +165,35 @@ export class SpanStore {
 
 @observer
 export class SpanEditor  extends React.Component<{
-  store :SpanStore, onCommit :(text :string, advance :boolean) => void, onCancel :() => void
+  store :SpanStore,
+  defStore :DefStore,
+  editor :M.Editor,
+  stopEditing :() => void,
+  advanceCursor :() => void
 }> {
 
   render () { return (
-    <input type="text" placeholder="..." autoFocus={true} value={this.props.store.text}
-           className={"spanEditor"}
-           onChange={this.onChange.bind(this)} onBlur={this.onBlur.bind(this)}
-           onKeyDown={this.onKeyDown.bind(this)} />
+    <input type="text" autoFocus={true} className={"spanEditor"}
+           placeholder={this.props.editor.placeHolder}
+           value={this.props.editor.startEdit(this.props.store.text)}
+           onChange={this.onChange.bind(this)}
+           onBlur={ev => this.handleKey("Blur")}
+           onKeyDown={ev => this.handleKey(ev.key, ev)} />
   )}
 
   onChange (ev :React.FormEvent<HTMLInputElement>) {
     this.props.store.text = ev.currentTarget.value
   }
 
-  onKeyDown (ev :React.KeyboardEvent<HTMLInputElement>) {
-    switch (ev.key) {
-    case "Enter" : this.commit(false) ; break
-    case "Escape": this.props.onCancel() ; break
-    case "Tab"   : this.commit(true) ; ev.preventDefault() ; break
+  handleKey (key :string, ev? :React.KeyboardEvent<HTMLInputElement>) {
+    const action = this.props.editor.handleKey(this.props.store.text, key)
+    if (action === "extend") return
+    ev && ev.preventDefault()
+    if (action === "cancel") this.props.stopEditing()
+    else {
+      let {tree, focus} = action
+      this.props.defStore.setDef(tree as T.Def, focus)
+      if (key == "Tab") this.props.advanceCursor()
     }
-  }
-
-  onBlur (ev :React.FormEvent<HTMLInputElement>) {
-    this.commit(false)
-  }
-
-  commit (advance :boolean) {
-    this.props.onCommit(this.props.store.text, advance)
   }
 }

@@ -1,29 +1,26 @@
-import * as M from './markup'
-import * as T from './trees'
-import { Name } from './names'
+import * as M from "./markup"
+import * as T from "./trees"
+import { Name } from "./names"
 
 export function formatDef (def :T.Def, focus :T.Path) :{elem :M.Elem, path :M.Path} {
-  return new Acc(focus).appendDef(T.emptyPath, def).finalize()
+  return new Acc(def, focus).appendDef(T.emptyPath, def).finalize()
 }
 
 export function formatExpr (expr :T.Expr, focus :T.Path) :{elem :M.Elem, path :M.Path} {
-  return new Acc(focus).appendExpr(T.emptyPath, expr).finalize()
+  return new Acc(expr, focus).appendExpr(T.emptyPath, expr).finalize()
 }
 
 class Acc {
-  focus :T.Path
   line :M.Span[] = []
   block :M.Elem[] = []
   markupPath :M.Path = M.emptyPath
 
-  constructor (focus :T.Path) {
-    this.focus = focus
-  }
+  constructor (readonly root :T.Tree, readonly focus :T.Path) {}
 
   appendDef (path :T.Path, def :T.Def) :this {
     if (def instanceof T.Term) {
       this.appendKeySpan("def ")
-      this.appendAbs(path, def.name, T.typeUnknown, def.expr, def.tpe, path)
+      this.appendAbs(path, def.name, T.typeUnknown, def.expr, {path, tpe: def.tpe})
 
     } else if (def instanceof T.Union) {
       this.appendKeySpan("data ")
@@ -57,7 +54,7 @@ class Acc {
       this.appendExprSpan(path, expr.cnst.value, "constant")
     } else if (expr instanceof T.Ref) {
       this.appendExprSpan(path, expr.name, "ident")
-    } else if (expr instanceof T.Hole) {
+    } else if (expr instanceof T.ExprHole) {
       this.appendExprSpan(path, "?", "type")
     } else if (expr instanceof T.App) {
       this.appendExpr(T.extendPath(path, 0), expr.fun)
@@ -65,7 +62,7 @@ class Acc {
       this.appendExpr(T.extendPath(path, 1), expr.arg)
     } else if (expr instanceof T.Let) {
       this.appendKeySpan("let ")
-      this.appendAbs(path, expr.name, T.typeUnknown, expr.value, expr.tpe, path)
+      this.appendAbs(path, expr.name, T.typeUnknown, expr.value, {path, tpe: expr.tpe})
       this.newLine()
       this.appendKeySpan("in ")
       this.appendExpr(T.extendPath(path, 3), expr.body)
@@ -119,31 +116,22 @@ class Acc {
   appendSepSpan (text :string) {
     this.appendSpan(M.span(text))
   }
-  appendTypeSpan (path :T.Path, text :string) {
-    const typeEditor :M.EditFn = (text, tree) => ({
-      tree: tree.editType(_ => new T.TRef(text), path)})
-    this.appendSpan(M.span(text, typeEditor, ["type"]), path)
+  appendTypeSpan (path :T.Path, text :string, bodyPath? :T.Path) {
+    const editor = new TypeEditor(this.root, path, bodyPath)
+    this.appendSpan(M.span(text, editor, ["type"]), path)
   }
-  appendDefSpan (path :T.Path, name :string) {
-    const nameEditor :M.EditFn = (text, tree) => ({tree: tree.editName(_ => text, path)})
-    this.appendSpan(M.span(name, nameEditor, ["def"]), path)
+  appendDefSpan (path :T.Path, name :string, typePath? :T.Path, bodyPath? :T.Path) {
+    const editor = new NameEditor(this.root, path, typePath, bodyPath)
+    this.appendSpan(M.span(name, editor, ["def"]), path)
   }
   appendExprSpan (path :T.Path, name :string, style :string) {
-    function editTree (root :T.Tree, path :T.Path, leaf :T.Tree, fsuff? :number[]) {
-      const tree = root.editExpr(_ => leaf, path)
-      return fsuff ? {tree, focus: path.concat(fsuff)} : {tree}
-    }
-    const exprEditor :M.EditFn = (text, tree) => {
-      if (text == "let") return editTree(
-        tree, path, new T.Let("", T.typeUnknown, T.exprHole, T.exprHole), [0])
-      else return editTree(tree, path, new T.Ref(text), [])
-    }
-    this.appendSpan(M.span(name, exprEditor, [style]), path)
+    const editor = new ExprEditor(this.root, path)
+    this.appendSpan(M.span(name, editor, [style]), path)
   }
 
   appendSubExpr (path :T.Path, expr :T.Expr) {
     // propagate our target path to the formatter for the sub-expr
-    let sub = new Acc(this.focus).appendExpr(path, expr).finalize()
+    let sub = new Acc(this.root, this.focus).appendExpr(path, expr).finalize()
     // if the target tree element was in the sub-expr, capture the markup path
     if (sub.path != M.emptyPath) {
       // prepend the path to the block we're about to append
@@ -156,6 +144,9 @@ class Acc {
     if (!(tpe instanceof T.Unknown)) {
       this.appendKeySpan(":")
       this.appendBareType(path, tpe)
+    } else if (T.pathsEqual(path, this.focus)) {
+      this.appendKeySpan(":")
+      this.appendTypeSpan(path, "?")
     } // otherwise append nothing
   }
 
@@ -174,6 +165,12 @@ class Acc {
       this.appendTypeSpan(path, tpe.name)
     } else if (tpe instanceof T.TVar) {
       this.appendTypeSpan(path, tpe.name)
+    } else if (tpe instanceof T.TAbs) {
+      // TODO: need abs coalescing here like we have for terms
+      const bodyPath = T.extendPath(path, 1)
+      this.appendTypeSpan(path, tpe.name, bodyPath)
+      this.appendKeySpan(" = ")
+      this.appendBareType(bodyPath, tpe.body)
     } else if (tpe instanceof T.TApp) {
       this.appendBareType(T.extendPath(path, 0), tpe.ctor)
       this.appendSepSpan(" ")
@@ -186,28 +183,132 @@ class Acc {
   // Coalescing abs:
   // - abs inspects body: if it's another abs, append the arg & 'lift' the body
   appendAbs (path :T.Path, name :Name, tpe :T.Type, body :T.Expr,
-             arrowTpe? :T.Type, arrowPath? :T.Path) {
+             arrow? :{path :T.Path, tpe :T.Type}) {
+    const typePath = T.extendPath(path, 1)
+    const bodyPath = T.extendPath(path, 2)
     if (body instanceof T.Abs) {
-      this.appendDefSpan(T.extendPath(path, 0), name)
+      this.appendDefSpan(T.extendPath(path, 0), name, typePath, bodyPath)
       this.appendType(T.extendPath(path, 1), tpe)
       this.appendSepSpan(" ")
-      this.appendAbs(T.extendPath(path, 2), body.name, body.tpe, body.body, arrowTpe, arrowPath)
+      this.appendAbs(bodyPath, body.name, body.tpe, body.body, arrow)
     } else {
-      this.appendDefSpan(T.extendPath(path, 0), name)
+      this.appendDefSpan(T.extendPath(path, 0), name, typePath, bodyPath)
       this.appendType(T.extendPath(path, 1), tpe)
-      if (arrowTpe && arrowPath && arrowTpe != T.typeUnknown) {
-        this.appendKeySpan(" => ")
-        this.appendBareType(T.extendPath(arrowPath, 1), arrowTpe)
+      if (arrow && arrow.tpe != T.typeUnknown) {
+        this.appendKeySpan(" ⇒ ")
+        this.appendBareType(T.extendPath(arrow.path, 1), arrow.tpe)
       }
       this.appendKeySpan(" = ")
       this.newLine()
-      this.appendSubExpr(T.extendPath(path, 2), body)
+      this.appendSubExpr(bodyPath, body)
     }
   }
 
   // Coalescing let:
   // - let inspects body: if it's another let, append the let specially & 'lift' the body
   // TODO: appendLet (...)
+}
+
+class TypeEditor extends M.Editor {
+  constructor (
+    readonly root :T.Tree,
+    readonly path :T.Path,
+    readonly bodyPath? :T.Path
+  ) { super () }
+
+  get placeHolder () { return "<type>" }
+
+  handleKey (text :string, key :string) :M.EditAction {
+    switch (key) {
+    case "Enter":
+    case "Tab":
+      return {tree: this.root.editType(_ => new T.TRef(text), this.path)}
+    case " ":
+      return this.bodyPath ?
+        ({tree: this.root.editType(body => new T.TAbs(text, body), this.bodyPath)}) :
+        ({tree: this.root.editType(_ => new T.TRef(text), this.path)})
+    case "Escape": return "cancel"
+    default: return "extend"
+    }
+  }
+}
+
+class NameEditor extends M.Editor {
+  constructor (
+    readonly root :T.Tree,
+    readonly path :T.Path,
+    readonly typePath? :T.Path,
+    readonly bodyPath? :T.Path
+  ) { super () }
+
+  get placeHolder () { return "<name>" }
+
+  handleKey (text :string, key :string) :M.EditAction {
+    console.log(`nameEdit ${key} @ ${text}`)
+    switch (key) {
+    case "Enter":
+    case "Tab":
+    case "=":
+      return this.commitEdit(text)
+    case ":":
+      return this.typePath ?
+        ({tree: this.root.editName(_ => text, this.path), focus: this.typePath}) :
+        this.commitEdit(text)
+    case " ":
+      return this.bodyPath ? ({
+        tree: this.root.editName(_ => text, this.path)
+                       .editExpr(body => new T.Abs("", T.typeUnknown, body), this.bodyPath),
+        focus: this.bodyPath.concat([0])
+      }) : this.commitEdit(text)
+    case "Escape":
+      return "cancel"
+    default:
+      return "extend"
+    }
+  }
+
+  commitEdit (text :string) {
+    return {tree: this.root.editName(_ => text, this.path)}
+  }
+}
+
+class ExprEditor extends M.Editor {
+  constructor (
+    readonly root :T.Tree,
+    readonly path :T.Path
+  ) { super () }
+
+  get placeHolder () { return "<expr>" }
+
+  handleKey (text :string, key :string) :M.EditAction {
+    console.log(`exprEdit ${key} @ ${text}`)
+    switch (key) {
+    case "Enter":
+    case "Tab":
+    case " ":
+      return this.commitEdit(text)
+    case "Escape":
+      return "cancel"
+    default:
+      return "extend"
+    }
+  }
+
+  editTree (leaf :T.Tree, fsuff? :number[]) {
+    const tree = this.root.editExpr(_ => leaf, this.path)
+    return fsuff ? {tree, focus: this.path.concat(fsuff)} : {tree}
+  }
+
+  commitEdit (text :string) {
+    switch (text) {
+    case "let":
+      return this.editTree(new T.Let("", T.typeUnknown, T.exprHole, T.exprHole), [0])
+    case "case":
+      return this.editTree(new T.Case(T.exprHole, [new T.CaseCase(T.exprHole, T.exprHole)]), [0])
+    default:
+      return this.editTree(new T.Ref(text))
+    }
+  }
 }
 
 // | Lit Constant => append span
