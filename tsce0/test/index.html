@@ -5,52 +5,86 @@
       body {
         font-family: sans-serif;
         max-width: 800px;
-        margin: 20px;
-        background-color: #424242;
+        margin: 0px;
         color: #FFFFFF;
       }
-      .docs {
+
+      #top {
+        display: flex;
+        flex-direction: row;
+      }
+
+      /** Outline styles */
+      .outline {
+        flex-grow: 1;
+        background-color: #535353;
+        padding: 5px;
+        font-family: monospace;
+        font-size: medium;
+      }
+
+      .outline .selected {
+        background-color: #AAAAAA;
+        color: #222222;
+      }
+
+      /** Stack styles */
+      .stack {
+        flex-grow: 2;
+        background-color: #424242;
+        padding: 5px;
+      }
+
+      /** Def Editor styles */
+      .editor {
+        padding: 10px 0px;
+        border-top: 1px solid #313131;
+      }
+      .editor .docs {
         font-size: medium;
         color: #CCCCCC;
       }
-      .block {
+      .editor .block {
         font-family: monospace;
         padding-left: 10px;
       }
-      .topdef > .block {
+      .editor > .block {
         padding-left: 0px;
       }
 
-      .selected {
+      .editor .selected {
         border: 1px solid #FF0000;
       }
+      .editor .lowSelected {
+        border: 1px solid #FF000033;
+      }
 
-      .constant {
+      .editor .constant {
         color: #0000FF;
       }
-      .ident {
+      .editor .ident {
         /*color: #FFFFFF;*/
       }
-      .hole {
+      .editor .hole {
         color: #00AAFF;
         padding: 0px 5px;
         border: 1px solid white;
       }
-      .keyword {
+      .editor .keyword {
         color: #FFCB00;
       }
-      .type {
+      .editor .type {
         color: #FF0000;
       }
-      .def {
+      .editor .def {
         color: #00AAFF;
         font-style: italic;
       }
-      .fun {
+      .editor .fun {
         text-decoration: underline;
       }
 
-      .spanEditor {
+      .editor .spanEditor {
         max-width: 50px;
       }
     </style>

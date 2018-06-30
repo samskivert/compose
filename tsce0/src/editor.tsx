@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { observable, transaction } from 'mobx'
+import { observable, transaction, IComputedValue } from 'mobx'
 import { observer } from 'mobx-react'
 
 import * as M from './markup'
@@ -14,6 +14,10 @@ import * as F from './format'
 type Cursor = {path :M.Path, editing :boolean}
 
 const nullCursor :Cursor = {path: M.emptyPath, editing: false}
+
+function followCursor ({path, editing} :Cursor, idx :number) :Cursor {
+  return M.popPath(nullCursor, p => ({path: p, editing}), idx, path)
+}
 
 // | Models the editing selection: a range of nodes that are selected (and visually highlighted) so
 // | that they may act as the target of an editing operation (like cut, extract into binding, etc.).
@@ -35,28 +39,15 @@ const enum Mode { Normal, Selected, Edited }
 // Definition editor
 // -----------------
 
-/** The editor state is the def being edited, the current cursor, and the current selection. */
-type State = { def :T.Def, elem :M.Elem, curs :Cursor, sel :Selection }
-
-export function mkState (def :T.Def) :State {
-  const {elem, path} = F.formatDef(def, def.firstEditable())
-  // M.mkPath(M.firstEditable(elem), 0)
-  const curs = {path, editing: false}
-  return {def, elem, curs, sel: emptySelection}
-}
-
-function followCursor ({path, editing} :Cursor, idx :number) :Cursor {
-  return M.popPath(nullCursor, p => ({path: p, editing}), idx, path)
-}
-
 export class DefStore {
   @observable def  :T.Def
   @observable elem :M.Elem
   @observable curs :Cursor = {path: M.emptyPath, editing: false}
   @observable sel  :Selection = emptySelection
 
-  constructor(def :T.Def) {
+  constructor (def :T.Def, readonly isActive :IComputedValue<boolean>) {
     this.setDef(def, def.firstEditable())
+    this.curs.editing = false
   }
 
   setDef (def :T.Def, focus? :T.Path) {
@@ -65,7 +56,7 @@ export class DefStore {
       this.def = def
       this.elem = elem
       if (focus) {
-        console.log(`New cursor, and editing: ${path}`)
+        console.log(`New cursor, and editing: ${JSON.stringify(path)}`)
         this.curs = {path, editing: true}
       } else {
         this.curs.editing = false
@@ -118,7 +109,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   render () {
     const {curs, elem} = this.props.store
     console.log(`render ${JSON.stringify(curs)}`)
-    return (<div className="topdef">{this.renderElem(curs, elem)}</div>)
+    return (<div className="editor">{this.renderElem(curs, elem)}</div>)
   }
 
   renderElems (curs :Cursor, elems :M.Elem[]) :JSX.Element[] {
@@ -149,7 +140,9 @@ export class DefEditor extends React.Component<{store :DefStore}> {
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
-      const sstyles = (mode == Mode.Selected) ? styles.concat(["selected"]) : styles
+      const sstyles = (mode == Mode.Selected) ? styles.concat([
+        this.props.store.isActive.get() ? "selected" : "lowSelected"
+      ]) : styles
       return <span className={sstyles.join(" ")}>{text}</span>
     }
   }

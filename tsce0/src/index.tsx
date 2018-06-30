@@ -1,11 +1,14 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-// import {observable} from 'mobx';
-// import {observer} from 'mobx-react';
-// import DevTools from 'mobx-react-devtools';
 
 import * as T from './trees'
-import * as E from './editor'
+import * as W from './workspace'
 
-const store = new E.DefStore(T.revExample)
-ReactDOM.render(<E.DefEditor store={store} />, document.getElementById('root'));
+const store = new W.WorkspaceStore()
+store.addDef(T.listExample)
+store.addDef(T.aliasExample)
+store.addDef(T.recordExample)
+store.addDef(T.revExample)
+store.selectedDef = T.listExample
+
+ReactDOM.render(<W.Workspace store={store} />, document.getElementById('root'));
