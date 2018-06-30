@@ -79,14 +79,14 @@ export abstract class Tree {
   }
 }
 
-// ----------
-// Type trees
-// ----------
+// -------------------------
+// Type and Data(type) trees
+// -------------------------
 
 export abstract class Type extends Tree {
 
   edit (edit :Edit, path :Path) :Type {
-    return (path.length == 0) ? edit.typefn(this) : super.edit(edit, path)
+    return (path.length == 0) ? edit.typefn(this) : super.edit(edit, path) as Type
   }
 }
 
@@ -94,24 +94,21 @@ export class Unknown extends Type {
 }
 export const typeUnknown :Unknown = new Unknown()
 
+export class TypeHole extends Type {
+  constructor (readonly tpe :Type) { super() }
+  toString () { return `TypeHole:${this.tpe}`}
+}
+
+export const typeHole = new TypeHole(typeUnknown)
+
 export class Const extends Type {
   constructor (readonly cnst :Constant) { super() }
   toString () { return `Const:${this.cnst}`}
 }
 
-export class Data extends Type {
-  constructor (readonly tag :Tag, readonly size :number) { super () }
-  toString () { return `Data:${this.tag}${this.size}`}
-}
-
 export class TRef extends Type {
   constructor (readonly name :Name) { super() }
   toString () { return `TRef:${this.name}`}
-}
-
-export class TVar extends Type {
-  constructor (readonly name :Name) { super () }
-  toString () { return `TVar:${this.name}`}
 }
 
 export class Arrow extends Type {
@@ -149,7 +146,7 @@ export class TApp extends Type {
 }
 
 export class TAbs extends Type {
-  constructor (readonly name :Name, readonly body :Expr) { super() }
+  constructor (readonly name :Name, readonly body :Type) { super() }
   toString () { return `TAbs:${this.name}`}
 
   firstEditable (pre :Path = []) :Path {
@@ -165,62 +162,30 @@ export class TAbs extends Type {
   }
 }
 
-// TODO
-// -- | Array Type
-// -- | Record Name Params Fields
-// -- | Field Name Type
-// -- | Union Params Cases
-// -- | Interface Name Params Methods
-// -- | Method Name Type
 
-// ----------------
-// Definition trees
-// ----------------
-
-/** Definition AST. */
-export abstract class Def extends Tree {
-
+export class Data extends Type {
+  constructor (readonly tag :Tag, readonly size :number) { super () }
+  toString () { return `Data:${this.tag}${this.size}`}
 }
 
-export class Term extends Def {
-  constructor (readonly name :Name, readonly tpe :Type, readonly expr :Expr) { super() }
-  toString () { return `Term:${this.name}`}
+export class Sum extends Type {
+  constructor (readonly records :Record[]) { super() }
 
   firstEditable (pre :Path = []) :Path {
     return extendPath(pre, 0)
   }
 
   protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
-    switch (idx) {
-    case  0: return new Term(edit.namefn(this.name), this.tpe, this.expr)
-    case  1: return new Term(this.name, this.tpe.edit(edit, tail), this.expr);
-    case  2: return new Term(this.name, this.tpe, this.expr.edit(edit, tail))
-    default: return super.editChild(edit, idx, tail)
-    }
-  }
-}
-
-export class Union extends Def {
-  constructor (readonly name :Name, readonly records :Record[]) { super() }
-  toString () { return `Union:${this.name}`}
-
-  firstEditable (pre :Path = []) :Path {
-    return extendPath(pre, 0)
-  }
-
-  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
-    if (idx == 0) return new Union(edit.namefn(this.name), this.records)
-    const cidx = idx-1
-    if (cidx >= 0 && cidx < this.records.length) {
-      const erecord = this.records[cidx].edit(edit, tail) as Record
-      return new Union(this.name, update(this.records, cidx, erecord))
+    if (idx >= 0 && idx < this.records.length) {
+      const erecord = this.records[idx].edit(edit, tail) as Record
+      return new Sum(update(this.records, idx, erecord))
     } else {
       return super.editChild(edit, idx, tail)
     }
   }
 }
 
-export class Field extends Def {
+export class Field extends Tree {
   constructor (readonly name :Name, readonly tpe :Type) { super() }
   toString () { return `Field:${this.name}`}
 
@@ -237,7 +202,7 @@ export class Field extends Def {
   }
 }
 
-export class Record extends Def {
+export class Record extends Type {
   constructor (readonly name :Name, readonly fields :Field[]) { super() }
   toString () { return `Record:${this.name}`}
 
@@ -253,6 +218,74 @@ export class Record extends Def {
       return new Record(this.name, update(this.fields, cidx, efield))
     } else {
       return super.editChild(edit, idx, tail)
+    }
+  }
+}
+
+// TODO
+// -- | Array Type
+// -- | Interface Name Params Methods
+// -- | Method Name Type
+
+// ----------------
+// Definition trees
+// ----------------
+
+/** Definition AST. */
+export abstract class Def extends Tree {
+
+  /** The name of the definition provided by this tree. */
+  abstract get name () :Name
+}
+
+export class TermDef extends Def {
+  constructor (readonly name :Name, readonly tpe :Type, readonly expr :Expr) { super() }
+  toString () { return `Term:${this.name}`}
+
+  firstEditable (pre :Path = []) :Path {
+    return extendPath(pre, 0)
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new TermDef(edit.namefn(this.name), this.tpe, this.expr)
+    case  1: return new TermDef(this.name, this.tpe.edit(edit, tail), this.expr);
+    case  2: return new TermDef(this.name, this.tpe, this.expr.edit(edit, tail))
+    default: return super.editChild(edit, idx, tail)
+    }
+  }
+}
+
+export class TypeDef extends Def {
+  constructor (readonly name :Name, readonly tpe :Type) { super() }
+  toString () { return `Type:${this.name}`}
+
+  firstEditable (pre :Path = []) :Path {
+    return extendPath(pre, 0)
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new TypeDef(edit.namefn(this.name), this.tpe)
+    case  1: return new TypeDef(this.name, this.tpe.edit(edit, tail));
+    default: return super.editChild(edit, idx, tail)
+    }
+  }
+}
+
+export class DataDef extends Def {
+  constructor (readonly name :Name, readonly tpe :Type) { super() }
+  toString () { return `Type:${this.name}`}
+
+  firstEditable (pre :Path = []) :Path {
+    return extendPath(pre, 0)
+  }
+
+  protected editChild (edit :Edit, idx :number, tail :Path) :Tree {
+    switch (idx) {
+    case  0: return new DataDef(edit.namefn(this.name), this.tpe)
+    case  1: return new DataDef(this.name, this.tpe.edit(edit, tail));
+    default: return super.editChild(edit, idx, tail)
     }
   }
 }
@@ -415,14 +448,14 @@ function update<A> (elems :A[], idx :number, elem :A) :A[] {
 // ----------
 
 // -- let foo = true
-export const letExample = new Term("foo", new Data(Tag.Bool, 1), new Lit(constTrue))
+export const letExample = new TermDef("foo", new Data(Tag.Bool, 1), new Lit(constTrue))
 
 // -- reverse as :List A -> List A =
 // --   let revacc as acc = case as of
 // --     Nil -> acc
 // --     Cons h t -> revacc t h :: acc
 // --   in revacc as Nil
-const tpListA = new TApp(new TRef("List"), new TVar("A"))
+const tpListA = new TApp(new TRef("List"), new TRef("A"))
 const revAccDef = new Abs(
   "as",
   tpListA,
@@ -446,7 +479,7 @@ const revAccDef = new Abs(
     )
   )
 )
-export const revExample = new Term(
+export const revExample = new TermDef(
   "reverse",
   tpListA,
   new Abs(
@@ -463,3 +496,18 @@ export const revExample = new Term(
     )
   )
 )
+
+export const listExample = new DataDef("List", new TAbs("A", new Sum([
+  new Record("Nil", []),
+  new Record("Cons", [
+    new Field("head", new TRef("A")),
+    new Field("tail", new TApp(new TRef("List"), new TRef("A")))
+  ])
+])))
+
+export const recordExample = new DataDef("Person", new Record("Person", [
+  new Field("name", new TRef("String")),
+  new Field("age", new TRef("Nat"))
+]))
+
+export const aliasExample = new TypeDef("IntList", new TApp(new TRef("List"), new TRef("Int")))
