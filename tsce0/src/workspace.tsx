@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { observable, computed, autorun } from 'mobx'
+import { observable, computed } from 'mobx'
 import { observer } from 'mobx-react'
 
 import * as E from './editor'

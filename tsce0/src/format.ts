@@ -171,7 +171,8 @@ class Acc {
   }
   appendTermDefSpan (path :T.Path, name :string, typePath? :T.Path, bodyPath? :T.Path) {
     const editor = new TermNameEditor(this.root, path, typePath, bodyPath)
-    this.appendSpan(M.span(name, editor, ["def"]), path)
+    const text = name == "" ? "?" : name
+    this.appendSpan(M.span(text, editor, ["def"]), path)
   }
   appendExprSpan (path :T.Path, name :string, style :string) {
     const editor = new TermExprEditor(this.root, path)
@@ -274,14 +275,15 @@ class TypeExprEditor extends M.Editor {
   get placeHolder () { return "<type>" }
 
   handleKey (text :string, key :string) :M.EditAction {
+    const mkRef = (otype :T.Type) => text == "" ? new T.TypeHole(T.typeUnknown) : new T.TRef(text)
     switch (key) {
     case "Enter":
     case "Tab":
-      return {tree: this.root.editType(_ => new T.TRef(text), this.path)}
+      return {tree: this.root.editType(mkRef, this.path)}
     case " ":
       return this.bodyPath ?
         ({tree: this.root.editType(body => new T.TAbs(text, body), this.bodyPath)}) :
-        ({tree: this.root.editType(_ => new T.TRef(text), this.path)})
+        ({tree: this.root.editType(mkRef, this.path)})
     case "Escape": return "cancel"
     default: return "extend"
     }
@@ -360,6 +362,8 @@ class TermExprEditor extends M.Editor {
       return this.editTree(new T.Let("", T.typeUnknown, T.exprHole, T.exprHole), [0])
     case "case":
       return this.editTree(new T.Case(T.exprHole, [new T.CaseCase(T.exprHole, T.exprHole)]), [0])
+    case "":
+      return this.editTree(new T.ExprHole(T.typeUnknown))
     default:
       return this.editTree(new T.Ref(text))
     }
