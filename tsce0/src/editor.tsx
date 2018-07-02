@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { observable, transaction, IComputedValue } from 'mobx'
+import { computed, observable, transaction, IComputedValue } from 'mobx'
 import { observer } from 'mobx-react'
 
 import * as M from './markup'
@@ -45,7 +45,13 @@ export class DefStore {
   @observable curs :Cursor = {path: M.emptyPath, editing: false}
   @observable sel  :Selection = emptySelection
 
-  constructor (def :T.Def, readonly isActive :IComputedValue<boolean>) {
+  @computed get isActive () :boolean {
+    return this.selStore.get() === this
+  }
+
+  keyHandler :(ev :KeyboardEvent) => boolean = ev => true
+
+  constructor (def :T.Def, readonly selStore :IComputedValue<DefStore|void>) {
     this.setDef(def, def.firstEditable())
     this.curs.editing = false
   }
@@ -68,14 +74,9 @@ export class DefStore {
 @observer
 export class DefEditor extends React.Component<{store :DefStore}> {
 
-  // TEMP
   componentWillMount() {
-    document.addEventListener("keydown", this.handleKey.bind(this), false)
+    this.props.store.keyHandler = this.handleKey.bind(this)
   }
-  componentWillUnmount() {
-    document.removeEventListener("keydown", this.handleKey.bind(this), false);
-  }
-  // END TEMP
 
   handleKey (ev :KeyboardEvent) :boolean {
     if (this.props.store.curs.editing) return false
@@ -141,7 +142,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
       const sstyles = (mode == Mode.Selected) ? styles.concat([
-        this.props.store.isActive.get() ? "selected" : "lowSelected"
+        this.props.store.isActive ? "selected" : "lowSelected"
       ]) : styles
       return <span className={sstyles.join(" ")}>{text}</span>
     }

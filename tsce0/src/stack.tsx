@@ -9,7 +9,7 @@ export class Stack extends React.Component<{store :W.WorkspaceStore}> {
 
   render () {
     return (<div className="stack">{
-      this.props.store.defStores.map(store => <E.DefEditor store={store} />)
+      this.props.store.defs.map(store => <E.DefEditor store={store} />)
     }</div>)
   }
 }

@@ -9,6 +9,6 @@ store.addDef(T.listExample)
 store.addDef(T.aliasExample)
 store.addDef(T.recordExample)
 store.addDef(T.revExample)
-store.selectedDef = T.listExample
+store.selectedDef = store.defs[0]
 
 ReactDOM.render(<W.Workspace store={store} />, document.getElementById('root'));
