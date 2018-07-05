@@ -1,14 +1,11 @@
 import * as M from "./markup"
+import * as S from "./symbols"
 import * as T from "./trees"
-import { Name } from "./names"
+import * as TP from "./types"
 
-export function formatDef (def :T.Def, focus :T.Path) :{elem :M.Elem, path :M.Path} {
-  console.log(`formatDef ${def} @ ${focus}`)
-  return new Acc(def, focus).appendDef(T.emptyPath, def).finalize()
-}
-
-export function formatExpr (expr :T.Expr, focus :T.Path) :{elem :M.Elem, path :M.Path} {
-  return new Acc(expr, focus).appendExpr(T.emptyPath, expr).finalize()
+export function format (tree :T.Tree, focus :T.Path) :{elem :M.Elem, path :M.Path} {
+  console.log(`format ${tree} @ ${focus}`)
+  return new Acc(tree, focus).appendTree(T.emptyPath, tree, true).finalize()
 }
 
 class Acc {
@@ -18,117 +15,142 @@ class Acc {
 
   constructor (readonly root :T.Tree, readonly focus :T.Path) {}
 
-  appendTree (path :T.Path, tree :T.Tree) :this {
-    if (tree instanceof T.Def) return this.appendDef(path, tree)
-    else if (tree instanceof T.Type) return this.appendType(path, tree)
-    else if (tree instanceof T.Expr) return this.appendExpr(path, tree)
-    else throw new Error(`Unexpected tree: ${tree}`)
-  }
+  appendTree (path :T.Path, tree :T.Tree, topLevel = false) :this {
+    switch (tree.kind) {
+    case "term":
+      this.appendKeySpan("term ")
+      this.appendAbs(path, tree.symAt(0), T.emptyTree, tree.treeAt(2), {path, tpe: tree.treeAt(1)})
+      break
 
-  appendDef (path :T.Path, def :T.Def) :this {
-    if (def instanceof T.TermDef) {
-      this.appendKeySpan("def ")
-      this.appendAbs(path, def.name, T.typeUnknown, def.expr, {path, tpe: def.tpe})
-
-    } else if (def instanceof T.TypeDef) {
+    case "type":
       this.appendKeySpan("type ")
-      this.appendTAbs(path, def.name, def.tpe)
+      this.appendTAbs(path, tree.symAt(0), tree.treeAt(1), true)
+      break
 
-    } else if (def instanceof T.DataDef) {
-      this.appendKeySpan("data ")
-      this.appendTAbs(path, def.name, def.tpe)
-    }
-    return this
-  }
+    case "empty":
+      // nothing (TODO)
+      break
 
-  appendType (path :T.Path, tpe :T.Type) :this {
-    if (tpe instanceof T.Unknown) {
-      // nothing
-    } else if (tpe instanceof T.TypeHole) {
+    case "thole":
       this.appendTypeExprSpan(path, "?")
-    } else if (tpe instanceof T.Const) {
-      this.appendTypeExprSpan(path, tpe.cnst.value)
-    } else if (tpe instanceof T.Data) {
-      this.appendTypeExprSpan(path, `${tpe.tag}${tpe.size}`)
-    } else if (tpe instanceof T.Arrow) {
-      this.appendType(T.extendPath(path, 0), tpe.from)
+      break
+
+    case "tconst":
+      this.appendTypeExprSpan(path, tree.constAt(0).value)
+      break
+
+    // } else if (tpe instanceof T.ScalarDef) {
+    //   this.appendTypeExprSpan(path, `${tpe.tag}${tpe.size}`)
+
+    case "arrow":
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
       this.appendKeySpan(" → ")
-      this.appendType(T.extendPath(path, 1), tpe.to)
-    } else if (tpe instanceof T.TRef) {
-      this.appendTypeExprSpan(path, tpe.name)
-    } else if (tpe instanceof T.TAbs) {
-      this.appendTAbs(path, tpe.name, tpe.body)
-    } else if (tpe instanceof T.TApp) {
-      this.appendType(T.extendPath(path, 0), tpe.ctor)
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      break
+
+    case "tref":
+      this.appendTypeExprSpan(path, tree.symAt(0).name)
+      break
+
+    case "tabs":
+      this.appendTAbs(path, tree.symAt(0), tree.treeAt(1))
+      break
+
+    case "tapp":
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
       this.appendSepSpan(" ")
-      this.appendType(T.extendPath(path, 1), tpe.arg)
-    } else if (tpe instanceof T.Sum) {
-      for (let ii = 0; ii < tpe.records.length; ii += 1) {
-        this.newLine()
-        this.appendSubTree(T.extendPath(path, ii), tpe.records[ii])
-      }
-    } else if (tpe instanceof T.Record) {
-      this.appendTypeDefSpan(T.extendPath(path, 0), tpe.name)
-      for (let ii = 0; ii < tpe.fields.length; ii += 1) {
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      break
+
+    case "prod":
+      for (let ii = 0; ii < tree.branches.length; ii += 1) {
         // TODO: newline separate if documented?
         this.appendSepSpan(" ")
-        this.appendType(T.extendPath(path, (ii+1)), tpe.fields[ii])
+        this.appendTree(T.extendPath(path, (ii+1)), tree.treeAt(ii))
       }
-    } else if (tpe instanceof T.Field) {
-      this.appendTermDefSpan(T.extendPath(path, 0), tpe.name)
-      this.appendAnnType(T.extendPath(path, 0), tpe.tpe)
-    } else {
-      throw new Error(`Unexpected type: ${tpe}`)
+      break
+
+    case "sum":
+      for (let ii = 0; ii < tree.branches.length; ii += 1) {
+        this.newLine()
+        this.appendSubTree(T.extendPath(path, ii), tree.treeAt(ii))
+      }
+      break
+
+    case "lit":
+      this.appendExprSpan(path, tree.constAt(0).value, "constant")
+      break
+
+    case "ref":
+      this.appendExprSpan(path, tree.symAt(0).name, "ident")
+      break
+
+    case "hole":
+      this.appendExprSpan(path, "?", "type")
+      break
+
+    case "app":
+    case "inapp":
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
+      this.appendSepSpan(" ")
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      break
+
+    case "let":
+      this.appendKeySpan("let ")
+      this.appendAbs(path, tree.symAt(0), T.emptyTree, tree.treeAt(2), {path, tpe: tree.treeAt(1)})
+      this.newLine()
+      this.appendKeySpan("in ")
+      this.appendTree(T.extendPath(path, 3), tree.treeAt(3))
+      break
+
+    case "all":
+      const bodyPath = T.extendPath(path, 1)
+      this.appendKeySpan("∀")
+      this.appendTypeDefSpan(T.extendPath(path, 0), tree.symAt(0), bodyPath)
+      this.appendSepSpan(" ")
+      this.appendTree(bodyPath, tree.treeAt(1))
+      break
+
+    case "abs":
+      this.appendAbs(path, tree.symAt(0), tree.treeAt(1), tree.treeAt(2))
+      break
+
+    case "if":
+      this.appendKeySpan("todo if")
+      break
+
+    case "match":
+      this.appendKeySpan("case ")
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
+      this.appendKeySpan(" of")
+      for (let ii = 1; ii < tree.branches.length; ii += 1) {
+        this.newLine()
+        this.appendSubTree(T.extendPath(path, (ii+1)), tree.treeAt(ii))
+      }
+      break
+
+    case "case":
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
+      this.appendKeySpan(" → ")
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      break
+
+    default:
+      throw new Error(`Unexpected tree: ${tree}`)
     }
+
     return this
   }
 
-  appendAnnType (path :T.Path, tpe :T.Type) {
-    if (!(tpe instanceof T.Unknown)) {
+  appendAnnType (path :T.Path, tree :T.Tree) {
+    if (tree.kind !== "thole") {
       this.appendKeySpan(":")
-      this.appendType(path, tpe)
+      this.appendTree(path, tree)
     } else if (T.pathsEqual(path, this.focus)) {
       this.appendKeySpan(":")
       this.appendTypeExprSpan(path, "?")
     } // otherwise append nothing
-  }
-
-  appendExpr (path :T.Path, expr :T.Expr) :this {
-    if (expr instanceof T.Lit) {
-      this.appendExprSpan(path, expr.cnst.value, "constant")
-    } else if (expr instanceof T.Ref) {
-      this.appendExprSpan(path, expr.name, "ident")
-    } else if (expr instanceof T.ExprHole) {
-      this.appendExprSpan(path, "?", "type")
-
-    } else if (expr instanceof T.App) {
-      this.appendExpr(T.extendPath(path, 0), expr.fun)
-      this.appendSepSpan(" ")
-      this.appendExpr(T.extendPath(path, 1), expr.arg)
-    } else if (expr instanceof T.Let) {
-      this.appendKeySpan("let ")
-      this.appendAbs(path, expr.name, T.typeUnknown, expr.value, {path, tpe: expr.tpe})
-      this.newLine()
-      this.appendKeySpan("in ")
-      this.appendExpr(T.extendPath(path, 3), expr.body)
-    } else if (expr instanceof T.Abs) {
-      this.appendAbs(path, expr.name, expr.tpe, expr.body)
-    } else if (expr instanceof T.If) {
-      this.appendKeySpan("todo if")
-    } else if (expr instanceof T.Case) {
-      this.appendKeySpan("case ")
-      this.appendExpr(T.extendPath(path, 0), expr.scrut)
-      this.appendKeySpan(" of")
-      for (let ii = 0; ii < expr.cases.length; ii += 1) {
-        this.newLine()
-        this.appendSubTree(T.extendPath(path, (ii+1)), expr.cases[ii])
-      }
-    } else if (expr instanceof T.CaseCase) {
-      this.appendExpr(T.extendPath(path, 0), expr.pat)
-      this.appendKeySpan(" → ")
-      this.appendExpr(T.extendPath(path, 1), expr.body)
-    }
-    return this
   }
 
   finalize () :{elem :M.Elem, path :M.Path} {
@@ -161,9 +183,9 @@ class Acc {
   appendSepSpan (text :string) {
     this.appendSpan(M.span(text))
   }
-  appendTypeDefSpan (path :T.Path, name :string, bodyPath? :T.Path) {
+  appendTypeDefSpan (path :T.Path, sym :S.Symbol, bodyPath? :T.Path) {
     const editor = new TypeNameEditor(this.root, path, bodyPath)
-    this.appendSpan(M.span(name, editor, ["type"]), path)
+    this.appendSpan(M.span(sym.name, editor, ["type"]), path)
   }
   appendTypeExprSpan (path :T.Path, text :string, bodyPath? :T.Path) {
     const editor = new TypeExprEditor(this.root, path, bodyPath)
@@ -192,34 +214,62 @@ class Acc {
 
   // Coalescing abs:
   // - abs inspects body: if it's another abs, append the arg & 'lift' the body
-  appendAbs (path :T.Path, name :Name, tpe :T.Type, body :T.Expr,
-             arrow? :{path :T.Path, tpe :T.Type}) {
+  appendAbs (path :T.Path, sym :S.Symbol, tpe :T.Tree, body :T.Tree,
+             arrow? :{path :T.Path, tpe :T.Tree}) {
     const typePath = T.extendPath(path, 1)
     const bodyPath = T.extendPath(path, 2)
-    this.appendTermDefSpan(T.extendPath(path, 0), name, typePath, bodyPath)
+    this.appendTermDefSpan(T.extendPath(path, 0), sym.name, typePath, bodyPath)
     this.appendAnnType(T.extendPath(path, 1), tpe)
-    if (body instanceof T.Abs) {
+    switch (body.kind) {
+    case "abs":
       this.appendSepSpan(" ")
-      this.appendAbs(bodyPath, body.name, body.tpe, body.body, arrow)
-    } else {
-      if (arrow && arrow.tpe != T.typeUnknown) {
+      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), arrow)
+      break
+    case "all":
+      this.appendSepSpan(" ")
+      this.appendAll(bodyPath, body.symAt(0), body.treeAt(1), arrow)
+      break
+    default:
+      if (arrow && arrow.tpe !== T.emptyTree) {
         this.appendKeySpan(" ⇒ ")
-        this.appendType(T.extendPath(arrow.path, 1), arrow.tpe)
+        this.appendTree(T.extendPath(arrow.path, 1), arrow.tpe)
       }
       this.appendKeySpan(" = ")
       this.newLine()
       this.appendSubTree(bodyPath, body)
+      break
     }
   }
-  appendTAbs (path :T.Path, name :Name, body :T.Type) {
+  appendAll (path :T.Path, sym :S.Symbol, body :T.Tree, arrow? :{path :T.Path, tpe :T.Tree}) {
     const bodyPath = T.extendPath(path, 1)
-    this.appendTypeDefSpan(T.extendPath(path, 0), name, bodyPath)
-    if (body instanceof T.TAbs) {
+    this.appendKeySpan("∀")
+    this.appendTypeDefSpan(T.extendPath(path, 0), sym, bodyPath)
+    switch (body.kind) {
+    case "all":
       this.appendSepSpan(" ")
-      this.appendTAbs(bodyPath, body.name, body.body)
+      this.appendAll(bodyPath, body.symAt(0), body.treeAt(1))
+      break
+    case "abs":
+      this.appendSepSpan(" ")
+      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), arrow)
+      break
+    default:
+      // TODO: this shouldn't really ever happen, we should complain?
+      this.appendKeySpan(" = ")
+      this.appendTree(bodyPath, body)
+      break
+    }
+  }
+  appendTAbs (path :T.Path, sym :S.Symbol, body :T.Tree, topDef = false) {
+    const bodyPath = T.extendPath(path, 1)
+    if (!topDef) this.appendKeySpan("∀")
+    this.appendTypeDefSpan(T.extendPath(path, 0), sym, bodyPath)
+    if (body.kind == "tabs") {
+      this.appendSepSpan(" ")
+      this.appendTAbs(bodyPath, body.symAt(0), body.treeAt(1))
     } else {
       this.appendKeySpan(" = ")
-      this.appendType(bodyPath, body)
+      this.appendTree(bodyPath, body)
     }
   }
 
@@ -249,8 +299,8 @@ class TypeNameEditor extends M.Editor {
       return this.commitEdit(text)
     case " ":
       return this.bodyPath ? ({
-        tree: this.root.editName(_ => text, this.path)
-                       .editExpr(body => new T.TAbs("", body), this.bodyPath),
+        tree: this.root.edit(this.path, te => te.setName(text))
+                       .edit(this.bodyPath, te => te.setTAbs("", te.currentTree)),
         focus: this.bodyPath.concat([0])
       }) : this.commitEdit(text)
     case "Escape":
@@ -261,7 +311,7 @@ class TypeNameEditor extends M.Editor {
   }
 
   commitEdit (text :string) {
-    return {tree: this.root.editName(_ => text, this.path)}
+    return {tree: this.root.edit(this.path, te => te.setName(text))}
   }
 }
 
@@ -275,17 +325,20 @@ class TypeExprEditor extends M.Editor {
   get placeHolder () { return "<type>" }
 
   handleKey (text :string, key :string) :M.EditAction {
-    const mkRef = (otype :T.Type) => text == "" ? new T.TypeHole(T.typeUnknown) : new T.TRef(text)
+    const setRef = (te :T.TreeEditor) =>
+      text == "" ? te.setTHole() : te.setTRef(te.tree.scope.lookupType(text))
     switch (key) {
     case "Enter":
     case "Tab":
-      return {tree: this.root.editType(mkRef, this.path)}
+      return {tree: this.root.edit(this.path, setRef)}
     case " ":
       return this.bodyPath ?
-        ({tree: this.root.editType(body => new T.TAbs(text, body), this.bodyPath)}) :
-        ({tree: this.root.editType(mkRef, this.path)})
-    case "Escape": return "cancel"
-    default: return "extend"
+        ({tree: this.root.edit(this.bodyPath, te => te.setTAbs("", te.currentTree))}) :
+        ({tree: this.root.edit(this.path, setRef)})
+    case "Escape":
+      return "cancel"
+    default:
+      return "extend"
     }
   }
 }
@@ -302,6 +355,7 @@ class TermNameEditor extends M.Editor {
 
   handleKey (text :string, key :string) :M.EditAction {
     console.log(`nameEdit ${key} @ ${text}`)
+    const setName = (te :T.TreeEditor) => te.setName(text)
     switch (key) {
     case "Enter":
     case "Tab":
@@ -309,12 +363,12 @@ class TermNameEditor extends M.Editor {
       return this.commitEdit(text)
     case ":":
       return this.typePath ?
-        ({tree: this.root.editName(_ => text, this.path), focus: this.typePath}) :
+        ({tree: this.root.edit(this.path, setName), focus: this.typePath}) :
         this.commitEdit(text)
     case " ":
       return this.bodyPath ? ({
-        tree: this.root.editName(_ => text, this.path)
-                       .editExpr(body => new T.Abs("", T.typeUnknown, body), this.bodyPath),
+        tree: this.root.edit(this.path, setName)
+                       .edit(this.bodyPath, te => te.setTAbs("", te.currentTree)),
         focus: this.bodyPath.concat([0])
       }) : this.commitEdit(text)
     case "Escape":
@@ -325,7 +379,7 @@ class TermNameEditor extends M.Editor {
   }
 
   commitEdit (text :string) {
-    return {tree: this.root.editName(_ => text, this.path)}
+    return {tree: this.root.edit(this.path, te => te.setName(text))}
   }
 }
 
@@ -351,81 +405,21 @@ class TermExprEditor extends M.Editor {
     }
   }
 
-  editTree (leaf :T.Tree, fsuff? :number[]) {
-    const tree = this.root.editExpr(_ => leaf, this.path)
+  editTree (edit :(te :T.TreeEditor) => void, fsuff? :number[]) {
+    const tree = this.root.edit(this.path, edit)
     return fsuff ? {tree, focus: this.path.concat(fsuff)} : {tree}
   }
 
   commitEdit (text :string) {
     switch (text) {
     case "let":
-      return this.editTree(new T.Let("", T.typeUnknown, T.exprHole, T.exprHole), [0])
+      return this.editTree(te => te.setLetH(), [0])
     case "case":
-      return this.editTree(new T.Case(T.exprHole, [new T.CaseCase(T.exprHole, T.exprHole)]), [0])
+      return this.editTree(te => te.setMatchH(), [0])
     case "":
-      return this.editTree(new T.ExprHole(T.typeUnknown))
+      return this.editTree(te => te.setHole(TP.hole))
     default:
-      return this.editTree(new T.Ref(text))
+      return this.editTree(te => te.setRef(te.tree.scope.lookupTerm(text)))
     }
   }
 }
-
-// | Lit Constant => append span
-// | + "hello"
-// | + 42
-// | + false
-// |
-// | Ref Name => append span
-// | + foo
-// |
-// | App Expr Expr => append spans
-// | + foo bar
-// |
-// | Let Name Type Expr Expr => append spans, merge nested lets, opt newline before in
-// | + let name = exp in body
-// |
-// | + let name = exp
-// |   in  body
-// |
-// | + let foo = fooexp  (nested let)
-// |       bar = barexp
-// |   in  body
-// |
-// | x let
-// |     foo = fooexp
-// |     bar = barexp
-// |   in
-// |     body
-// |
-// | Abs Name Type Expr => append spans
-// | + x = body
-// |
-// | + x y = body  (nested abs)
-// |
-// | If Expr Expr Expr => append spans, opt newline before then & else
-// | + if test then texp else fexp
-// |
-// | + if test
-// |   then texp
-// |   else fexp
-// |
-// | x if
-// |     test
-// |   then
-// |     texp
-// |   else
-// |     fexp
-// |
-// | CaseCase Expr Expr => append spans, opt format cexp to nested block
-// | + pat = cexp
-// |
-// | x pat =
-// |     cexp
-// |
-// | Case Expr (Array Expr) => append spans, format cases to nested block
-// | + case scrut of
-// |     casecase
-// |     casecase
-// |     ...
-// |
-// | x case scrut of casecase casecase ...

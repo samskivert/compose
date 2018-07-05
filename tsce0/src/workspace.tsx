@@ -11,7 +11,7 @@ export class WorkspaceStore {
   @observable defs :E.DefStore[] = []
   @observable selectedDef :E.DefStore|void = undefined
 
-  addDef (def :T.Def) {
+  addDef (def :T.Tree) {
     this.defs.push(new E.DefStore(def, computed(() => this.selectedDef)))
   }
 

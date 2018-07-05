@@ -10,7 +10,7 @@ export class Outline extends React.Component<{store :W.WorkspaceStore}> {
     const {defs} = this.props.store
     return (<div className="outline">{defs.map(dstore => {
       const cname = dstore.isActive ? "defs selected" : "defs"
-      return <div className={cname}>{dstore.def.name}</div>
+      return <div className={cname}>{dstore.def.symAt(0).name}</div>
     })}</div>)
   }
 }

@@ -40,10 +40,10 @@ const enum Mode { Normal, Selected, Edited }
 // -----------------
 
 export class DefStore {
-  @observable def  :T.Def
-  @observable elem :M.Elem
-  @observable curs :Cursor = {path: M.emptyPath, editing: false}
-  @observable sel  :Selection = emptySelection
+  @observable def!  :T.Tree
+  @observable elem! :M.Elem
+  @observable curs  :Cursor = {path: M.emptyPath, editing: false}
+  @observable sel   :Selection = emptySelection
 
   @computed get isActive () :boolean {
     return this.selStore.get() === this
@@ -51,13 +51,13 @@ export class DefStore {
 
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
-  constructor (def :T.Def, readonly selStore :IComputedValue<DefStore|void>) {
+  constructor (def :T.Tree, readonly selStore :IComputedValue<DefStore|void>) {
     this.setDef(def, def.firstEditable())
     this.curs.editing = false
   }
 
-  setDef (def :T.Def, focus? :T.Path) {
-    let {elem, path} = F.formatDef(def, focus || T.emptyPath)
+  setDef (def :T.Tree, focus? :T.Path) {
+    let {elem, path} = F.format(def, focus || T.emptyPath)
     transaction(() => {
       this.def = def
       this.elem = elem
@@ -110,7 +110,8 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   render () {
     const {curs, elem} = this.props.store
     console.log(`render ${JSON.stringify(curs)}`)
-    return (<div className="editor">{this.renderElem(curs, elem)}</div>)
+    const cname = this.props.store.isActive ? "editor selectedEditor" : "editor"
+    return (<div className={cname}>{this.renderElem(curs, elem)}</div>)
   }
 
   renderElems (curs :Cursor, elems :M.Elem[]) :JSX.Element[] {
@@ -142,7 +143,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
       const sstyles = (mode == Mode.Selected) ? styles.concat([
-        this.props.store.isActive ? "selected" : "lowSelected"
+        this.props.store.isActive ? "selectedSpan" : "lowSelectedSpan"
       ]) : styles
       return <span className={sstyles.join(" ")}>{text}</span>
     }
@@ -186,7 +187,7 @@ export class SpanEditor  extends React.Component<{
     if (action === "cancel") this.props.stopEditing()
     else {
       let {tree, focus} = action
-      this.props.defStore.setDef(tree as T.Def, focus)
+      this.props.defStore.setDef(tree, focus)
       if (key == "Tab") this.props.advanceCursor()
     }
   }
