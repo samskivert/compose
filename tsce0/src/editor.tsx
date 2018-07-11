@@ -136,22 +136,24 @@ export class DefEditor extends React.Component<{store :DefStore}> {
     return spans.map((span, idx) => this.renderSpan(mode(idx), span))
   }
 
-  renderSpan (mode :Mode, {text, styles, editor} :M.Span) :JSX.Element {
-    if (mode == Mode.Edited && editor) {
-      return <SpanEditor store={new SpanStore(text)} defStore={this.props.store} editor={editor}
+  renderSpan (mode :Mode, span :M.Span) :JSX.Element {
+    if (mode == Mode.Edited && span.isEditable) {
+      return <SpanEditor store={new SpanStore(span.editText)} defStore={this.props.store}
+                         span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
-      const sstyles = (mode == Mode.Selected) ? styles.concat([
+      const sstyles = (mode == Mode.Selected) ? span.styles.concat([
         this.props.store.isActive ? "selectedSpan" : "lowSelectedSpan"
-      ]) : styles
-      return <span className={sstyles.join(" ")}>{text}</span>
+      ]) : span.styles
+      return <span className={sstyles.join(" ")}>{span.displayText}</span>
     }
   }
 }
 
 export class SpanStore {
   @observable text :string
+  @observable completions :string[] = []
 
   constructor (text :string) {
     this.text = text
@@ -162,26 +164,36 @@ export class SpanStore {
 export class SpanEditor  extends React.Component<{
   store :SpanStore,
   defStore :DefStore,
-  editor :M.Editor,
+  span :M.Span,
   stopEditing :() => void,
   advanceCursor :() => void
 }> {
 
-  render () { return (
-    <input type="text" autoFocus={true} className={"spanEditor"}
-           placeholder={this.props.editor.placeHolder}
-           value={this.props.editor.startEdit(this.props.store.text)}
-           onChange={this.onChange.bind(this)}
-           onBlur={ev => this.handleKey("Blur")}
-           onKeyDown={ev => this.handleKey(ev.key, ev)} />
-  )}
+  render () {
+    const comps = this.props.store.completions.map(comp => <div>{comp}</div>)
+    return (
+      <div className={"spanEditor"}>
+        <input type="text" autoFocus={true}
+               placeholder={this.props.span.editPlaceHolder}
+               value={this.props.store.text}
+               onChange={this.onChange.bind(this)}
+               onBlur={ev => this.handleKey("Blur")}
+               onKeyDown={ev => this.handleKey(ev.key, ev)} />
+        {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
+      </div>
+    )
+  }
 
   onChange (ev :React.FormEvent<HTMLInputElement>) {
-    this.props.store.text = ev.currentTarget.value
+    const text = ev.currentTarget.value
+    transaction(() => {
+      this.props.store.text = text
+      this.props.store.completions = this.props.span.getCompletions(text)
+    })
   }
 
   handleKey (key :string, ev? :React.KeyboardEvent<HTMLInputElement>) {
-    const action = this.props.editor.handleKey(this.props.store.text, key)
+    const action = this.props.span.handleKey(this.props.store.text, key)
     if (action === "extend") return
     ev && ev.preventDefault()
     if (action === "cancel") this.props.stopEditing()

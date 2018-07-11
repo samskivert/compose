@@ -224,9 +224,9 @@ export class TreeEditor {
   }
 
   // Abstraction terms
-  setLet (name :Name, value :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
+  setLet (name :Name) :Tree {
     const sym = new TreeSym("term", name, this.owner)
-    return this.setDefTreeBranch("let", sym,[sym, value, expr],
+    return this.setDefTreeBranch("let", sym,[sym, emptyTree, emptyTree, emptyTree],
                                  t => TP.hole) // TODO: type
   }
   setLetFun (name :Name, value :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
@@ -283,16 +283,18 @@ export class TreeEditor {
 
   // Holey setters
   setLetH (xtype :TP.Type = TP.hole) :Tree {
-    const letTree = this.setLet("")
-    letTree.editAt(1).setHole(TP.hole)
-    letTree.editAt(2).setHole(xtype)
-    return letTree
+    return this.setLet("").editBranches(
+      undefined,
+      undefined, // type => type.setTHole(),
+      value => value.setHole(TP.hole),
+      body => body.setHole(xtype)
+    )
   }
   setMatchH () :Tree {
-    const matchTree = this.setMatch(emptyTree, [emptyTree])
-    matchTree.editAt(0).setHole(TP.hole)
-    matchTree.editAt(1).setPHole()
-    return matchTree
+    return this.setMatchN(1).editBranches(
+      scrut => scrut.setHole(TP.hole),
+      case0 => case0.setPHole()
+    )
   }
 }
 

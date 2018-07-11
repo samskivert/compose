@@ -9,24 +9,66 @@ import * as T from './trees'
 // on the underlying AST and those changes propagate back out to the visualization.
 
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
-  * If the span represents a component of an AST node, its path will reflect the path to that node
-  * (from the AST root used to generate the markup). Otherwise the path will be `Nil`. */
-export type Span = {
-  text :string,
-  styles :string[],
-  editor? :Editor
-  // TODO: other stuff like completion functions, indications on how many trailing spans
-  // get slurped up if we edit this span, etc.
+  * Spans that represent components of an AST node will be editable, spans that display contextual
+  * punctuation or keywords will not. */
+export abstract class Span {
+
+  /** The text to display in formatted code. */
+  abstract get displayText () :string
+
+  /** The styles to apply to the span when rendered. */
+  abstract get styles () :string[]
+
+  /** Whether or not this span is editable. */
+  get isEditable () :Boolean { return false }
+
+  /** The text to display in the editor when this span is edited. */
+  get editText () :string { return this.displayText }
+
+  /** The placeholder text to show in the editor when `editText` is empty. */
+  get editPlaceHolder () :string { return "?" }
+
+  /** Handles a key press from an active span editor.
+    * @param text the current text of the span (prior to the key press).
+    * @param key the JavaScript description of the pressed key.
+    * @return the action to take based on the key press.
+    */
+  handleKey (text :string, key :string) :EditAction { return "extend" }
+
+  /** Returns the completions to show given the current `text`. */
+  getCompletions (text :string) :string[] { return [] }
+
+  toString () { return this.displayText }
 }
 
-/** Creates a span containing `text` optional edit function and styles. */
-export function span (text :string, editor? :Editor, styles :string[] = []) :Span {
-  return {text, styles, editor}
+export abstract class EditableSpan extends Span {
+  get isEditable () :Boolean { return true }
 }
 
-export function showSpan (span :Span) :string {
-  return span.editor ? `[${span.text}]` : `<${span.text}>`
+/** A span containing uneditable `text` with `styles`. */
+export class TextSpan extends Span {
+  constructor (readonly displayText :string, readonly styles :string[] = []) { super() }
 }
+
+// When a tree is formatted into a span, the editable spans know how to propagate edits back to the
+// original AST. On every key press, the span receives the current edited text (prior to the key
+// press being applied) and the key code for the pressed key. It then decides whether to extend the
+// edit with the key, abort the edit (usually only when the escape key is pressed), or commit the
+// edit, in which case it provides the replacement tree and an optional new focus, where the cursor
+// will move.
+//
+// This allows editing to trigger different kinds of changes based on the key press that results in
+// an edit being committed. For example, when editing the name introduced by a let binding, pressing
+// `=` will jump immediately to the expression bound to that name, whereas pressing ` ` (space) will
+// introduce a nested abstraction (effectively adding an argument to the function being defined by
+// the let).
+
+/** The action to take in response to a keypress when editng a term:
+  * - extend: extend the currently edited text with the character
+  * - cancel: abort the current edit
+  * - {tree, focus}: commit the edit, using the replacement tree and (optional) new focus
+  */
+export type EditAction = "extend" | "cancel" | {tree :T.Tree, focus? :T.Path}
 
 // TODO: do we want a separate visualization model for docs?
 // could allow the HTML layout engine to handle wrapping...
@@ -84,7 +126,7 @@ export class Para extends Elem {
   constructor(readonly _spans :Span[]) { super() }
 
   _debugShow (indent :string, buf :string[]) {
-    buf.push(indent + this.spans.map(span => span.text).join(""))
+    buf.push(indent + this.spans.map(span => span.displayText).join(""))
   }
 }
 
@@ -94,54 +136,8 @@ export class Line extends Elem {
   constructor(readonly _spans :Span[]) { super () }
 
   _debugShow (indent :string, buf :string[]) {
-    buf.push(indent + this.spans.map(span => span.text).join(""))
+    buf.push(indent + this.spans.map(span => span.displayText).join(""))
   }
-}
-
-// ----------
-// Edit model
-// ----------
-
-// When a tree is formatted into a span, an "editor" is provided with the span such that when the
-// span is edited, we know how to propagate those edits back to the original AST. On every key
-// press, the editor receives the current edited text (prior to the key press being applied) and the
-// key code for the pressed key. It then decides whether to extend the edit with the key, abort the
-// edit (usually only when the escape key is pressed), or commit the edit, in which case it provides
-// the replacement tree and an optional new focus, where the cursor will move.
-//
-// This allows the editor to trigger different kinds of changes based on the key press that results
-// in an edit being committed. For example, when editing the name introduced by a let binding,
-// pressing `=` will jump immediately to the expression bound to that name, whereas pressing ` `
-// (space) will introduce a nested abstraction (effectively adding an argument to the function being
-// defined by the let).
-
-/** The action to take in response to a keypress when editng a term:
-  * - extend: extend the currently edited text with the character
-  * - cancel: abort the current edit
-  * - {tree, focus}: commit the edit, using the replacement tree and (optional) new focus
-  */
-export type EditAction = "extend" | "cancel" | {tree :T.Tree, focus? :T.Path}
-
-/** Handles the interactive editing process for a particular span. */
-export abstract class Editor {
-
-  /** The placeholder text to show when the span is empty. */
-  abstract get placeHolder () :string
-
-  /** Starts the edit of a span.
-    * @param text the initial text of the span.
-    * @return the initial text to display in the editor.
-    */
-  startEdit (text :string) :string {
-    return text
-  }
-
-  /** Handles a key press from an active span editor.
-    * @param text the current text of the span (prior to the key press).
-    * @param key the JavaScript description of the pressed key.
-    * @return the action to take based on the key press.
-    */
-  abstract handleKey (text :string, key :string) :EditAction
 }
 
 // ----------
@@ -199,7 +195,7 @@ function findEditableSpan (spans :Span[], delta :number, idx :number) :number|un
   let nidx = idx + delta
   while (nidx >= 0 && nidx < spans.length) {
     const span = spans[nidx]
-    if (span.editor) return nidx
+    if (span.isEditable) return nidx
     nidx += delta
   }
   return undefined

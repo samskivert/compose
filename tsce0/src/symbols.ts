@@ -38,6 +38,10 @@ export class ModuleSym extends Symbol {
   toString () { return `msym:${this.name}` }
 }
 
+function isCompletion (prefix :string, name :Name) {
+  return name.toLowerCase().startsWith(prefix)
+}
+
 export abstract class Scope {
 
   lookupTerm (name :Name) :Symbol { return this.lookup("term", name) }
@@ -46,9 +50,17 @@ export abstract class Scope {
 
   abstract lookup (kind :Kind, name :Name) :Symbol
 
+  getCompletions (pred :(sym :Symbol) => Boolean, prefix :string) {
+    const syms :Symbol[] = []
+    this._addCompletions(pred, prefix.toLowerCase(), syms)
+    return syms
+  }
+
   extend (symbols :Symbol[]) :Scope {
     return new LexicalScope(this, symbols)
   }
+
+  abstract _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) :void
 }
 
 class LexicalScope extends Scope {
@@ -73,12 +85,22 @@ class LexicalScope extends Scope {
     this.collect(syms)
     return `[${syms}]`
   }
+
+  _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {
+    for (let sym of this.symbols) {
+      if (pred(sym) && isCompletion(prefix, sym.name)) {
+        syms.push(sym)
+      }
+    }
+    if (this.parent) this.parent._addCompletions(pred, prefix, syms)
+  }
 }
 
 type Disposer = () => void
 
 // NOTE: this will eventually be subsumed by a persistent project-wide symbol database
 export class ModuleScope extends Scope {
+  // TODO: we really want a tree map or something we can prefix query
   symbols = new Map<Name,Symbol[]>()
   listeners = new Map<Symbol,Disposer>()
 
@@ -107,6 +129,17 @@ export class ModuleScope extends Scope {
     if (sym.name !== "") this.unmap(sym.name, sym)
     const disp = this.listeners.get(sym)
     disp && disp()
+  }
+
+  _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {
+    // TODO: such inefficient, so expense
+    for (let symvec of Array.from(this.symbols.values())) {
+      for (let sym of symvec) {
+        if (pred(sym) && isCompletion(prefix, sym.name)) {
+          syms.push(sym)
+        }
+      }
+    }
   }
 
   private map (name :Name, sym :Symbol) {

@@ -94,8 +94,20 @@
       }
 
       .editor .spanEditor {
+        position: relative;
+        display: inline;
+      }
+      .editor .spanEditor input {
         max-width: 50px;
         border: none;
+      }
+      .editor .spanEditor .completions {
+        position: absolute;
+        top: 20px;
+        left: 0px;
+        background-color: #424242;
+        border: 1px solid #AAAAAA;
+        padding: 2px;
       }
     </style>
   </head>
