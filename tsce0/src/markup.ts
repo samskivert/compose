@@ -52,13 +52,13 @@ export abstract class Elem {
     * Yields `[]` if the path is invalid and does not address a `Line` or `Para`. */
   spansAt (idxs :number[]) :Span[] { return this.elemAt(idxs).spans }
 
+  protected get spans () :Span[] { return [] }
+
   debugShow () :string[] {
     const buf :string[] = []
     this._debugShow("", buf)
     return buf
   }
-
-  protected get spans () :Span[] { return [] }
   _debugShow (indent :string, buf :string[]) {}
 }
 

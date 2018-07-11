@@ -15,7 +15,7 @@ export class Tree {
   constructor (
     readonly kind :string,
     readonly parent :Tree|void,
-    readonly owner :S.Symbol,
+    readonly owner :S.ModuleSym|TreeSym,
     readonly scope :S.Scope,
     readonly branches :Branch[],
     private typefn :(tree :Tree) => TP.Type
@@ -37,13 +37,17 @@ export class Tree {
     if (path.length == 0) throw new Error(`Invalid (empty) path for edit of ${this}`)
     const idx = path[0]
     this.checkBranchIdx(idx, "edit")
-    if (path.length == 1) edit(new TreeEditor(this, idx))
+    if (path.length == 1) edit(this.editAt(idx))
     else {
       const branch = this.branches[idx]
       if (branch instanceof Tree) branch.edit(path.slice(1), edit)
       else throw new Error(`Edit path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
     }
     return this
+  }
+
+  migrateChild (idx :number, child :Tree) {
+    // TODO
   }
 
   treeAt (idx :number) :Tree {
@@ -59,12 +63,39 @@ export class Tree {
     return this.branches[idx] as Constant
   }
   editAt (idx :number) :TreeEditor {
-    return new TreeEditor(this, idx)
+    return new TreeEditor(this, this.owner, idx)
   }
-  editBranches (...editfns :Array<((te :TreeEditor) => void)|void>) {
+  editBranch (idx :number, editfn :(te :TreeEditor) => void) :Tree {
+    editfn(this.editAt(idx))
+    return this
+  }
+  editBranch1 (editfn :(te :TreeEditor) => void) :Tree {
+    return this.editBranch(1, editfn)
+  }
+  editBranches (...editfns :Array<((te :TreeEditor) => void)|void>) :Tree {
     for (let ii = 0; ii < editfns.length; ii += 1) {
       const editfn = editfns[ii]
       editfn && editfn(this.editAt(ii))
+    }
+    return this
+  }
+
+  debugShow () :string[] {
+    const buf :string[] = []
+    this._debugShow("", buf)
+    return buf
+  }
+  _debugShow (indent :string, buf :string[]) {
+    buf.push(`${indent}${this.kind} ` +
+             `parent=${this.parent ? this.parent.kind : "<none>"} ` +
+             `owner=${this.owner} ` +
+             `scope=${this.scope}`)
+    for (let branch of this.branches) {
+      if (branch instanceof Tree) {
+        branch._debugShow(`${indent}  `, buf)
+      } else {
+        buf.push(`${indent}  ${branch}`)
+      }
     }
   }
 
@@ -80,12 +111,29 @@ export class Tree {
   }
 }
 
+export class DefTree extends Tree {
+
+  constructor (
+    kind :string,
+    parent :Tree|void,
+    owner :S.ModuleSym|TreeSym,
+    readonly self :TreeSym,
+    scope :S.Scope,
+    branches :Branch[],
+    typefn :(tree :Tree) => TP.Type
+  ) { super(kind, parent, owner, scope, branches, typefn) }
+
+  editAt (idx :number) :TreeEditor {
+    return new TreeEditor(this, this.self, idx)
+  }
+}
+
 // --------------------------
 // Creating and editing trees
 // --------------------------
 
 export class TreeEditor {
-  constructor (readonly tree :Tree, readonly idx :number) {}
+  constructor (readonly tree :Tree, readonly owner :S.ModuleSym|TreeSym, readonly idx :number) {}
 
   get currentSym () :TreeSym { return this.tree.symAt(this.idx) }
   get currentTree () :Tree { return this.tree.treeAt(this.idx) }
@@ -97,12 +145,15 @@ export class TreeEditor {
 
   // TODO: addBranch, deleteBranch (for 'varargs' trees)
   setTreeBranch (kind :string, branches :Branch[], typefn :(tree :Tree) => TP.Type) :Tree {
-    const tree = new Tree(kind, this.tree, this.tree.owner, this.tree.scope, branches, typefn)
+    const tree = new Tree(kind, this.tree, this.owner, this.tree.scope, branches, typefn)
     return this.tree.setBranch(this.idx, tree)
   }
-
-  setDefTreeBranch (kind :string, branches :Branch[], typefn :(tree :Tree) => TP.Type) {
-    // TODO
+  setDefTreeBranch (kind :string, self :TreeSym, branches :Branch[],
+                    typefn :(tree :Tree) => TP.Type) :Tree {
+    const scope = this.tree.scope.extend([self])
+    const tree = new DefTree(kind, this.tree, this.owner, self, scope, branches, typefn)
+    self.tree = tree
+    return this.tree.setBranch(this.idx, tree)
   }
 
   // Type and Data(type) trees
@@ -112,51 +163,97 @@ export class TreeEditor {
   setTConst (cnst :Constant) :Tree {
     return this.setTreeBranch("tconst", [cnst], t => new TP.Const(t.constAt(0)))
   }
-  setTRef (sym :S.TypeSym) :Tree {
+  setTRef (sym :S.Symbol) :Tree {
     return this.setTreeBranch("tref", [sym], t => t.symAt(0).type)
   }
   setArrow (from :Tree, to :Tree) :Tree {
     return this.setTreeBranch("arrow", [from, to],
                               t => new TP.Arrow(t.symAt(0).type, t.symAt(1).type))
   }
-  setTApp (ctor :Tree, arg :Tree) :Tree {
-    return this.setTreeBranch("tapp", [ctor, arg],
+  setTApp () :Tree {
+    return this.setTreeBranch("tapp", [emptyTree, emptyTree],
                               t => new TP.App(t.symAt(0).type, t.symAt(1).type))
   }
-  setTAbs (name :Name, body :Tree) :Tree {
-    const sym = new TypeTreeSym(this.tree.owner, name)
-    const scope = this.tree.scope.extend([sym])
-    const tree = new Tree("tabs", this.tree, this.tree.owner, scope, [sym, body],
-                          t => new TP.Abs(t.symAt(0).name, t.symAt(1).type))
-    return this.tree.setBranch(this.idx, tree)
+  setTAbs (name :Name) :Tree {
+    const sym = new TreeSym("type", name, this.owner)
+    return this.setDefTreeBranch("tabs", sym, [sym, emptyTree],
+                                 t => new TP.Abs(t.symAt(0).name, t.symAt(1).type))
+  }
+  setField (name :Name) :Tree {
+    const sym = new TreeSym("term", name, this.owner)
+    return this.setDefTreeBranch("field", sym, [sym, emptyTree], t => t.treeAt(1).type)
   }
   setProd (fields :Tree[]) :Tree {
     return this.setTreeBranch("prod", fields,
                               t => new TP.Prod(t.branches.map(b => (b as Tree).type as TP.Def)))
   }
+  setProdN (cases :number) :Tree {
+    return this.setProd(Array(cases).fill(emptyTree))
+  }
   setSum (cases :Tree[]) :Tree {
     return this.setTreeBranch("sum", cases,
                               t => new TP.Sum(t.branches.map(b => (b as Tree).type as TP.Def)))
+  }
+  setCtor (name :Name) :Tree {
+    const sym = new TreeSym("func", name, this.owner)
+    this.owner.module.scope.insert(sym)
+    return this.setDefTreeBranch("ctor", sym, [sym, emptyTree], t => t.treeAt(1).type)
   }
   // TODO
   // Array Type
   // Interface Name Params Methods
   // Method Name Type
-  setType (name :Name, type :Tree) :Tree {
-    const sym = new TypeTreeSym(this.tree.owner, name)
-    const scope = this.tree.scope.extend([sym])
-    const tree = new Tree("type", this.tree, this.tree.owner, scope, [sym, type],
-                          t => t.treeAt(1).type)
-    sym.tree = tree
-    return tree
+  setType (name :Name) :Tree {
+    const sym = new TreeSym("type", name, this.owner)
+    return this.setDefTreeBranch("type", sym, [sym, emptyTree], t => t.treeAt(1).type)
   }
 
-  // Expression trees
+  // Pattern trees
+  setPHole () :Tree {
+    return this.setTreeBranch("phole", [emptyTree, emptyTree], t => TP.hole)
+  }
+  setPLit (cnst :Constant) :Tree {
+    return this.setTreeBranch("plit", [cnst, emptyTree], t => new TP.Const(t.constAt(0)))
+  }
+  setPBind (name :Name) :Tree {
+    const sym = new TreeSym("term", name, this.owner)
+    return this.setDefTreeBranch("pbind", sym, [sym, emptyTree], t => TP.hole) // TODO: type
+  }
+  setPDtor (ctor :S.Symbol) :Tree {
+    return this.setTreeBranch("pdtor", [ctor, emptyTree], t => ctor.type)
+  }
+
+  // Abstraction terms
+  setLet (name :Name, value :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
+    const sym = new TreeSym("term", name, this.owner)
+    return this.setDefTreeBranch("let", sym,[sym, value, expr],
+                                 t => TP.hole) // TODO: type
+  }
+  setLetFun (name :Name, value :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
+    const sym = new TreeSym("func", name, this.owner)
+    return this.setDefTreeBranch("letfun", sym, [sym, value, expr],
+                                 t => TP.hole) // TODO: type
+  }
+  setAll (name :Name, body :Tree = emptyTree) :Tree {
+    const sym = new TreeSym("type", name, this.owner)
+    return this.setDefTreeBranch("all", sym,[sym, body],
+                                 t => TP.hole) // TODO: type
+  }
+  setAbs (name :Name, type :Tree = emptyTree, body :Tree = emptyTree) :Tree {
+    const sym = new TreeSym("term", name, this.owner)
+    return this.setDefTreeBranch("abs", sym, [sym, type, body],
+                                 t => TP.hole) // TODO: type
+  }
+
+  // Expression terms
   setLit (cnst :Constant) :Tree {
     return this.setTreeBranch("lit", [cnst], t => new TP.Const(t.constAt(0)))
   }
-  setRef (sym :S.TermSym) :Tree {
+  setRef (sym :S.Symbol) :Tree {
     return this.setTreeBranch("ref", [sym], t => t.symAt(0).type)
+  }
+  setAsc (type :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
+    return this.setTreeBranch("asc", [type, expr], t => t.treeAt(0).type)
   }
   setHole (xtype :TP.Type) :Tree {
     return this.setTreeBranch("hole", [], t => xtype)
@@ -169,28 +266,6 @@ export class TreeEditor {
     return this.setTreeBranch("inapp", [arg, fun],
                               t => TP.hole) // TODO: type
   }
-  setLet (name :Name, type :Tree = emptyTree, value :Tree = emptyTree,
-          body :Tree = emptyTree) :Tree {
-    const sym = new TermTreeSym(this.tree.owner, name)
-    const scope = this.tree.scope.extend([sym])
-    const tree = new Tree("let", this.tree, this.tree.owner, scope, [sym, type, value, body],
-                          t => TP.hole) // TODO: type
-    return this.tree.setBranch(this.idx, tree)
-  }
-  setAll (name :Name, body :Tree = emptyTree) :Tree {
-    const sym = new TypeTreeSym(this.tree.owner, name)
-    const scope = this.tree.scope.extend([sym])
-    const tree = new Tree("all", this.tree, this.tree.owner, scope, [sym, body],
-                          t => TP.hole) // TODO: type
-    return this.tree.setBranch(this.idx, tree)
-  }
-  setAbs (name :Name, type :Tree = emptyTree, body :Tree = emptyTree) :Tree {
-    const sym = new TermTreeSym(this.tree.owner, name)
-    const scope = this.tree.scope.extend([sym])
-    const tree = new Tree("abs", this.tree, this.tree.owner, scope, [sym, type, body],
-                          t => TP.hole) // TODO: type
-    return this.tree.setBranch(this.idx, tree)
-  }
   setIf (test :Tree = emptyTree, texp :Tree = emptyTree, fexp :Tree = emptyTree) :Tree {
     return this.setTreeBranch("if", [test, texp, fexp],
                               t => TP.hole) // TODO: type
@@ -202,13 +277,6 @@ export class TreeEditor {
   setMatchN (cases :number) :Tree {
     return this.setMatch(emptyTree, Array(cases).fill(emptyTree))
   }
-  // TODO: `pat` should be a pattern tree
-  setCase (pat :Tree = emptyTree, body :Tree = emptyTree) :Tree {
-    // TODO: introduce symbols for pattern tree, extend scope, etc.
-    const tree = new Tree("case", this.tree, this.tree.owner, this.tree.scope, [pat, body],
-                          t => TP.hole) // TODO: type
-    return this.tree.setBranch(this.idx, tree)
-  }
   // TODO
   // Cond Array CondCase
   // CondCase Expr Expr
@@ -217,38 +285,38 @@ export class TreeEditor {
   setLetH (xtype :TP.Type = TP.hole) :Tree {
     const letTree = this.setLet("")
     letTree.editAt(1).setHole(TP.hole)
-    letTree.editAt(2).setHole(TP.hole)
-    letTree.editAt(3).setHole(xtype)
+    letTree.editAt(2).setHole(xtype)
     return letTree
   }
   setMatchH () :Tree {
     const matchTree = this.setMatch(emptyTree, [emptyTree])
     matchTree.editAt(0).setHole(TP.hole)
-    const caseTree = matchTree.editAt(1).setCase(emptyTree, emptyTree)
-    caseTree.editAt(0).setHole(TP.hole) // TODO: setPtHole
-    caseTree.editAt(1).setHole(TP.hole)
+    matchTree.editAt(1).setPHole()
     return matchTree
   }
 }
 
-export const emptyTree = new Tree(
-  "empty", undefined, S.noTermSym, S.emptyScope, [], tree => TP.hole)
+const emptyModSym = new S.ModuleSym("<empty>")
 
-export function mkTermDef (module :S.ModSym, name :Name, init? :(tree :Tree) => void) {
-  const sym = new TermTreeSym(module, name)
-  const scope = S.emptyScope.extend([sym])
-  const tree = new Tree("term", undefined, sym, scope, [sym, emptyTree, emptyTree],
-                        t => TP.hole) // TODO: type
-  init && init(tree)
+export const emptyTree = new Tree(
+  "empty", undefined, emptyModSym, S.emptyScope, [], tree => TP.hole)
+
+export function mkFunDef (mod :S.ModuleSym, name :Name) :DefTree {
+  const sym = new TreeSym("func", name, mod)
+  // insert this term symbol into the module scope
+  mod.scope.insert(sym)
+  const tree = new DefTree("fun", undefined, mod, sym, mod.scope.extend([sym]), [sym, emptyTree],
+                           t => TP.hole) // TODO: type
   sym.tree = tree
   return tree
 }
 
-export function mkTypeDef (module :S.ModSym, name :Name, init? :(tree :Tree) => void) {
-  const sym = new TypeTreeSym(module, name)
-  const scope = S.emptyScope.extend([sym])
-  const tree = new Tree("type", undefined, sym, scope, [sym, emptyTree], t => t.treeAt(1).type)
-  init && init(tree)
+export function mkTypeDef (mod :S.ModuleSym, name :Name) :DefTree {
+  const sym = new TreeSym("type", name, mod)
+  // insert this type symbol into the module scope
+  mod.scope.insert(sym)
+  const tree = new DefTree("type", undefined, mod, sym, mod.scope.extend([sym]), [sym, emptyTree],
+                           t => t.treeAt(1).type)
   sym.tree = tree
   return tree
 }
@@ -258,21 +326,10 @@ export function mkTypeDef (module :S.ModSym, name :Name, init? :(tree :Tree) => 
 // ------------
 
 /** Symbols assigned to trees. Obtains type information from tree type. */
-abstract class TreeSym implements S.Symbol {
+class TreeSym extends S.Symbol {
   tree! :Tree // initialized in tree constructor
-  constructor (public name :Name) {}
-  abstract get kind () :S.Kind
+  constructor (kind :S.Kind, name :Name, readonly owner :TreeSym|S.ModuleSym) { super(kind, name) }
   get type () :TP.Type { return this.tree.type }
-}
-
-class TermTreeSym extends TreeSym implements S.TermSym {
-  get kind () :"term" { return "term" }
-  constructor (readonly owner :TermTreeSym|S.ModSym, name :Name) { super(name) }
-}
-
-class TypeTreeSym extends TreeSym implements S.TypeSym {
-  get kind () :"type" { return "type" }
-  constructor (readonly owner :TypeTreeSym|S.ModSym, name :Name) { super(name) }
 }
 
 // export class ScalarDef extends TypeTree {
@@ -316,56 +373,152 @@ export type Edit = (te :TreeEditor) => void
 // Test trees
 // ----------
 
-const testModSym = new S.ModSym("test")
-const natSym = new TypeTreeSym(testModSym, "Nat")
-// const intSym = new TypeTreeSym(testModSym, "Int")
-// const stringSym = new TypeTreeSym(testModSym, "String")
+const testModSym = new S.ModuleSym("test")
 
-// let foo:Bool = true
-// export const letExample = new TermDef(fooSym, new ScalarDef(Tag.Bool, 1), new Lit(constTrue))
+const natSym = new TreeSym("type", "Nat", testModSym)
+const intSym = new TreeSym("type", "Int", testModSym)
+const stringSym = new TreeSym("type", "String", testModSym)
+testModSym.scope.insert(natSym)
+testModSym.scope.insert(intSym)
+testModSym.scope.insert(stringSym)
 
-const addSym = new TermTreeSym(testModSym, "+")
-const subSym = new TermTreeSym(testModSym, "-")
+const addSym = new TreeSym("func", "+", testModSym)
+const subSym = new TreeSym("func", "-", testModSym)
+testModSym.scope.insert(addSym)
+testModSym.scope.insert(subSym)
 
-// fib n:Nat = case n of
-//   0 -> 0
-//   1 -> 1
-//   n -> (fib (n-1)) + (fib (n-2))
-export const fibExample = mkTermDef(testModSym, "fib")
-fibExample.editBranches(
-  undefined,
-  type => type.setTRef(natSym),
-  expr => expr.setAbs("n").editBranches(
+// type Box A contents:A
+// type Box [A] (contents :A)
+export const boxExample = mkTypeDef(testModSym, "Box").editBranch1(
+  type => type.setTAbs("A").editBranch1(
+    type => type.setCtor("Box").editBranch1(
+      prod => prod.setProdN(1).editBranches(
+        contents => contents.setField("contents").editBranch1(
+          type => type.setTRef(contents.tree.scope.lookupType("A"))),
+      )
+    )
+  )
+)
+
+// type Person name:String age:Nat
+// type Person (name :String, age :Nat)
+export const recordExample = mkTypeDef(testModSym, "Person").editBranch1(
+  type => type.setCtor("Person").editBranch1(
+    prod => prod.setProdN(2).editBranches(
+      name => name.setField("name").editBranch1(type => type.setTRef(stringSym)),
+      age => age.setField("age").editBranch1(type => type.setTRef(natSym))
+    )
+  )
+)
+
+// type List A =
+//   * Nil
+//   * Cons head:A tail:List A
+
+// type List [A] =
+//   * Nil
+//   * Cons (head :A, tail :List[A])
+export const listExample = mkTypeDef(testModSym, "List").editBranch1(
+  type => type.setTAbs("A").editBranch1(
+    type => type.setSum([emptyTree, emptyTree]).editBranches(
+      nil => nil.setCtor("Nil").editBranch1(prod => prod.setProdN(0)),
+      list => list.setCtor("Cons").editBranch1(
+        prod => prod.setProdN(2).editBranches(
+          head => head.setField("head").editBranch1(
+            type => type.setTRef(type.tree.scope.lookupType("A"))
+          ),
+          tail => tail.setField("tail").editBranch1(
+            type => type.setTApp().editBranches(
+              ctor => ctor.setTRef(ctor.tree.scope.lookupType("List")),
+              arg => arg.setTRef(arg.tree.scope.lookupType("A"))
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+function mkListA (tb :TreeEditor) :Tree {
+  return tb.setTApp().editBranches(
+    ctor => ctor.setTRef(ctor.tree.scope.lookupType("List")),
+    arg  => arg.setTRef(tb.tree.scope.lookupType("A"))
+  )
+}
+
+// fun :: [A] (head :A, tail :List[A]) :List[A] = Cons(head, tail)
+export const consFunExample = mkFunDef(testModSym, "::").editBranch1(
+  body => body.setAll("A").editBranch1(
+    body => body.setAbs("head").editBranches(
+      undefined,
+      type => type.setTRef(type.tree.scope.lookupType("A")),
+      body => body.setAbs("tail").editBranches(
+        undefined,
+        type => mkListA(type),
+        body => body.setAsc().editBranches(
+          type => mkListA(type),
+          body => body.setApp().editBranches(
+            fun => fun.setApp().editBranches(
+              fun => fun.setRef(fun.tree.scope.lookupFunc("Cons")),
+              arg => arg.setRef(arg.tree.scope.lookupTerm("head"))
+            ),
+            arg => arg.setRef(arg.tree.scope.lookupTerm("tail"))
+          )
+        )
+      )
+    )
+  )
+)
+
+// type IntList = List Int
+// type IntList = List[Int]
+export const aliasExample = mkTypeDef(testModSym, "IntList").editBranch1(
+  type => type.setTApp().editBranches(
+    ctor => ctor.setTRef(ctor.tree.scope.lookupType("List")),
+    arg  => arg.setTRef(intSym)
+  )
+)
+
+// term fib n:Nat → Nat = case n of
+//   0 → 0
+//   1 → 1
+//   n → fib (n-1) + fib (n-2)
+
+// fun fib (n:Nat) :Nat = case n
+//   0 = 0
+//   1 = 1
+//   n = fib(n-1) + fib(n-2)
+export const fibExample = mkFunDef(testModSym, "fib").editBranch1(
+  body => body.setAbs("n").editBranches(
     undefined,
     type => type.setTRef(natSym),
-    body => body.setMatchN(3).editBranches(
-      scrut => scrut.setRef(scrut.tree.scope.lookupTerm("n")),
-      case0 => case0.setCase().editBranches(
-        pat => pat.setLit(constInt(0)),
-        body => body.setLit(constInt(0))
-      ),
-      case1 => case1.setCase().editBranches(
-        pat => pat.setLit(constInt(1)),
-        body => body.setLit(constInt(1))
-      ),
-      caseN => caseN.setCase().editBranches(
-        pat => pat.setRef(pat.tree.scope.lookupTerm("n")),
-        body => body.setApp().editBranches(
-          fun => fun.setInApp().editBranches(
-            arg => arg.setApp().editBranches(
-              fun => fun.setRef(fun.tree.scope.lookupTerm("fib")),
+    expr => expr.setAsc().editBranches(
+      type => type.setTRef(natSym),
+      expr => expr.setMatchN(3).editBranches(
+        scrut => scrut.setRef(scrut.tree.scope.lookupTerm("n")),
+        case0 => case0.setPLit(constInt(0)).editBranch1(
+          body => body.setLit(constInt(0))
+        ),
+        case1 => case1.setPLit(constInt(1)).editBranch1(
+          body => body.setLit(constInt(1))
+        ),
+        caseN => caseN.setPBind("n").editBranch1(
+          body => body.setApp().editBranches(
+            fun => fun.setInApp().editBranches(
               arg => arg.setApp().editBranches(
-                fun => fun.setInApp().editBranches(
-                  arg => arg.setRef(arg.tree.scope.lookupTerm("n")),
-                  fun => fun.setRef(subSym)
-                ),
-                arg => arg.setLit(constInt(1))
-              )
+                fun => fun.setRef(fun.tree.scope.lookupFunc("fib")),
+                arg => arg.setApp().editBranches(
+                  fun => fun.setInApp().editBranches(
+                    arg => arg.setRef(arg.tree.scope.lookupTerm("n")),
+                    fun => fun.setRef(subSym)
+                  ),
+                  arg => arg.setLit(constInt(1))
+                )
+              ),
+              fun => fun.setRef(addSym)
             ),
-            fun => fun.setRef(addSym)
-          ),
-          arg => arg.setApp().editBranches(
-              fun => fun.setRef(fun.tree.scope.lookupTerm("fib")),
+            arg => arg.setApp().editBranches(
+              fun => fun.setRef(fun.tree.scope.lookupFunc("fib")),
               arg => arg.setApp().editBranches(
                 fun => fun.setInApp().editBranches(
                   arg => arg.setRef(arg.tree.scope.lookupTerm("n")),
@@ -374,98 +527,135 @@ fibExample.editBranches(
                 arg => arg.setLit(constInt(2))
               )
             )
+          )
         )
-      ),
+      )
     )
   )
 )
 
-// // data Person = Person name:String age:Nat
-// const personSym = new TypeTreeSym(testModSym, "Person")
-// const nameSym = new TypeTreeSym(personSym, "name")
-// const ageSym = new TypeTreeSym(personSym, "age")
+// fun reverse [A] (as :List[A]) :List[A] =
+//   fun revacc (as :List[A], acc :List[A]) :List[A] = case as
+//     Nil        = acc
+//     Cons(h, t) = revacc(t, h :: acc)
+//   revacc(as, Nil)
+export const revExample = mkFunDef(testModSym, "reverse").editBranch1(
+  body => body.setAll("A").editBranch1(
+    body => body.setAbs("as").editBranches(
+      undefined,
+      type => mkListA(type),
+      body => body.setAsc().editBranches(
+        type => mkListA(type),
+        body => body.setLetFun("revacc").editBranches(
+          undefined,
+          body => body.setAbs("as").editBranches(
+            undefined,
+            type => mkListA(type),
+            body => body.setAbs("acc").editBranches(
+              undefined,
+              type => mkListA(type),
+              body => body.setAsc().editBranches(
+                type => mkListA(type),
+                body => body.setMatchN(2).editBranches(
+                  scrut => scrut.setRef(scrut.tree.scope.lookupTerm("as")),
+                  case0 => case0.setPDtor(case0.tree.scope.lookupFunc("Nil")).editBranch1(
+                    body => body.setRef(body.tree.scope.lookupTerm("acc"))
+                  ),
+                  case1 => case1.setPDtor(case1.tree.scope.lookupFunc("Cons")).editBranch1(
+                    body => body.setPBind("h").editBranch1(
+                      body => body.setPBind("t").editBranch1(
+                        body => body.setApp().editBranches(
+                          fun => fun.setApp().editBranches(
+                            fun => fun.setRef(fun.tree.scope.lookupFunc("revacc")),
+                            arg => arg.setRef(arg.tree.scope.lookupTerm("t"))
+                          ),
+                          arg => arg.setApp().editBranches(
+                            fun => fun.setInApp().editBranches(
+                              arg => arg.setRef(arg.tree.scope.lookupTerm("h")),
+                              fun => fun.setRef(fun.tree.scope.lookupFunc("::"))
+                            ),
+                            arg => arg.setRef(arg.tree.scope.lookupTerm("acc"))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          expr => expr.setApp().editBranches(
+            fun => fun.setApp().editBranches(
+              fun => fun.setRef(fun.tree.scope.lookupFunc("revacc")),
+              arg => arg.setRef(arg.tree.scope.lookupTerm("as"))
+            ),
+            arg => arg.setRef(arg.tree.scope.lookupFunc("Nil"))
+          )
+        )
+      )
+    )
+  )
+)
 
-// export const recordExample = new TypeDef(personSym, new Prod([
-//   new TypeDef(nameSym, new TRef(stringSym)),
-//   new TypeDef(ageSym, new TRef(natSym))
-// ]))
+// -----------------------------
+// A bunch of syntax spitballing
+// -----------------------------
 
-// // data List A = Nil | Cons head:A tail:List A
-// const listSym = new TypeTreeSym(testModSym, "List")
-// const listASym = new TypeTreeSym(listSym, "A")
-// const nilSym = new TypeTreeSym(listSym, "Nil")
-// const consSym = new TypeTreeSym(listSym, "Cons")
-// const consHeadSym = new TypeTreeSym(consSym, "head")
-// const consTailSym = new TypeTreeSym(consSym, "tail")
+// reverse :: ∀A → List A → List A
+// reverse as = revacc as Nil where
+//   revacc :: List A → List A → List A
+//   revacc as acc = case as of
+//     Nil      → acc
+//     Cons h t → revacc t (h :: acc)
 
-// export const listExample = new TypeDef(listSym, new TAbs(listASym, new Sum([
-//   new TypeDef(nilSym, new Prod([])),
-//   new TypeDef(consSym, new Prod([
-//     new TypeDef(consHeadSym, new TRef(listASym)),
-//     new TypeDef(consTailSym, new TApp(new TRef(listSym), new TRef(listASym)))
-//   ]))
-// ])))
+// fun reverse ∀A → as:List A → List A =
+//   let revacc as:List A → acc:List A → List A = case as of
+//     Nil      → acc
+//     Cons h t → revacc t (h :: acc)
+//   in revacc as Nil
 
-// // type IntList = List Int
-// const intListSym = new TypeTreeSym(testModSym, "IntList")
-// export const aliasExample = new TypeDef(intListSym, new TApp(new TRef(listSym), new TRef(intSym)))
+// fun reverse [A] (as :List[A]) :List[A] =
+//   fun revacc (as :List[A], acc :List[A]) :List[A] = case as
+//   fun revacc (as, acc) = case as
+//     Nil        = acc
+//     Cons(h, t) = revacc(t, h :: acc)
+//     Cons(h, t) = let rest = h :: acc in revacc(t, rest)
+//   revacc(as, Nil)
 
-// // reverse as:List A -> List A =
-// //   let revacc as acc = case as of
-// //     Nil -> acc
-// //     Cons h t -> revacc t (h :: acc)
-// //   in revacc as Nil
-// const revSym = new TermTreeSym(testModSym, "reverse")
-// const revASym = new TypeTreeSym(revSym, "A")
-// const tpListA = new TApp(new TRef(listSym), new TRef(revASym))
-// const revAsSym = new TermTreeSym(revSym, "as")
+// let reverse :(A ⇒ List A → List A) = (as) =>
+//   let revacc :(A ⇒ List A → List A → List A) = (as, acc) => case as of
+//   let revacc = as → acc → (case as of
+//     Nil      → acc
+//     Cons h t → revacc t (h :: acc)
+//   in revacc as Nil) :List A
+// :List A
 
-// const revAccSym = new TermTreeSym(revSym, "revacc")
-// const accAsSym = new TermTreeSym(revAccSym, "as")
-// const accAccSym = new TermTreeSym(revAccSym, "acc")
-// const accHSym = new TermTreeSym(revAccSym, "h")
-// const accTSym = new TermTreeSym(revAccSym, "t")
-// const revAccDef = new Abs(
-//   accAsSym,
-//   tpListA,
-//   new Abs(
-//     accAccSym,
-//     tpListA,
-//     new Match(
-//       new Ref(accAsSym), [
-//         new Case(
-//           new Ref(nilSym),
-//           new ExprHole(notype)
-//         ),
-//         new Case(
-//           // TODO: this should be a PatDef not an App
-//           new App(new App(new Ref(consSym), new Ref(accHSym)), new Ref(accTSym)),
-//           new App(
-//             new App(new Ref(revAccSym), new Ref(accTSym)),
-//             new App(new App(new Ref(consSym), new Ref(accHSym)), new Ref(accAccSym))
-//           )
-//         )
-//       ]
-//     )
-//   )
-// )
-// export const revExample = new TermDef(
-//   revSym,
-//   tpListA,
-//   new All(
-//     revASym,
-//     new Abs(
-//       revAsSym,
-//       tpListA,
-//       new Let(
-//         revAccSym,
-//         tpListA,
-//         revAccDef,
-//         new App(
-//           new Ref(revAccSym),
-//           new App(new Ref(revAsSym), new Ref(nilSym))
-//         )
-//       )
-//     )
-//   )
-// )
+// fun foo A ⇒ Monoid A ⇒ a:A → b:A → A = mappend a b
+// fun foo A → Monoid A → a:A → b:A → A = mappend a b
+
+// fun foo [A:Monoid] (a :A, b :A) :A = mappend(a, b)
+// fun foo [A, Monoid[A]] (a :A, b :A) :A = mappend(a, b)
+// fun foo [A] {Monoid[A]} (a :A, b :A) :A = mappend(a, b)
+
+// fun containsKey [K,V] {Eq[K], Hashable[K]} (map :HashMap[K,V], key :K) :Bool = ...
+
+// fun containsKey K → V → Eq K → Hashable K → map:HashMap K V → key:K → Bool = ...
+
+// fun containsKey {K} → {V} → {Eq K} → {Hashable K} → map:HashMap K V → key:K → Bool = ...
+
+// Experimental possible GADT syntax (and ⊕ sigil for sum type, ⊗ sigil for product)
+
+// ⊕ List A =
+//   ⊗ Nil A → List A
+//   ⊗ Cons A head: A tail:List A → List A
+
+// ⊕ Map A B =
+//   ⊗ Empty A B → Map A B
+//   ⊗ With A B key: A value: B rest:Map A B → Map A B
+
+// ⊕ Expr A where
+//   ⊗ Int val:Int → Expr Int
+//   ⊗ Bool val:Bool → Expr Bool
+//   ⊗ Add a:Expr Int b:Expr Int → Expr Int
+//   ⊗ Mul a:Expr Int b:Expr Int → Expr Int
+//   ⊗ Eq Eq A a:Expr A b:Expr A → Expr Bool

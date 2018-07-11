@@ -4,7 +4,7 @@ import * as T from "./trees"
 import * as TP from "./types"
 
 export function format (tree :T.Tree, focus :T.Path) :{elem :M.Elem, path :M.Path} {
-  console.log(`format ${tree} @ ${focus}`)
+  // console.log(`format ${tree} @ ${focus}`)
   return new Acc(tree, focus).appendTree(T.emptyPath, tree, true).finalize()
 }
 
@@ -17,14 +17,29 @@ class Acc {
 
   appendTree (path :T.Path, tree :T.Tree, topLevel = false) :this {
     switch (tree.kind) {
-    case "term":
-      this.appendKeySpan("term ")
-      this.appendAbs(path, tree.symAt(0), T.emptyTree, tree.treeAt(2), {path, tpe: tree.treeAt(1)})
+    case "fun":
+      this.appendKeySpan("fun ")
+      this.appendTermDefSpan(T.extendPath(path, 0), tree.symAt(0), undefined, T.extendPath(path, 1))
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
       break
 
-    case "type":
-      this.appendKeySpan("type ")
-      this.appendTAbs(path, tree.symAt(0), tree.treeAt(1), true)
+    case "type": {
+      if (topLevel) this.appendKeySpan("type ")
+      const body = tree.treeAt(1)
+      const bodyPath = T.extendPath(path, 1)
+      this.appendTypeDefSpan(T.extendPath(path, 0), tree.symAt(0), bodyPath)
+      if (tree.treeAt(1).kind == "tabs") {
+        this.appendTAbs(bodyPath, body.symAt(0), body.treeAt(1), 0)
+      } else {
+        this.appendKeySpan(" = ")
+        this.appendTree(bodyPath, body)
+      }
+      break
+    }
+
+    case "ctor":
+      this.appendTypeDefSpan(T.extendPath(path, 0), tree.symAt(0), T.extendPath(path, 1))
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
       break
 
     case "empty":
@@ -53,21 +68,28 @@ class Acc {
       break
 
     case "tabs":
-      this.appendTAbs(path, tree.symAt(0), tree.treeAt(1))
+      this.appendTAbs(path, tree.symAt(0), tree.treeAt(1), 0)
       break
 
     case "tapp":
       this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
-      this.appendSepSpan(" ")
+      this.appendSepSpan("[")
       this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      this.appendSepSpan("]")
+      break
+
+    case "field":
+      this.appendTermDefSpan(T.extendPath(path, 0), tree.symAt(0))
+      this.appendAnnType(T.extendPath(path, 1), tree.treeAt(1))
       break
 
     case "prod":
       for (let ii = 0; ii < tree.branches.length; ii += 1) {
         // TODO: newline separate if documented?
-        this.appendSepSpan(" ")
+        this.appendSepSpan(ii == 0 ? "(" : ",")
         this.appendTree(T.extendPath(path, (ii+1)), tree.treeAt(ii))
       }
+      if (tree.branches.length > 0) this.appendSepSpan(")")
       break
 
     case "sum":
@@ -82,38 +104,63 @@ class Acc {
       break
 
     case "ref":
-      this.appendExprSpan(path, tree.symAt(0).name, "ident")
+      const refsym = tree.symAt(0)
+      this.appendExprSpan(path, refsym.name, refsym.kind)
       break
 
     case "hole":
-      this.appendExprSpan(path, "?", "type")
+      this.appendExprSpan(path, "?", "term")
+      break
+
+    case "phole":
+    case "plit":
+    case "pbind":
+    case "pdtor":
+      this.appendPattern(path, tree, 0)
       break
 
     case "app":
+      this.appendApp(path, tree, 0)
+      break
+
     case "inapp":
       this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
       this.appendSepSpan(" ")
       this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
       break
 
-    case "let":
+    case "let": {
       this.appendKeySpan("let ")
-      this.appendAbs(path, tree.symAt(0), T.emptyTree, tree.treeAt(2), {path, tpe: tree.treeAt(1)})
+      const typePath = T.extendPath(path, 1)
+      const bodyPath = T.extendPath(path, 2)
+      this.appendTermDefSpan(T.extendPath(path, 0), tree.symAt(0), typePath, bodyPath)
+      this.appendAnnType(typePath, tree.treeAt(1))
       this.newLine()
       this.appendKeySpan("in ")
       this.appendTree(T.extendPath(path, 3), tree.treeAt(3))
       break
+    }
+
+    case "letfun":
+      this.appendKeySpan("fun ")
+      this.appendTermDefSpan(T.extendPath(path, 0), tree.symAt(0), undefined, T.extendPath(path, 1))
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      this.newLine()
+      this.appendTree(T.extendPath(path, 2), tree.treeAt(2))
+      break
 
     case "all":
-      const bodyPath = T.extendPath(path, 1)
-      this.appendKeySpan("∀")
-      this.appendTypeDefSpan(T.extendPath(path, 0), tree.symAt(0), bodyPath)
-      this.appendSepSpan(" ")
-      this.appendTree(bodyPath, tree.treeAt(1))
+      this.appendAll(path, tree.symAt(0), tree.treeAt(1), 0)
+      break
+
+    case "asc":
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
+      this.appendSepSpan(":")
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
       break
 
     case "abs":
-      this.appendAbs(path, tree.symAt(0), tree.treeAt(1), tree.treeAt(2))
+      this.appendAbs(path, tree.symAt(0), tree.treeAt(1), tree.treeAt(2), 0)
       break
 
     case "if":
@@ -143,12 +190,56 @@ class Acc {
     return this
   }
 
+  appendPattern (path :T.Path, tree :T.Tree, pos :number) {
+    if (tree.kind === "phole" || tree.kind === "plit" ||
+        tree.kind === "pbind" || tree.kind === "pdtor") {
+      const bodyPath = T.extendPath(path, 1)
+      if (pos == 1) this.appendSepSpan("(")
+      else if (pos > 1) this.appendSepSpan(",")
+      switch (tree.kind) {
+        case "phole":
+          // TODO: special editor for pattern hole
+          this.appendExprSpan(path, "?", "term")
+          break
+        case "plit":
+          this.appendExprSpan(path, tree.constAt(0).value, "constant")
+          break
+        case "pbind":
+          this.appendTermDefSpan(path, tree.symAt(0), undefined, bodyPath)
+          break
+        case "pdtor":
+          this.appendExprSpan(path, tree.symAt(0).name, tree.symAt(0).kind)
+          break
+      }
+      this.appendPattern(bodyPath, tree.treeAt(1), pos+1)
+
+    } else {
+      if (pos > 1) this.appendSepSpan(")")
+      this.appendKeySpan(" → ")
+      this.appendTree(path, tree)
+    }
+  }
+
+  appendApp (path :T.Path, tree :T.Tree, pos :number) {
+    const fun = tree.treeAt(0), arg = tree.treeAt(1)
+    if (fun.kind === "app") {
+      this.appendApp(T.extendPath(path, 0), fun, pos+1)
+      this.appendSepSpan(", ")
+    } else {
+      this.appendTree(T.extendPath(path, 0), fun)
+      this.appendSepSpan(fun.kind === "inapp" ? " " : "(")
+    }
+    this.appendTree(T.extendPath(path, 1), arg)
+    if (fun.kind !== "inapp" && pos === 0) this.appendSepSpan(")")
+  }
+
   appendAnnType (path :T.Path, tree :T.Tree) {
-    if (tree.kind !== "thole") {
-      this.appendKeySpan(":")
+    if (tree.kind !== "empty") {
+      // this.appendKeySpan(":")
+      this.appendSepSpan(":")
       this.appendTree(path, tree)
     } else if (T.pathsEqual(path, this.focus)) {
-      this.appendKeySpan(":")
+      this.appendSepSpan(":")
       this.appendTypeExprSpan(path, "?")
     } // otherwise append nothing
   }
@@ -181,7 +272,7 @@ class Acc {
     this.appendSpan(M.span(text, undefined, ["keyword"]))
   }
   appendSepSpan (text :string) {
-    this.appendSpan(M.span(text))
+    this.appendSpan(M.span(text, undefined, ["separator"]))
   }
   appendTypeDefSpan (path :T.Path, sym :S.Symbol, bodyPath? :T.Path) {
     const editor = new TypeNameEditor(this.root, path, bodyPath)
@@ -191,10 +282,11 @@ class Acc {
     const editor = new TypeExprEditor(this.root, path, bodyPath)
     this.appendSpan(M.span(text, editor, ["type"]), path)
   }
-  appendTermDefSpan (path :T.Path, name :string, typePath? :T.Path, bodyPath? :T.Path) {
+  appendTermDefSpan (path :T.Path, sym? :S.Symbol, typePath? :T.Path, bodyPath? :T.Path) {
     const editor = new TermNameEditor(this.root, path, typePath, bodyPath)
-    const text = name == "" ? "?" : name
-    this.appendSpan(M.span(text, editor, ["def"]), path)
+    const text = sym ? sym.name : "?"
+    const style = sym ? sym.kind : "term"
+    this.appendSpan(M.span(text, editor, [style]), path)
   }
   appendExprSpan (path :T.Path, name :string, style :string) {
     const editor = new TermExprEditor(this.root, path)
@@ -214,60 +306,62 @@ class Acc {
 
   // Coalescing abs:
   // - abs inspects body: if it's another abs, append the arg & 'lift' the body
-  appendAbs (path :T.Path, sym :S.Symbol, tpe :T.Tree, body :T.Tree,
-             arrow? :{path :T.Path, tpe :T.Tree}) {
+  appendAbs (path :T.Path, sym :S.Symbol, tpe :T.Tree, body :T.Tree, pos :number) {
     const typePath = T.extendPath(path, 1)
     const bodyPath = T.extendPath(path, 2)
-    this.appendTermDefSpan(T.extendPath(path, 0), sym.name, typePath, bodyPath)
+    this.appendSepSpan(pos == 0 ? "(" : ", ")
+    this.appendTermDefSpan(T.extendPath(path, 0), sym, typePath, bodyPath)
     this.appendAnnType(T.extendPath(path, 1), tpe)
     switch (body.kind) {
     case "abs":
-      this.appendSepSpan(" ")
-      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), arrow)
+      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), pos+1)
       break
-    case "all":
-      this.appendSepSpan(" ")
-      this.appendAll(bodyPath, body.symAt(0), body.treeAt(1), arrow)
-      break
-    default:
-      if (arrow && arrow.tpe !== T.emptyTree) {
-        this.appendKeySpan(" ⇒ ")
-        this.appendTree(T.extendPath(arrow.path, 1), arrow.tpe)
-      }
+    case "asc":
+      this.appendSepSpan(")")
+      this.appendSepSpan(":")
+      this.appendTree(T.extendPath(bodyPath, 0), body.treeAt(0))
       this.appendKeySpan(" = ")
       this.newLine()
+      this.appendSubTree(T.extendPath(bodyPath, 1), body.treeAt(1))
+      break
+    default:
+      this.appendKeySpan(" = ")
       this.appendSubTree(bodyPath, body)
       break
     }
   }
-  appendAll (path :T.Path, sym :S.Symbol, body :T.Tree, arrow? :{path :T.Path, tpe :T.Tree}) {
+  appendAll (path :T.Path, sym :S.Symbol, body :T.Tree, pos :number) {
     const bodyPath = T.extendPath(path, 1)
-    this.appendKeySpan("∀")
+    this.appendSepSpan(pos == 0 ? "[" : ",")
     this.appendTypeDefSpan(T.extendPath(path, 0), sym, bodyPath)
     switch (body.kind) {
     case "all":
-      this.appendSepSpan(" ")
-      this.appendAll(bodyPath, body.symAt(0), body.treeAt(1))
+      this.appendAll(bodyPath, body.symAt(0), body.treeAt(1), pos+1)
       break
     case "abs":
-      this.appendSepSpan(" ")
-      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), arrow)
+      this.appendSepSpan("]")
+      this.appendAbs(bodyPath, body.symAt(0), body.treeAt(1), body.treeAt(2), 0)
       break
     default:
       // TODO: this shouldn't really ever happen, we should complain?
+      this.appendSepSpan("]")
       this.appendKeySpan(" = ")
       this.appendTree(bodyPath, body)
       break
     }
   }
-  appendTAbs (path :T.Path, sym :S.Symbol, body :T.Tree, topDef = false) {
+  appendTAbs (path :T.Path, sym :S.Symbol, body :T.Tree, pos :number) {
     const bodyPath = T.extendPath(path, 1)
-    if (!topDef) this.appendKeySpan("∀")
+    this.appendSepSpan(pos == 0 ? "[" : ",")
     this.appendTypeDefSpan(T.extendPath(path, 0), sym, bodyPath)
     if (body.kind == "tabs") {
       this.appendSepSpan(" ")
-      this.appendTAbs(bodyPath, body.symAt(0), body.treeAt(1))
+      this.appendTAbs(bodyPath, body.symAt(0), body.treeAt(1), pos+1)
+    } else if (body.kind == "prod") {
+      this.appendSepSpan("]")
+      this.appendTree(bodyPath, body)
     } else {
+      this.appendSepSpan("]")
       this.appendKeySpan(" = ")
       this.appendTree(bodyPath, body)
     }
@@ -300,7 +394,7 @@ class TypeNameEditor extends M.Editor {
     case " ":
       return this.bodyPath ? ({
         tree: this.root.edit(this.path, te => te.setName(text))
-                       .edit(this.bodyPath, te => te.setTAbs("", te.currentTree)),
+                       .edit(this.bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree)),
         focus: this.bodyPath.concat([0])
       }) : this.commitEdit(text)
     case "Escape":
@@ -333,7 +427,7 @@ class TypeExprEditor extends M.Editor {
       return {tree: this.root.edit(this.path, setRef)}
     case " ":
       return this.bodyPath ?
-        ({tree: this.root.edit(this.bodyPath, te => te.setTAbs("", te.currentTree))}) :
+        ({tree: this.root.edit(this.bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree))}) :
         ({tree: this.root.edit(this.path, setRef)})
     case "Escape":
       return "cancel"
@@ -368,7 +462,7 @@ class TermNameEditor extends M.Editor {
     case " ":
       return this.bodyPath ? ({
         tree: this.root.edit(this.path, setName)
-                       .edit(this.bodyPath, te => te.setTAbs("", te.currentTree)),
+                       .edit(this.bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree)),
         focus: this.bodyPath.concat([0])
       }) : this.commitEdit(text)
     case "Escape":
