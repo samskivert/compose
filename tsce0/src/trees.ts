@@ -11,43 +11,106 @@ import * as TP from "./types"
 
 type Branch = Tree|S.Symbol|Constant
 
+let treeId = 0
+function nextTreeId () { treeId += 1 ; return treeId }
+
+function assert (cond :boolean, msg :string) {
+  if (!cond) throw new Error(msg)
+}
+
 export class Tree {
+  readonly id = nextTreeId()
+
   constructor (
     readonly kind :string,
     readonly parent :Tree|void,
     readonly owner :S.ModuleSym|TreeSym,
     readonly scope :S.Scope,
     readonly branches :Branch[],
-    private typefn :(tree :Tree) => TP.Type
+    protected typefn :(tree :Tree) => TP.Type
   ) {}
 
   get type () :TP.Type { return this.typefn(this) }
 
   toString () {
-    return `${this.kind}#${this.branches.length}`
+    return `${this.kind}#${this.id}`
   }
 
   firstEditable (pre :Path = []) :Path {
     const first = this.branches.length > 0 ? this.branches[0] : undefined
-    return first instanceof Tree ? first.firstEditable(extendPath(pre, 0)) : pre
+    if (first instanceof Tree) return first.firstEditable(extendPath(pre, 0))
+    else if (first instanceof S.Symbol) return extendPath(pre, 0)
+    else return pre
   }
 
   /** Applies `edit` to the branch identified by `path`. */
-  edit (path :Path, edit :Edit) :Tree {
-    if (path.length == 0) throw new Error(`Invalid (empty) path for edit of ${this}`)
+  edit (path :Path, edit :Edit) :this {
+    assert(path.length > 0, `Invalid (empty) path for edit of ${this}`)
     const idx = path[0]
     this.checkBranchIdx(idx, "edit")
     if (path.length == 1) edit(this.editAt(idx))
     else {
       const branch = this.branches[idx]
       if (branch instanceof Tree) branch.edit(path.slice(1), edit)
-      else throw new Error(`Edit path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
+      else assert(false, `Edit path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
     }
     return this
   }
 
-  migrateChild (idx :number, child :Tree) {
-    // TODO
+  select (path :Path) :Branch {
+    return this._select(path, 0)
+  }
+  _select (path :Path, pos :number) :Branch {
+    const idx = path[pos]
+    this.checkBranchIdx(idx, "select")
+    const branch = this.branches[idx]
+    if (pos == path.length-1) return branch
+    else if (branch instanceof Tree) return branch._select(path, pos+1)
+    else {
+      assert(false, `Select path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
+      return this // unreached, but TS doesn't know that...
+    }
+  }
+
+  /** Adopts `child` by `reparent`ing it with `this` as its parent. */
+  adopt (idx :number, child :Tree) {
+    console.log(`Adopting at ${idx}:\n${child.debugShow().join("\n")}`)
+    this.setBranch(idx, child.reparent(this))
+  }
+
+  /** Reincarnates `this` tree with a new `parent` and returns the reincarnated tree.
+    * The clone will reincarnate all of our children with itself as their new parent. */
+  reparent (parent :Tree) :Tree {
+    const reborn = this.reincarnate(parent)
+    for (let ii = 0; ii < this.branches.length; ii++) {
+      const obranch = this.branches[ii]
+      if (obranch instanceof Tree) this.branches[ii] = obranch.reparent(reborn)
+    }
+    return reborn
+  }
+
+  protected reincarnate (parent :Tree) :Tree {
+    return new Tree(this.kind, parent, this.owner, parent.scope,
+                    this.branches.slice(0), this.typefn)
+  }
+
+  pathKind (path :Path) :string[] {
+    console.log(`pathKind ${path}`)
+    const acc :string[] = []
+    if (path.length > 0) this._pathKind(path, 0, acc)
+    return acc
+  }
+  _pathKind (path :Path, pos :number, acc :string[]) {
+    acc.push(this.kind)
+    const idx = path[pos]
+    this.checkBranchIdx(idx, "pathKind")
+    const branch = this.branches[idx]
+    if (branch instanceof Tree) {
+      if (pos < path.length-1) branch._pathKind(path, pos+1, acc)
+    } else {
+      assert(pos == path.length-1,
+             `Path (${path}) extended beyond terminal node @ ${this} (acc: ${acc})`)
+    }
   }
 
   treeAt (idx :number) :Tree {
@@ -65,14 +128,14 @@ export class Tree {
   editAt (idx :number) :TreeEditor {
     return new TreeEditor(this, this.owner, idx)
   }
-  editBranch (idx :number, editfn :(te :TreeEditor) => void) :Tree {
+  editBranch (idx :number, editfn :(te :TreeEditor) => void) :this {
     editfn(this.editAt(idx))
     return this
   }
-  editBranch1 (editfn :(te :TreeEditor) => void) :Tree {
+  editBranch1 (editfn :(te :TreeEditor) => void) :this {
     return this.editBranch(1, editfn)
   }
-  editBranches (...editfns :Array<((te :TreeEditor) => void)|void>) :Tree {
+  editBranches (...editfns :Array<((te :TreeEditor) => void)|void>) :this {
     for (let ii = 0; ii < editfns.length; ii += 1) {
       const editfn = editfns[ii]
       editfn && editfn(this.editAt(ii))
@@ -106,8 +169,8 @@ export class Tree {
   }
 
   private checkBranchIdx (idx :number, op :string) {
-    if (idx < 0 || idx >= this.branches.length) throw new Error(
-      `Invalid branch (${idx}) at ${this} for op '${op}'`)
+    assert(idx >= 0 && idx < this.branches.length,
+           `Invalid branch (${idx}) at ${this} for op '${op}'`)
   }
 }
 
@@ -125,6 +188,11 @@ export class DefTree extends Tree {
 
   editAt (idx :number) :TreeEditor {
     return new TreeEditor(this, this.self, idx)
+  }
+
+  protected reincarnate (parent :Tree) :Tree {
+    return new DefTree(this.kind, parent, this.owner, this.self, parent.scope.extend([this.self]),
+                       this.branches.slice(0), this.typefn)
   }
 }
 
@@ -296,12 +364,24 @@ export class TreeEditor {
       case0 => case0.setPHole()
     )
   }
+  setIfH (xtype :TP.Type = TP.hole) :Tree {
+    return this.setIf().editBranches(
+      cond => cond.setHole(TP.hole), // TODO: Bool
+      tb => tb.setHole(xtype),
+      fb => fb.setHole(xtype)
+    )
+  }
 }
 
 const emptyModSym = new S.ModuleSym("<empty>")
 
 export const emptyTree = new Tree(
   "empty", undefined, emptyModSym, S.emptyScope, [], tree => TP.hole)
+
+export function mkDefHole (mod :S.ModuleSym) :DefTree {
+  const sym = new TreeSym("term", "", mod)
+  return new DefTree("hole", undefined, mod, sym, mod.scope, [sym], t => TP.hole)
+}
 
 export function mkFunDef (mod :S.ModuleSym, name :Name) :DefTree {
   const sym = new TreeSym("func", name, mod)
@@ -375,7 +455,7 @@ export type Edit = (te :TreeEditor) => void
 // Test trees
 // ----------
 
-const testModSym = new S.ModuleSym("test")
+export const testModSym = new S.ModuleSym("test")
 
 const natSym = new TreeSym("type", "Nat", testModSym)
 const intSym = new TreeSym("type", "Int", testModSym)
@@ -661,3 +741,26 @@ export const revExample = mkFunDef(testModSym, "reverse").editBranch1(
 //   ⊗ Add a:Expr Int b:Expr Int → Expr Int
 //   ⊗ Mul a:Expr Int b:Expr Int → Expr Int
 //   ⊗ Eq Eq A a:Expr A b:Expr A → Expr Bool
+
+// def sequence[F[_]: Monoidal, A] (l :List[F[A]]) :F[List[A]] =
+//  l.foldRight(Monoidal[F].pure(List.empty[A])) {
+//    (fa :F[A], acc :F[List[A]]) =>
+//      val prod :F[(A, List[A])] = fa.product(acc)
+//      prod.map(_ +: _)
+//  }
+
+// fun sequence ∀F → Monoidal F → ∀A → list:List F A → F List A =
+//   fun join fa:F A → acc:F List A = product fa acc ▷ ($1 :: $2)
+//   foldRight join (pure List.empty) list
+
+// fun sequence ∀F → Monoidal F → ∀A → list:List F A → F List A =
+//   fun join fa → acc = product fa acc ▷ ($1 :: $2)
+//   foldRight join (pure List.empty) list
+
+// fun sequence ∀F → Monoidal F → ∀A → list:List F A → F List A =
+//   let join = λfa acc → product fa acc ▷ (λa b → a :: b)
+//   in foldRight join (pure List.empty) list
+
+// fun sequence ∀F → Monoidal F → ∀A → list:List F A → F List A =
+//   let join fa acc = product fa acc ▷ (_ :: _)
+//   in foldRight join (pure List.empty) list

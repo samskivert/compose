@@ -1,3 +1,6 @@
+import * as C from './constants'
+import * as N from './names'
+import * as S from './symbols'
 import * as T from './trees'
 
 // ------------
@@ -5,16 +8,20 @@ import * as T from './trees'
 // ------------
 
 // The AST is transformed into a markup model which is used to display the code in a familiar
-// "syntax highlighted, formatted text" format, but the text itself is not editable. Edits are made
-// on the underlying AST and those changes propagate back out to the visualization.
+// "syntax highlighted, formatted text" format, but the text itself is not free-form editable.
+// Instead, edits apply to the underlying AST and those changes propagate back out to the
+// visualization.
+
+export type Modifiers = {shift? :boolean, meta? :boolean, alt? :boolean, ctrl? :boolean}
 
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * Spans that represent components of an AST node will be editable, spans that display contextual
   * punctuation or keywords will not. */
 export abstract class Span {
 
-  /** The text to display in formatted code. */
-  abstract get displayText () :string
+  /** The source text of this span. If this is empty, `displayPlaceHolder` will be shown when
+    * displaying this span in code and `editPlaceHolder` will be shown when editing the span. */
+  abstract get sourceText () :string
 
   /** The styles to apply to the span when rendered. */
   abstract get styles () :string[]
@@ -22,21 +29,26 @@ export abstract class Span {
   /** Whether or not this span is editable. */
   get isEditable () :Boolean { return false }
 
-  /** The text to display in the editor when this span is edited. */
-  get editText () :string { return this.displayText }
+  /** The text to show in formatted code when `text` is empty. */
+  get displayPlaceHolder () :string { return "?" }
 
-  /** The placeholder text to show in the editor when `editText` is empty. */
-  get editPlaceHolder () :string { return "?" }
+  /** The placeholder text to show in the editor when `text` is empty. */
+  get editPlaceHolder () :string { return "<?>" }
+
+  /** The text to display for this span. */
+  get displayText () :string { return this.sourceText || this.displayPlaceHolder }
 
   /** Handles a key press from an active span editor.
     * @param text the current text of the span (prior to the key press).
+    * @param comp the current completion (if one exists).
     * @param key the JavaScript description of the pressed key.
     * @return the action to take based on the key press.
     */
-  handleKey (text :string, key :string) :EditAction { return "extend" }
+  handleKey (text :string, comp :Completion|void, key :string, mods :Modifiers) :EditAction {
+    return "extend" }
 
   /** Returns the completions to show given the current `text`. */
-  getCompletions (text :string) :string[] { return [] }
+  getCompletions (text :string) :Completion[] { return [] }
 
   toString () { return this.displayText }
 }
@@ -47,7 +59,14 @@ export abstract class EditableSpan extends Span {
 
 /** A span containing uneditable `text` with `styles`. */
 export class TextSpan extends Span {
-  constructor (readonly displayText :string, readonly styles :string[] = []) { super() }
+  constructor (readonly sourceText :string, readonly styles :string[] = []) { super() }
+}
+
+export interface Completion {
+  /** The completed item. */
+  readonly item :N.Name|S.Symbol|C.Constant
+  /** The markup to display for `item` in the completion list. */
+  display () :Line
 }
 
 // When a tree is formatted into a span, the editable spans know how to propagate edits back to the
@@ -68,7 +87,7 @@ export class TextSpan extends Span {
   * - cancel: abort the current edit
   * - {tree, focus}: commit the edit, using the replacement tree and (optional) new focus
   */
-export type EditAction = "extend" | "cancel" | {tree :T.Tree, focus? :T.Path}
+export type EditAction = "extend" | "cancel" | {tree :T.DefTree, focus? :T.Path}
 
 // TODO: do we want a separate visualization model for docs?
 // could allow the HTML layout engine to handle wrapping...
@@ -157,6 +176,7 @@ export type Path = {idxs :number[], span :number}
 export const emptyPath = {idxs: [], span: -1}
 export const mkPath = (idxs :number[], span :number) => ({idxs, span})
 export const isLeaf = (path :Path) => path.idxs.length == 0
+export const isEmptyPath = (path :Path) => path === emptyPath
 
 /** Removes the top component of a path and applies `op` to the remainder. If the top of the path is
   * not equal to `idx`, `dflt` is returned instead. */

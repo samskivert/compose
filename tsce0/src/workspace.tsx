@@ -9,21 +9,23 @@ import * as T from './trees'
 
 export class WorkspaceStore {
   @observable defs :E.DefStore[] = []
-  @observable selectedDef :E.DefStore|void = undefined
+  @observable selidx :number = 0
 
-  addDef (def :T.Tree) {
-    this.defs.push(new E.DefStore(def, computed(() => this.selectedDef)))
+  @computed get selectedDef () :E.DefStore|void {
+    return this.defs.length > 0 ? this.defs[this.selidx] : undefined
+  }
+
+  addDef (def :T.DefTree, editing = false) {
+    this.insertDef(this.defs.length, def, editing)
+  }
+
+  insertDef (index :number, def :T.DefTree, editing = false) {
+    this.defs.splice(index, 0, new E.DefStore(def, computed(() => this.selectedDef), editing))
   }
 
   moveSelection (delta :number) {
-    const selstore = this.selectedDef
-    if (selstore) {
-      const selidx = this.defs.indexOf(selstore)
-      const stores = this.defs.length
-      this.selectedDef = this.defs[(selidx+stores+delta)%stores]
-    } else if (this.defs.length > 0) {
-      this.selectedDef = this.defs[0]
-    }
+    const stores = this.defs.length
+    this.selidx = (this.selidx+stores+delta)%stores
   }
 }
 
@@ -31,14 +33,22 @@ export class WorkspaceStore {
 export class Workspace extends React.Component<{store :WorkspaceStore}> {
 
   handleKey :(ev :KeyboardEvent) => boolean = ev => {
+    const store = this.props.store
     if (ev.metaKey) {
       switch (ev.code) {
       case "ArrowUp": this.props.store.moveSelection(-1) ; return true
       case "ArrowDown": this.props.store.moveSelection(1) ; return true
       }
+    } else if (ev.ctrlKey) {
+      switch (ev.code) {
+      case "KeyN":
+        store.insertDef(store.selidx, T.mkDefHole(T.testModSym), true)
+        ev.preventDefault()
+        return true
+      }
     }
-    const store = this.props.store.selectedDef
-    return store ? store.keyHandler(ev) : false
+    const selDef = store.selectedDef
+    return selDef ? selDef.keyHandler(ev) : false
   }
 
   componentWillMount() {

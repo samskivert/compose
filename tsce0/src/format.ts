@@ -2,8 +2,9 @@ import * as M from "./markup"
 import * as S from "./symbols"
 import * as T from "./trees"
 import * as TP from "./types"
+import * as C from "./constants"
 
-export function format (tree :T.Tree, focus :T.Path) :{elem :M.Elem, path :M.Path} {
+export function format (tree :T.DefTree, focus :T.Path) :{elem :M.Elem, path :M.Path} {
   // console.log(`format ${tree} @ ${focus}`)
   return new Acc(tree, focus).appendTree(T.emptyPath, tree, true).finalize()
 }
@@ -13,7 +14,7 @@ class Acc {
   block :M.Elem[] = []
   markupPath :M.Path = M.emptyPath
 
-  constructor (readonly root :T.Tree, readonly focus :T.Path) {}
+  constructor (readonly root :T.DefTree, readonly focus :T.Path) {}
 
   appendTree (path :T.Path, tree :T.Tree, topLevel = false) :this {
     const path0 = T.extendPath(path, 0)
@@ -50,7 +51,7 @@ class Acc {
       break
 
     case "thole":
-      this.appendTypeExprSpan(path, tree.scope, "?")
+      this.appendTypeExprSpan(path, tree.scope, "")
       break
 
     case "tconst":
@@ -114,7 +115,9 @@ class Acc {
       break
 
     case "hole":
-      this.appendExprSpan(path, tree.scope, "?", "term")
+      const holePath = T.extendPath(path, 0)
+      if (topLevel) this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), holePath)
+      else this.appendExprSpan(path, tree.scope, "", "term")
       break
 
     case "phole":
@@ -172,7 +175,12 @@ class Acc {
       break
 
     case "if":
-      this.appendKeySpan("todo if")
+      this.appendKeySpan("if ")
+      this.appendTree(T.extendPath(path, 0), tree.treeAt(0))
+      this.appendKeySpan(" then ")
+      this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
+      this.appendKeySpan(" else ")
+      this.appendTree(T.extendPath(path, 2), tree.treeAt(2))
       break
 
     case "match":
@@ -181,7 +189,7 @@ class Acc {
       this.appendKeySpan(" of")
       for (let ii = 1; ii < tree.branches.length; ii += 1) {
         this.newLine()
-        this.appendSubTree(T.extendPath(path, (ii+1)), tree.treeAt(ii))
+        this.appendSubTree(T.extendPath(path, ii), tree.treeAt(ii))
       }
       break
 
@@ -200,6 +208,9 @@ class Acc {
 
   appendSubTree (path :T.Path, tree :T.Tree) {
     // propagate our target path to the formatter for the sub-expr
+    if (this.line.length > 0) {
+      this.newLine()
+    }
     let sub = new Acc(this.root, this.focus).appendTree(path, tree).finalize()
     // if the target tree element was in the sub-expr, capture the markup path
     if (sub.path != M.emptyPath) {
@@ -274,11 +285,12 @@ class Acc {
   // Coalescing abs:
   // - abs inspects body: if it's another abs, append the arg & 'lift' the body
   appendAbs (path :T.Path, tree :T.Tree, pos :number) {
-    const body = tree.treeAt(2)
-    const bodyPath = T.extendPath(path, 2)
+    const argPath  = T.extendPath(path, 0)
     const typePath = T.extendPath(path, 1)
+    const bodyPath = T.extendPath(path, 2)
+    const body = tree.treeAt(2)
     // this.appendSepSpan(pos == 0 ? "(" : ", ")
-    this.appendTermDefSpan(T.extendPath(path, 0), tree.scope, tree.symAt(0), typePath, bodyPath)
+    this.appendTermDefSpan(argPath, tree.scope, tree.symAt(0), typePath, bodyPath)
     this.appendAnnType(T.extendPath(path, 1), tree.treeAt(1))
     switch (body.kind) {
     case "abs":
@@ -360,16 +372,16 @@ class Acc {
     this.appendSpan(new M.TextSpan(text, ["separator"]))
   }
   appendTypeDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol, bodyPath? :T.Path) {
-    this.appendSpan(new TypeNameSpan(this.root, path, scope, sym, bodyPath))
+    this.appendSpan(new TypeDefSpan(this.root, path, scope, sym, bodyPath), path)
   }
   appendTypeExprSpan (path :T.Path, scope :S.Scope, text :string, bodyPath? :T.Path) {
-    this.appendSpan(new TypeExprSpan(this.root, path, scope, text, bodyPath))
+    this.appendSpan(new TypeExprSpan(this.root, path, scope, text, bodyPath), path)
   }
   appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol, typePath? :T.Path, bodyPath? :T.Path) {
-    this.appendSpan(new TermNameSpan(this.root, path, scope, sym, typePath, bodyPath))
+    this.appendSpan(new TermDefSpan(this.root, path, scope, sym, typePath, bodyPath), path)
   }
   appendExprSpan (path :T.Path, scope :S.Scope, name :string, style :string) {
-    this.appendSpan(new TermExprSpan(this.root, path, scope, name, [style]))
+    this.appendSpan(new TermExprSpan(this.root, path, scope, name, [style]), path)
   }
 
   finalize () :{elem :M.Elem, path :M.Path} {
@@ -392,34 +404,90 @@ class Acc {
   // TODO: appendLet (...)
 }
 
-class TypeNameSpan extends M.EditableSpan {
-  constructor (
-    readonly root :T.Tree,
+export class SymbolCompletion implements M.Completion {
+  constructor (readonly item :S.Symbol) {}
+
+  display () :M.Line {
+    return new M.Line([new M.TextSpan(this.item.name)]) // TODO
+  }
+}
+
+abstract class TreeSpan extends M.EditableSpan {
+  constructor(
+    readonly root :T.DefTree,
     readonly path :T.Path,
-    readonly scope :S.Scope,
+    readonly scope :S.Scope) { super() }
+
+  toString () { return `${this.displayText} @ ${this.root.pathKind(this.path)}` }
+}
+
+function mkFun (msym :S.ModuleSym) {
+  return T.mkFunDef(msym, "").editBranch1(
+    body => body.setAbs("").editBranches(
+      undefined,
+      undefined,
+      body => body.setHole(TP.hole)))
+}
+
+class DefHoleSpan extends TreeSpan {
+  get sourceText () { return "" }
+  get styles () { return ["keyword"] }
+  get displayPlaceHolder () { return "<new def>" }
+  get editPlaceHolder () { return "<kind>" }
+
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
+    console.log(`defHoleEdit ${key} @ ${text}`)
+    switch (key) {
+    case "Enter":
+    case "Tab":
+    case " ":
+      return this.commitEdit(text, comp)
+    case "Escape":
+      return "cancel"
+    default:
+      return "extend"
+    }
+  }
+
+  commitEdit (text :string, comp :M.Completion|void) :M.EditAction {
+    const msym = this.root.owner as S.ModuleSym
+    switch (text) {
+    case "fun":
+      return {tree: mkFun(msym), focus: [0]}
+    }
+    return "extend" // {tree: this.root}
+  }
+}
+
+class TypeDefSpan extends TreeSpan {
+  constructor (
+    root :T.DefTree,
+    path :T.Path,
+    scope :S.Scope,
     readonly sym :S.Symbol,
     readonly bodyPath? :T.Path
-  ) { super () }
+  ) { super(root, path, scope) }
 
-  get displayText () { return this.sym.name }
+  get sourceText () { return this.sym.name }
   get styles () { return ["type"] }
   get editPlaceHolder () { return "<name>" }
 
-  handleKey (text :string, key :string) :M.EditAction {
-    console.log(`nameEdit ${key} @ ${text}`)
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
+    const {root, path, bodyPath} = this
+    console.log(`typeNameEdit ${key} @ ${text}`)
     switch (key) {
     case "Enter":
     case "Tab":
     case "=":
-      return this.commitEdit(text)
+      return this.commitEdit(text, bodyPath)
     case ":":
       // TODO: should we just allow : in type names? could be problematic?
       return this.commitEdit(text)
     case " ":
-      return this.bodyPath ? ({
-        tree: this.root.edit(this.path, te => te.setName(text))
-                       .edit(this.bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree)),
-        focus: this.bodyPath.concat([0])
+      return bodyPath ? ({
+        tree: root.edit(path, te => te.setName(text))
+                  .edit(bodyPath, te => te.setTAbs("").adopt(1, te.currentTree)),
+        focus: bodyPath.concat([0])
       }) : this.commitEdit(text)
     case "Escape":
       return "cancel"
@@ -428,28 +496,28 @@ class TypeNameSpan extends M.EditableSpan {
     }
   }
 
-  commitEdit (text :string) {
-    return {tree: this.root.edit(this.path, te => te.setName(text))}
+  commitEdit (text :string, focus? :T.Path) :M.EditAction {
+    return {tree: this.root.edit(this.path, te => te.setName(text)), focus}
   }
 
-  getCompletions (text :string) :string[] {
+  getCompletions (text :string) :M.Completion[] {
     return [] // TODO
   }
 }
 
-class TypeExprSpan extends M.EditableSpan {
+class TypeExprSpan extends TreeSpan {
   constructor (
-    readonly root :T.Tree,
-    readonly path :T.Path,
-    readonly scope :S.Scope,
-    readonly displayText :string,
+    root :T.DefTree,
+    path :T.Path,
+    scope :S.Scope,
+    readonly sourceText :string,
     readonly bodyPath? :T.Path
-  ) { super () }
+  ) { super(root, path, scope) }
 
   get styles () { return ["type"] }
   get editPlaceHolder () { return "<type>" }
 
-  handleKey (text :string, key :string) :M.EditAction {
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
     const setRef = (te :T.TreeEditor) =>
       text == "" ? te.setTHole() : te.setTRef(te.tree.scope.lookupType(text))
     switch (key) {
@@ -458,7 +526,7 @@ class TypeExprSpan extends M.EditableSpan {
       return {tree: this.root.edit(this.path, setRef)}
     case " ":
       return this.bodyPath ?
-        ({tree: this.root.edit(this.bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree))}) :
+        ({tree: this.root.edit(this.bodyPath, te => te.setTAbs("").adopt(1, te.currentTree))}) :
         ({tree: this.root.edit(this.path, setRef)})
     case "Escape":
       return "cancel"
@@ -467,42 +535,51 @@ class TypeExprSpan extends M.EditableSpan {
     }
   }
 
-  getCompletions (text :string) :string[] {
-    return this.scope.getCompletions(sym => sym.kind === "type", text).map(sym => sym.name)
+  getCompletions (text :string) :M.Completion[] {
+    return this.scope.getCompletions(sym => sym.kind === "type", text).
+      map(sym => new SymbolCompletion(sym))
   }
 }
 
-class TermNameSpan extends M.EditableSpan {
+class TermDefSpan extends TreeSpan {
   constructor (
-    readonly root :T.Tree,
-    readonly path :T.Path,
-    readonly scope :S.Scope,
+    root :T.DefTree,
+    path :T.Path,
+    scope :S.Scope,
     readonly sym :S.Symbol,
     readonly typePath? :T.Path,
     readonly bodyPath? :T.Path
-  ) { super () }
+  ) { super(root, path, scope) }
 
-  get displayText () { return this.sym.name || "?" }
   get styles () { return [this.sym.kind] }
-  get editText () { return this.sym.name }
+  get sourceText () { return this.sym.name }
   get editPlaceHolder () { return "<name>" }
 
-  handleKey (text :string, key :string) :M.EditAction {
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
     const {root, path, bodyPath, typePath} = this
-    console.log(`nameEdit ${key} @ ${text}`)
+    console.log(`termNameEdit ${key} @ ${text}`)
     const setName = (te :T.TreeEditor) => te.setName(text)
     switch (key) {
     case "Enter":
     case "Tab":
     case "=":
-      return this.commitEdit(text)
+      return this.commitEdit(text, bodyPath)
     case ":":
       if (!typePath) return this.commitEdit(text)
       return ({tree: root.edit(path, setName), focus: typePath})
     case " ":
       if (!bodyPath) return this.commitEdit(text)
-      const tree = root.edit(path, setName)
-                       .edit(bodyPath, te => te.setTAbs("").migrateChild(1, te.currentTree))
+      let tree = root.edit(path, setName)
+      // if the body is an empty abs, we want to simply start editing it
+      // if not, we want to insert an empty abs first (and then edit that)
+      let child = root.select(bodyPath)
+      if (!(child instanceof T.Tree) || child.kind != "abs" || child.symAt(0).name !== "") {
+        tree = root.edit(bodyPath, te => {
+          const oldBody = te.currentTree
+          return (mods.shift ? te.setTAbs("").adopt(1, oldBody) :
+                  te.setAbs("").adopt(2, oldBody))
+        })
+      }
       return ({tree, focus: bodyPath.concat([0])})
     case "Escape":
       return "cancel"
@@ -511,33 +588,33 @@ class TermNameSpan extends M.EditableSpan {
     }
   }
 
-  commitEdit (text :string) {
-    return {tree: this.root.edit(this.path, te => te.setName(text))}
+  commitEdit (text :string, focus? :T.Path) :M.EditAction {
+    return {tree: this.root.edit(this.path, te => te.setName(text)), focus}
   }
 
-  getCompletions (text :string) :string[] {
+  getCompletions (text :string) :M.Completion[] {
     return [] // TODO
   }
 }
 
-class TermExprSpan extends M.EditableSpan {
+class TermExprSpan extends TreeSpan {
   constructor (
-    readonly root :T.Tree,
-    readonly path :T.Path,
-    readonly scope :S.Scope,
-    readonly displayText :string,
+    root :T.DefTree,
+    path :T.Path,
+    scope :S.Scope,
+    readonly sourceText :string,
     readonly styles :string[]
-  ) { super () }
+  ) { super(root, path, scope) }
 
   get editPlaceHolder () { return "<expr>" }
 
-  handleKey (text :string, key :string) :M.EditAction {
-    console.log(`exprEdit ${key} @ ${text}`)
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
+    console.log(`termExprEdit ${key} @ ${text}`)
     switch (key) {
     case "Enter":
     case "Tab":
     case " ":
-      return this.commitEdit(text)
+      return this.commitEdit(text, comp)
     case "Escape":
       return "cancel"
     default:
@@ -545,26 +622,35 @@ class TermExprSpan extends M.EditableSpan {
     }
   }
 
-  editTree (edit :(te :T.TreeEditor) => void, fsuff? :number[]) {
+  editTree (edit :(te :T.TreeEditor) => void, fsuff? :number[]) :M.EditAction {
     const tree = this.root.edit(this.path, edit)
     return fsuff ? {tree, focus: this.path.concat(fsuff)} : {tree}
   }
 
-  commitEdit (text :string) {
+  commitEdit (text :string, comp :M.Completion|void) :M.EditAction {
+    // if the text is a literal, complete that (TODO: this should be via the completion; when
+    // generating a list of completions for text that matches a literal, we should make the first
+    // (and only) completion a tree that displays the literal with its appropriate (expected?) type)
+    const asLit = C.parseLit(text)
+    if (asLit !== undefined) return this.editTree(te => te.setLit(asLit))
+
     switch (text) {
     case "let":
       return this.editTree(te => te.setLetH(), [0])
     case "case":
       return this.editTree(te => te.setMatchH(), [0])
+    case "if":
+      return this.editTree(te => te.setIfH(), [0])
     case "":
       return this.editTree(te => te.setHole(TP.hole))
-    default:
-      return this.editTree(te => te.setRef(te.tree.scope.lookupTerm(text)))
     }
+
+    if (comp instanceof SymbolCompletion) return this.editTree(te => te.setRef(comp.item))
+    else /*TODO*/ return this.editTree(te => te.setRef(te.tree.scope.lookupTerm(text)))
   }
 
-  getCompletions (text :string) :string[] {
+  getCompletions (text :string) :M.Completion[] {
     const pred = (sym :S.Symbol) => sym.kind === "term" || sym.kind === "func"
-    return this.scope.getCompletions(pred, text).map(sym => sym.name)
+    return this.scope.getCompletions(pred, text).map(sym => new SymbolCompletion(sym))
   }
 }

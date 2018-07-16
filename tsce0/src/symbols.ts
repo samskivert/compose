@@ -4,8 +4,13 @@ import { Type, hole } from './types'
 
 export type Kind = "term" | "func" | "type" | "module"
 
+let symId = 0
+function nextSymId () { symId += 1 ; return symId }
+
 export abstract class Symbol {
+  readonly id :number = nextSymId()
   @observable name :Name
+
   constructor (readonly kind :Kind, name :Name) {
     this.name = name
   }
@@ -20,6 +25,8 @@ export abstract class Symbol {
     }
     return osym as ModuleSym
   }
+
+  toString () { return `sym#${this.id}:${this.name}` }
 }
 
 export class MissingSym extends Symbol {
@@ -30,12 +37,20 @@ export class MissingSym extends Symbol {
   get owner () :Symbol { return this}
 }
 
+export class HoleSym extends Symbol {
+  constructor () {
+    super ("term", "")
+  }
+  get type () { return hole }
+  get owner () { return this }
+}
+
 export class ModuleSym extends Symbol {
   readonly scope = new ModuleScope()
   constructor (name :Name) { super("module", name) }
   get type () :Type { return hole } // TODO: special module type? none type?
   get owner () :Symbol { return this }
-  toString () { return `msym:${this.name}` }
+  toString () { return `msym#${this.id}:${this.name}` }
 }
 
 function isCompletion (prefix :string, name :Name) {

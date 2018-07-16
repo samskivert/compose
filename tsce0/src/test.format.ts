@@ -28,5 +28,6 @@ it('formats things', () => {
   const tree = T.boxExample
   console.log(tree.debugShow().join("\n"))
   const {elem} = F.format(tree, [])
+  console.dir(elem)
   console.log(elem.debugShow().join("\n"))
 })

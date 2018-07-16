@@ -8,8 +8,7 @@ import * as W from './workspace'
 export class Stack extends React.Component<{store :W.WorkspaceStore}> {
 
   render () {
-    return (<div className="stack">{
-      this.props.store.defs.map(store => <E.DefEditor store={store} />)
-    }</div>)
+    return (<div className="stack">{this.props.store.defs.slice().map(
+      store => <E.DefEditor key={store.sym.id} store={store} />)}</div>)
   }
 }

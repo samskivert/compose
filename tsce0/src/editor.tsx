@@ -2,9 +2,11 @@ import * as React from 'react';
 import { computed, observable, transaction, IComputedValue } from 'mobx'
 import { observer } from 'mobx-react'
 
-import * as M from './markup'
-import * as T from './trees'
 import * as F from './format'
+import * as M from './markup'
+import * as N from './names'
+import * as S from './symbols'
+import * as T from './trees'
 
 // Cursor and selection model
 
@@ -40,34 +42,44 @@ const enum Mode { Normal, Selected, Edited }
 // -----------------
 
 export class DefStore {
-  @observable def!  :T.Tree
+  @observable def!  :T.DefTree
   @observable elem! :M.Elem
   @observable curs  :Cursor = {path: M.emptyPath, editing: false}
   @observable sel   :Selection = emptySelection
 
-  @computed get isActive () :boolean {
-    return this.selStore.get() === this
-  }
+  @computed get sym () :S.Symbol { return this.def.self }
+  @computed get name () :N.Name { return this.sym.name }
+  @computed get isActive () :boolean { return this.selStore.get() === this }
 
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
-  constructor (def :T.Tree, readonly selStore :IComputedValue<DefStore|void>) {
+  constructor (def :T.DefTree, readonly selStore :IComputedValue<DefStore|void>,
+               editing :boolean = false) {
     this.setDef(def, def.firstEditable())
-    this.curs.editing = false
+    this.curs.editing = editing
   }
 
-  setDef (def :T.Tree, focus? :T.Path) {
+  setDef (def :T.DefTree, focus? :T.Path) {
+    console.log(`Set def ${def}, focus: ${focus}`)
     let {elem, path} = F.format(def, focus || T.emptyPath)
     transaction(() => {
       this.def = def
       this.elem = elem
       if (focus) {
-        console.log(`New cursor, and editing: ${JSON.stringify(path)}`)
-        this.curs = {path, editing: true}
+        if (M.isEmptyPath(path)) {
+          console.warn(`No path for focus: ${focus}`)
+          console.warn(def.debugShow().join("\n"))
+          this.curs.editing = false
+        } else {
+          this.curs = {path, editing: true}
+        }
       } else {
         this.curs.editing = false
       }
     })
+  }
+  toString () {
+    return `${this.name}/${this.def}`
   }
 }
 
@@ -80,18 +92,23 @@ export class DefEditor extends React.Component<{store :DefStore}> {
 
   handleKey (ev :KeyboardEvent) :boolean {
     if (this.props.store.curs.editing) return false
+
     switch (ev.code) {
     case "ArrowLeft":  this._moveCursor(M.moveHoriz(M.HDir.Left))  ; break
     case "ArrowRight": this._moveCursor(M.moveHoriz(M.HDir.Right)) ; break
     case "ArrowUp":    this._moveCursor(M.moveVert(M.VDir.Up))     ; break
     case "ArrowDown":  this._moveCursor(M.moveVert(M.VDir.Down))   ; break
-    case "Enter":      this._startEdit()                           ; break
+    case "Enter":
+      this._startEdit()
+      break
     case "Tab":
       const dir = ev.shiftKey ? M.HDir.Left : M.HDir.Right
       this._moveCursor(M.moveHoriz(dir))
       ev.preventDefault()
-      break;
-    default:           console.log(`TODO: handleKey ${ev.code}`)   ; break
+      break
+    default:
+      console.log(`TODO: handleKey ${ev.code}`)
+      break
     }
     return true
   }
@@ -104,59 +121,69 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   _startEdit () {
+    console.log(`Starting edit: ${this.props.store.def}`)
     this.props.store.curs.editing = true
   }
 
   render () {
     const {curs, elem} = this.props.store
-    console.log(`render ${JSON.stringify(curs)}`)
     const cname = this.props.store.isActive ? "editor selectedEditor" : "editor"
-    return (<div className={cname}>{this.renderElem(curs, elem)}</div>)
+    return (<div className={cname}>{this.renderElem(0, curs, elem)}</div>)
   }
 
   renderElems (curs :Cursor, elems :M.Elem[]) :JSX.Element[] {
-    return elems.map((elem, idx) => this.renderElem(followCursor(curs, idx), elem))
+    return elems.map((elem, idx) => this.renderElem(idx, followCursor(curs, idx), elem))
   }
 
-  renderElem (curs :Cursor, elem :M.Elem) :JSX.Element {
+  renderElem (idx :number, curs :Cursor, elem :M.Elem) :JSX.Element {
     if (elem instanceof M.Block) {
-      return (<div className="block">{this.renderElems(curs, elem.elems)}</div>)
+      return (<div key={idx} className="block">{this.renderElems(curs, elem.elems)}</div>)
     } else if (elem instanceof M.Para) {
-      return (<div className="docs">{this.renderSpans(curs, elem.spans)}</div>)
+      return (<div key={idx} className="docs">{this.renderSpans(curs, elem.spans)}</div>)
     } else if (elem instanceof M.Line) {
-      return (<div>{this.renderSpans(curs, elem.spans)}</div>)
+      return (<div key={idx}>{this.renderSpans(curs, elem.spans)}</div>)
     } else {
-      return (<div>Unknown elem: {elem}</div>)
+      return (<div key={idx}>Unknown elem: {elem}</div>)
     }
   }
 
   renderSpans ({path, editing} :Cursor, spans :M.Span[]) :JSX.Element[] {
     const mode = (idx :number) => (!(M.isLeaf(path) && (idx == path.span)) ? Mode.Normal :
                                    (editing ? Mode.Edited : Mode.Selected))
-    return spans.map((span, idx) => this.renderSpan(mode(idx), span))
+    return spans.map((span, idx) => this.renderSpan(idx, mode(idx), span))
   }
 
-  renderSpan (mode :Mode, span :M.Span) :JSX.Element {
+  renderSpan (idx :number, mode :Mode, span :M.Span) :JSX.Element {
     if (mode == Mode.Edited && span.isEditable) {
-      return <SpanEditor store={new SpanStore(span.editText)} defStore={this.props.store}
-                         span={span}
+      return <SpanEditor store={new SpanStore(span.sourceText)} defStore={this.props.store}
+                         key={idx} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
-      const sstyles = (mode == Mode.Selected) ? span.styles.concat([
-        this.props.store.isActive ? "selectedSpan" : "lowSelectedSpan"
-      ]) : span.styles
-      return <span className={sstyles.join(" ")}>{span.displayText}</span>
+      return spanSpan(span, idx, mode == Mode.Selected, this.props.store.isActive)
     }
   }
 }
 
+function spanSpan (span :M.Span, idx :number,
+                   selected :Boolean = false, active :Boolean = true) :JSX.Element {
+  const sstyles = selected ?
+    span.styles.concat([active ? "selectedSpan" : "lowSelectedSpan"]) :
+    span.styles
+  return <span className={sstyles.join(" ")} key={idx}>{span.displayText}</span>
+}
+
 export class SpanStore {
   @observable text :string
-  @observable completions :string[] = []
+  @observable completions :M.Completion[] = []
+  @observable selCompIdx = 0
 
   constructor (text :string) {
     this.text = text
+  }
+
+  get selectedCompletion () :M.Completion|void {
+    return this.completions.length > 0 ? this.completions[this.selCompIdx] : undefined
   }
 }
 
@@ -170,7 +197,13 @@ export class SpanEditor  extends React.Component<{
 }> {
 
   render () {
-    const comps = this.props.store.completions.map(comp => <div>{comp}</div>)
+    // console.log(`SpanEditor render ${this.props.span}`)
+    const comps = this.props.store.completions.map((comp, ii) => {
+      const line = comp.display()
+      const isSelected = ii == this.props.store.selCompIdx
+      const styles = isSelected ? ["selected"] : []
+      return <div className={styles.join(" ")}>{line.spans.map((ss, ii) => spanSpan(ss, ii))}</div>
+    })
     return (
       <div className={"spanEditor"}>
         <input type="text" autoFocus={true}
@@ -186,21 +219,39 @@ export class SpanEditor  extends React.Component<{
 
   onChange (ev :React.FormEvent<HTMLInputElement>) {
     const text = ev.currentTarget.value
+    const store = this.props.store
     transaction(() => {
-      this.props.store.text = text
-      this.props.store.completions = this.props.span.getCompletions(text)
+      store.text = text
+      const oldComp = store.selectedCompletion
+      const comps = this.props.span.getCompletions(text)
+      store.completions = comps
+      if (oldComp) {
+        const oldIdx = comps.findIndex(comp => comp.item === oldComp.item)
+        if (oldIdx >= 0) store.selCompIdx = oldIdx
+        else store.selCompIdx = 0
+      } else store.selCompIdx = 0
     })
   }
 
   handleKey (key :string, ev? :React.KeyboardEvent<HTMLInputElement>) {
-    const action = this.props.span.handleKey(this.props.store.text, key)
-    if (action === "extend") return
-    ev && ev.preventDefault()
-    if (action === "cancel") this.props.stopEditing()
-    else {
-      let {tree, focus} = action
-      this.props.defStore.setDef(tree, focus)
-      if (key == "Tab") this.props.advanceCursor()
+    const store = this.props.store
+    // if key is up/down arrow, change selected completion
+    if (key == "ArrowUp") {
+      store.selCompIdx = Math.max(store.selCompIdx-1, 0)
+    } else if (key == "ArrowDown") {
+      store.selCompIdx = Math.min(store.selCompIdx+1, store.completions.length-1)
+    } else {
+      const mods = !ev ? {} :
+        {shift: ev.shiftKey, meta: ev.metaKey, alt: ev.altKey, ctrl: ev.ctrlKey}
+      const action = this.props.span.handleKey(store.text, store.selectedCompletion, key, mods)
+      if (action === "extend") return
+      ev && ev.preventDefault()
+      if (action === "cancel") this.props.stopEditing()
+      else {
+        let {tree, focus} = action
+        this.props.defStore.setDef(tree, focus)
+        if (key == "Tab" && !focus) this.props.advanceCursor()
+      }
     }
   }
 }
