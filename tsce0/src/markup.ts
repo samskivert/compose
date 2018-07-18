@@ -125,7 +125,7 @@ export abstract class Elem {
 
 export class Block extends Elem {
   readonly kind = "block"
-  constructor(readonly elems :Elem[]) { super() }
+  constructor (readonly elems :Elem[]) { super() }
 
   elemAt (idxs :number[]) :Elem {
     if (idxs.length == 0) return this
@@ -142,17 +142,23 @@ export class Block extends Elem {
 export class Para extends Elem {
   readonly kind = "para"
   get spans () :Span[] { return this._spans }
-  constructor(readonly _spans :Span[]) { super() }
+  constructor (readonly _spans :Span[]) { super() }
 
   _debugShow (indent :string, buf :string[]) {
     buf.push(indent + this.spans.map(span => span.displayText).join(""))
   }
 }
 
+export class Annot {
+  constructor (readonly text :string,
+               readonly tooltip :string,
+               readonly styles :string[]) {}
+}
+
 export class Line extends Elem {
   readonly kind = "line"
   get spans () :Span[] { return this._spans }
-  constructor(readonly _spans :Span[]) { super () }
+  constructor (readonly _spans :Span[], readonly annots :Annot[][]) { super () }
 
   _debugShow (indent :string, buf :string[]) {
     buf.push(indent + this.spans.map(span => span.displayText).join(""))

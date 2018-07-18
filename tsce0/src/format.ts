@@ -4,21 +4,37 @@ import * as T from "./trees"
 import * as TP from "./types"
 import * as C from "./constants"
 
-export function format (tree :T.DefTree, focus :T.Path) :{elem :M.Elem, path :M.Path} {
+export function format (
+  tree :T.DefTree, focus :T.Path, showSigs :boolean = true
+) :{elem :M.Elem, path :M.Path} {
   // console.log(`format ${tree} @ ${focus}`)
-  return new Acc(tree, focus).appendTree(T.emptyPath, tree, true).finalize()
+  return new Acc(tree, focus, showSigs).appendTree(T.emptyPath, tree).finalize()
+}
+
+class SigAnnot {
+  constructor (
+    readonly start :number,
+    readonly length :number,
+    readonly depth :number,
+    readonly sig :string
+  ) {}
 }
 
 class Acc {
   line :M.Span[] = []
+  lineWidth = 0
+  sigAnnots :SigAnnot[] = []
   block :M.Elem[] = []
   markupPath :M.Path = M.emptyPath
+  depth = -1
 
-  constructor (readonly root :T.DefTree, readonly focus :T.Path) {}
+  constructor (readonly root :T.DefTree, readonly focus :T.Path, readonly showSigs :boolean) {}
 
-  appendTree (path :T.Path, tree :T.Tree, topLevel = false) :this {
+  appendTree (path :T.Path, tree :T.Tree) :this {
+    this.depth += 1
     const path0 = T.extendPath(path, 0)
     const path1 = T.extendPath(path, 1)
+    const start = this.lineWidth
     switch (tree.kind) {
     case "fun":
       this.appendKeySpan("fun ")
@@ -28,7 +44,7 @@ class Acc {
       break
 
     case "type": {
-      if (topLevel) this.appendKeySpan("type ")
+      if (this.depth == 0) this.appendKeySpan("type ")
       const body = tree.treeAt(1)
       const bodyPath = path1
       this.appendTypeDefSpan(path0, tree.scope, tree.symAt(0), bodyPath)
@@ -42,8 +58,11 @@ class Acc {
     }
 
     case "ctor":
+      this.depth += 1
       this.appendTypeDefSpan(path0, tree.scope, tree.symAt(0), path1)
+      this.depth -= 1
       this.appendTree(path1, tree.treeAt(1))
+      this.appendTypeAnnot(start, tree.sig)
       break
 
     case "empty":
@@ -51,11 +70,11 @@ class Acc {
       break
 
     case "thole":
-      this.appendTypeExprSpan(path, tree.scope, "")
+      this.appendTypeExprSpan(path, tree.scope, "", tree.sig)
       break
 
     case "tconst":
-      this.appendTypeExprSpan(path, tree.scope, tree.constAt(0).value)
+      this.appendTypeExprSpan(path, tree.scope, tree.constAt(0).value, tree.sig)
       break
 
     // } else if (tpe instanceof T.ScalarDef) {
@@ -68,7 +87,7 @@ class Acc {
       break
 
     case "tref":
-      this.appendTypeExprSpan(path, tree.scope, tree.symAt(0).name)
+      this.appendTypeExprSpan(path, tree.scope, tree.symAt(0).name, tree.sig)
       break
 
     case "tabs":
@@ -81,6 +100,7 @@ class Acc {
       this.appendSepSpan(" ")
       this.appendTree(path1, tree.treeAt(1))
       // this.appendSepSpan("]")
+      this.appendKindAnnot(start, tree.sig.kind)
       break
 
     case "field":
@@ -106,18 +126,18 @@ class Acc {
       break
 
     case "lit":
-      this.appendExprSpan(path, tree.scope, tree.constAt(0).value, "constant")
+      this.appendExprSpan(path, tree.scope, tree.constAt(0).value, tree.sig, "constant")
       break
 
     case "ref":
       const refsym = tree.symAt(0)
-      this.appendExprSpan(path, tree.scope, refsym.name, refsym.kind)
+      this.appendExprSpan(path, tree.scope, refsym.name, tree.sig, refsym.kind)
       break
 
     case "hole":
       const holePath = T.extendPath(path, 0)
-      if (topLevel) this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), holePath)
-      else this.appendExprSpan(path, tree.scope, "", "term")
+      if (this.depth == 0) this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), holePath)
+      else this.appendExprSpan(path, tree.scope, "", tree.sig, "term")
       break
 
     case "phole":
@@ -129,12 +149,14 @@ class Acc {
 
     case "app":
       this.appendApp(path, tree)
+      this.appendTypeAnnot(start, tree.sig)
       break
 
     case "inapp":
       this.appendTree(path0, tree.treeAt(0))
       this.appendSepSpan(" ")
       this.appendTree(path1, tree.treeAt(1))
+      this.appendTypeAnnot(start, tree.sig)
       break
 
     case "let": {
@@ -145,6 +167,7 @@ class Acc {
       this.appendAnnType(typePath, tree.treeAt(1))
       this.appendKeySpan(" = ")
       this.appendTree(bodyPath, tree.treeAt(2))
+      this.appendTypeAnnot(start, tree.sig)
       this.newLine()
       this.appendKeySpan("in ")
       this.appendTree(T.extendPath(path, 3), tree.treeAt(3))
@@ -156,6 +179,7 @@ class Acc {
       this.appendTermDefSpan(path0, tree.scope, tree.symAt(0), undefined, path1)
       this.appendSepSpan(" ")
       this.appendTree(path1, tree.treeAt(1))
+      this.appendTypeAnnot(start, tree.sig)
       this.newLine()
       this.appendTree(T.extendPath(path, 2), tree.treeAt(2))
       break
@@ -163,15 +187,14 @@ class Acc {
     case "all":
       this.appendAll(path, tree, 0)
       break
+    case "abs":
+      this.appendAbs(path, tree, 0)
+      break
 
     case "asc":
       this.appendTree(path0, tree.treeAt(0))
       this.appendSepSpan(":")
       this.appendTree(path1, tree.treeAt(1))
-      break
-
-    case "abs":
-      this.appendAbs(path, tree, 0)
       break
 
     case "if":
@@ -181,12 +204,14 @@ class Acc {
       this.appendTree(T.extendPath(path, 1), tree.treeAt(1))
       this.appendKeySpan(" else ")
       this.appendTree(T.extendPath(path, 2), tree.treeAt(2))
+      this.appendTypeAnnot(start, tree.sig)
       break
 
     case "match":
       this.appendKeySpan("case ")
       this.appendTree(path0, tree.treeAt(0))
       this.appendKeySpan(" of")
+      this.appendTypeAnnot(start, tree.sig)
       for (let ii = 1; ii < tree.branches.length; ii += 1) {
         this.newLine()
         this.appendSubTree(T.extendPath(path, ii), tree.treeAt(ii))
@@ -203,6 +228,7 @@ class Acc {
       throw new Error(`Unexpected tree: ${tree}`)
     }
 
+    this.depth -= 1
     return this
   }
 
@@ -211,7 +237,7 @@ class Acc {
     if (this.line.length > 0) {
       this.newLine()
     }
-    let sub = new Acc(this.root, this.focus).appendTree(path, tree).finalize()
+    let sub = new Acc(this.root, this.focus, this.showSigs).appendTree(path, tree).finalize()
     // if the target tree element was in the sub-expr, capture the markup path
     if (sub.path != M.emptyPath) {
       // prepend the path to the block we're about to append
@@ -227,7 +253,7 @@ class Acc {
       this.appendTree(path, tree)
     } else if (T.pathsEqual(path, this.focus)) {
       this.appendSepSpan(":")
-      this.appendTypeExprSpan(path, tree.scope, "?")
+      this.appendTypeExprSpan(path, tree.scope, "?", tree.sig)
     } // otherwise append nothing
   }
 
@@ -240,16 +266,16 @@ class Acc {
       switch (tree.kind) {
         case "phole":
           // TODO: special editor for pattern hole
-          this.appendExprSpan(path, tree.scope, "?", "term")
+          this.appendExprSpan(path, tree.scope, "?", tree.sig, "term")
           break
         case "plit":
-          this.appendExprSpan(path, tree.scope, tree.constAt(0).value, "constant")
+          this.appendExprSpan(path, tree.scope, tree.constAt(0).value, tree.sig, "constant")
           break
         case "pbind":
           this.appendTermDefSpan(path, tree.scope, tree.symAt(0), undefined, bodyPath)
           break
         case "pdtor":
-          this.appendExprSpan(path, tree.scope, tree.symAt(0).name, tree.symAt(0).kind)
+          this.appendExprSpan(path, tree.scope, tree.symAt(0).name, tree.sig, tree.symAt(0).kind)
           break
       }
       this.appendSepSpan(" ")
@@ -264,13 +290,14 @@ class Acc {
 
   appendApp (path :T.Path, tree :T.Tree) {
     const fun = tree.treeAt(0), arg = tree.treeAt(1)
-    if (fun.kind === "app") {
-      this.appendApp(T.extendPath(path, 0), fun)
-      // this.appendSepSpan(", ")
-    } else {
-      this.appendTree(T.extendPath(path, 0), fun)
-      // this.appendSepSpan(fun.kind === "inapp" ? " " : "(")
-    }
+    // if (fun.kind === "app") {
+    //   this.appendApp(T.extendPath(path, 0), fun)
+    //   this.appendSepSpan(", ")
+    // } else {
+    //   this.appendTree(T.extendPath(path, 0), fun)
+    //   this.appendSepSpan(fun.kind === "inapp" ? " " : "(")
+    // }
+    this.appendTree(T.extendPath(path, 0), fun)
     this.appendSepSpan(" ")
     if (fun.kind !== "inapp" && arg.kind === "app") {
       this.appendSepSpan("(")
@@ -363,6 +390,7 @@ class Acc {
       this.markupPath = M.mkPath([this.block.length], this.line.length)
     }
     this.line.push(span)
+    this.lineWidth += span.displayText.length
   }
 
   appendKeySpan (text :string) {
@@ -372,16 +400,40 @@ class Acc {
     this.appendSpan(new M.TextSpan(text, ["separator"]))
   }
   appendTypeDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol, bodyPath? :T.Path) {
+    let start = this.lineWidth
     this.appendSpan(new TypeDefSpan(this.root, path, scope, sym, bodyPath), path)
+    this.appendKindAnnot(start, sym.type.kind)
   }
-  appendTypeExprSpan (path :T.Path, scope :S.Scope, text :string, bodyPath? :T.Path) {
+  appendTypeExprSpan (path :T.Path, scope :S.Scope, text :string, type :TP.Type,
+                      bodyPath? :T.Path) {
+    let start = this.lineWidth
     this.appendSpan(new TypeExprSpan(this.root, path, scope, text, bodyPath), path)
+    this.appendKindAnnot(start, type.kind)
   }
-  appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol, typePath? :T.Path, bodyPath? :T.Path) {
+  appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol,
+                     typePath? :T.Path, bodyPath? :T.Path) {
+    let start = this.lineWidth
     this.appendSpan(new TermDefSpan(this.root, path, scope, sym, typePath, bodyPath), path)
+    this.appendTypeAnnot(start, sym.type)
   }
-  appendExprSpan (path :T.Path, scope :S.Scope, name :string, style :string) {
+  appendExprSpan (path :T.Path, scope :S.Scope, name :string, type :TP.Type, style :string) {
+    let start = this.lineWidth
     this.appendSpan(new TermExprSpan(this.root, path, scope, name, [style]), path)
+    this.appendTypeAnnot(start, type)
+  }
+
+  appendTypeAnnot (start :number, type :TP.Type) {
+    if (!this.showSigs) return
+    let length = this.lineWidth - start
+    // console.log(`ATA ${start}/${length} @ ${this.depth} = ${type}`)
+    this.sigAnnots.push(new SigAnnot(start, length, this.depth, type.toString()))
+  }
+
+  appendKindAnnot (start :number, kind :TP.Kind) {
+    if (!this.showSigs) return
+    let length = this.lineWidth - start
+    // console.log(`AKA ${start}/${length} @ ${this.depth} = ${kind}`)
+    this.sigAnnots.push(new SigAnnot(start, length, this.depth, kind.toString()))
   }
 
   finalize () :{elem :M.Elem, path :M.Path} {
@@ -394,8 +446,33 @@ class Acc {
     * Only if current accumulating line is non-empty, otherwise it noops. */
   newLine () {
     if (this.line.length > 0) {
-      this.block.push(new M.Line(this.line))
+      // if we have type annotations, convert them to line annotations
+      const annots :M.Annot[][] = []
+      const maxDepth = this.sigAnnots.map(a => a.depth).reduce((m, d) => Math.max(m, d))
+      for (let dd = maxDepth ; dd >= 0 ; dd -= 1) {
+        const row :M.Annot[] = []
+        let pos = 0
+        const depthAnnots = this.sigAnnots.filter(a => a.depth == dd)
+        for (let ii = 0; ii < depthAnnots.length; ii += 1) {
+          const tann = depthAnnots[ii]
+          if (tann.start > pos) row.push(new M.Annot(blank(tann.start-pos), "", []))
+          // TODO: better type formatting, styles
+          const nann = depthAnnots[ii+1]
+          const sigStr = tann.sig || "??"
+          // TODO: max out avail at screen width?
+          const avail = nann ? (nann.start-tann.start-1) : sigStr.length
+          let annStr = sigStr
+          if (sigStr.length > avail) annStr = sigStr.substring(0, avail-1)+"…"
+          else if (sigStr.length < tann.length) annStr += blank(tann.length-sigStr.length)
+          row.push(new M.Annot(annStr, sigStr, [`ann${dd}`]))
+          pos = tann.start+annStr.length
+        }
+        if (pos < this.lineWidth) row.push(new M.Annot(blank(this.lineWidth-pos), "", []))
+        annots.push(row)
+      }
+      this.block.push(new M.Line(this.line, annots))
       this.line = []
+      this.lineWidth = 0
     }
   }
 
@@ -404,11 +481,13 @@ class Acc {
   // TODO: appendLet (...)
 }
 
+const blank = (count :number) :string => '\u00A0'.repeat(count)
+
 export class SymbolCompletion implements M.Completion {
   constructor (readonly item :S.Symbol) {}
 
   display () :M.Line {
-    return new M.Line([new M.TextSpan(this.item.name)]) // TODO
+    return new M.Line([new M.TextSpan(this.item.name)], []) // TODO
   }
 }
 

@@ -141,7 +141,12 @@ export class DefEditor extends React.Component<{store :DefStore}> {
     } else if (elem instanceof M.Para) {
       return (<div key={idx} className="docs">{this.renderSpans(curs, elem.spans)}</div>)
     } else if (elem instanceof M.Line) {
-      return (<div key={idx}>{this.renderSpans(curs, elem.spans)}</div>)
+      if (elem.annots.length > 0) {
+        return (<div key={idx}>
+                  <div key="spans">{this.renderSpans(curs, elem.spans)}</div>
+                  {elem.annots.map(renderAnnots)}
+                </div>)
+      } else return (<div key={idx}>{this.renderSpans(curs, elem.spans)}</div>)
     } else {
       return (<div key={idx}>Unknown elem: {elem}</div>)
     }
@@ -163,6 +168,14 @@ export class DefEditor extends React.Component<{store :DefStore}> {
       return spanSpan(span, idx, mode == Mode.Selected, this.props.store.isActive)
     }
   }
+}
+
+function renderAnnot (annot :M.Annot, idx :number) {
+  const cname = annot.styles.join(" ")
+  return <span key={idx} title={annot.tooltip} className={cname}>{annot.text}</span>
+}
+function renderAnnots (annots :M.Annot[], idx :number) {
+  return <div key={idx}>{annots.map(renderAnnot)}</div>
 }
 
 function spanSpan (span :M.Span, idx :number,

@@ -14,10 +14,6 @@ type Branch = Tree|S.Symbol|Constant
 let treeId = 0
 function nextTreeId () { treeId += 1 ; return treeId }
 
-function assert (cond :boolean, msg :string) {
-  if (!cond) throw new Error(msg)
-}
-
 export class Tree {
   readonly id = nextTreeId()
 
@@ -27,13 +23,25 @@ export class Tree {
     readonly owner :S.ModuleSym|TreeSym,
     readonly scope :S.Scope,
     readonly branches :Branch[],
-    protected typefn :(tree :Tree) => TP.Type
+    protected sigfn :(tree :Tree) => TP.Type
   ) {}
 
-  get type () :TP.Type { return this.typefn(this) }
+  get sig () :TP.Type { return this.sigfn(this) }
 
-  toString () {
-    return `${this.kind}#${this.id}`
+  // TODO: ugh...
+  get sigKind () :TP.Kind {
+    if (this.kind === "tabs") return new TP.KArrow(TP.star, this.treeAt(1).sigKind)
+    else return TP.star
+  }
+
+  sigQuants () :TypeVarTreeSym[] {
+    const acc :TypeVarTreeSym[] = []
+    this._sigQuants(acc)
+    return acc
+  }
+
+  protected _sigQuants (acc :TypeVarTreeSym[]) {
+    if (this.parent) this.parent._sigQuants(acc)
   }
 
   firstEditable (pre :Path = []) :Path {
@@ -45,14 +53,14 @@ export class Tree {
 
   /** Applies `edit` to the branch identified by `path`. */
   edit (path :Path, edit :Edit) :this {
-    assert(path.length > 0, `Invalid (empty) path for edit of ${this}`)
+    if (path.length == 0) throw new Error(`Invalid (empty) path for edit of ${this}`)
     const idx = path[0]
     this.checkBranchIdx(idx, "edit")
     if (path.length == 1) edit(this.editAt(idx))
     else {
       const branch = this.branches[idx]
       if (branch instanceof Tree) branch.edit(path.slice(1), edit)
-      else assert(false, `Edit path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
+      else throw new Error(`Edit path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
     }
     return this
   }
@@ -67,8 +75,7 @@ export class Tree {
     if (pos == path.length-1) return branch
     else if (branch instanceof Tree) return branch._select(path, pos+1)
     else {
-      assert(false, `Select path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
-      return this // unreached, but TS doesn't know that...
+      throw new Error(`Select path terminated in non-tree @${idx} in ${this} (branch ${branch})`)
     }
   }
 
@@ -91,7 +98,7 @@ export class Tree {
 
   protected reincarnate (parent :Tree) :Tree {
     return new Tree(this.kind, parent, this.owner, parent.scope,
-                    this.branches.slice(0), this.typefn)
+                    this.branches.slice(0), this.sigfn)
   }
 
   pathKind (path :Path) :string[] {
@@ -108,18 +115,22 @@ export class Tree {
     if (branch instanceof Tree) {
       if (pos < path.length-1) branch._pathKind(path, pos+1, acc)
     } else {
-      assert(pos == path.length-1,
-             `Path (${path}) extended beyond terminal node @ ${this} (acc: ${acc})`)
+      if (pos != path.length-1) throw new Error(
+        `Path (${path}) extended beyond terminal node @ ${this} (acc: ${acc})`)
     }
   }
 
   treeAt (idx :number) :Tree {
     this.checkBranchIdx(idx, "tree@")
-    return this.branches[idx] as Tree
+    const branch = this.branches[idx]
+    if (branch instanceof Tree) return branch
+    else throw new Error(`Fetched branch ${idx} as tree, but is not tree: ${branch}`)
   }
   symAt (idx :number) :TreeSym {
     this.checkBranchIdx(idx, "sym@")
-    return this.branches[idx] as TreeSym
+    const branch = this.branches[idx]
+    if (branch instanceof TreeSym) return branch
+    else throw new Error(`Fetched branch ${idx} as sym, but is not sym: ${branch}`)
   }
   constAt (idx :number) :Constant {
     this.checkBranchIdx(idx, "const@")
@@ -148,7 +159,7 @@ export class Tree {
     this._debugShow("", buf)
     return buf
   }
-  _debugShow (indent :string, buf :string[]) {
+  protected _debugShow (indent :string, buf :string[]) {
     buf.push(`${indent}${this.kind} ` +
              `parent=${this.parent ? this.parent.kind : "<none>"} ` +
              `owner=${this.owner} ` +
@@ -168,9 +179,13 @@ export class Tree {
     return branch
   }
 
+  toString () {
+    return `${this.kind}#${this.id}`
+  }
+
   private checkBranchIdx (idx :number, op :string) {
-    assert(idx >= 0 && idx < this.branches.length,
-           `Invalid branch (${idx}) at ${this} for op '${op}'`)
+    if (idx < 0 || idx >= this.branches.length) throw new Error(
+      `Invalid branch (${idx}) at ${this} for op '${op}'`)
   }
 }
 
@@ -183,17 +198,54 @@ export class DefTree extends Tree {
     readonly self :TreeSym,
     scope :S.Scope,
     branches :Branch[],
-    typefn :(tree :Tree) => TP.Type
-  ) { super(kind, parent, owner, scope, branches, typefn) }
+    sigfn :(tree :Tree) => TP.Type
+  ) { super(kind, parent, owner, scope, branches, sigfn) }
 
   editAt (idx :number) :TreeEditor {
     return new TreeEditor(this, this.self, idx)
   }
 
+  protected _sigQuants (acc :TypeVarTreeSym[]) {
+    if (this.kind === "tabs") acc.unshift(this.self as TypeVarTreeSym)
+    super._sigQuants(acc)
+  }
+
   protected reincarnate (parent :Tree) :Tree {
     return new DefTree(this.kind, parent, this.owner, this.self, parent.scope.extend([this.self]),
-                       this.branches.slice(0), this.typefn)
+                       this.branches.slice(0), this.sigfn)
   }
+}
+
+// ----------------
+// Tree typing funs
+// ----------------
+
+function ctorType (tree :Tree) :TP.Type {
+  let defTree = tree.parent
+  while (defTree && defTree.kind != "type") {
+    defTree = defTree.parent
+  }
+  if (!defTree) throw new Error(
+    `Constructor must be enclosed by 'type' tree (in: ${tree})`)
+  function mkArrow (types :TP.Type[], pos :number, acc :TP.Type) :TP.Type {
+    const arrow = new TP.Arrow(types[pos], acc)
+    return (pos == 0) ? arrow : mkArrow(types, pos-1, arrow)
+  }
+  function mkAbs (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
+    const abs = new TP.Abs(quants[pos], acc)
+    return (pos == 0) ? abs : mkAbs(quants, pos-1, abs)
+  }
+  function mkApp (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
+    const app = new TP.App(acc, new TP.Var(quants[pos]))
+    return (pos == quants.length-1) ? app : mkApp(quants, pos+1, acc)
+  }
+  const prodFields = (tree.treeAt(1).sig as TP.Prod).fields
+  const quants = tree.sigQuants()
+  let ctorType = defTree.sig
+  if (quants.length > 0) ctorType = mkApp(quants, 0, ctorType)
+  if (prodFields.length > 0) ctorType = mkArrow(prodFields, prodFields.length-1, ctorType)
+  if (quants.length > 0) ctorType = mkAbs(quants, quants.length-1, ctorType)
+  return ctorType
 }
 
 // --------------------------
@@ -212,14 +264,14 @@ export class TreeEditor {
   }
 
   // TODO: addBranch, deleteBranch (for 'varargs' trees)
-  setTreeBranch (kind :string, branches :Branch[], typefn :(tree :Tree) => TP.Type) :Tree {
-    const tree = new Tree(kind, this.tree, this.owner, this.tree.scope, branches, typefn)
+  setTreeBranch (kind :string, branches :Branch[], sigfn :(tree :Tree) => TP.Type) :Tree {
+    const tree = new Tree(kind, this.tree, this.owner, this.tree.scope, branches, sigfn)
     return this.tree.setBranch(this.idx, tree)
   }
   setDefTreeBranch (kind :string, self :TreeSym, branches :Branch[],
-                    typefn :(tree :Tree) => TP.Type) :Tree {
+                    sigfn :(tree :Tree) => TP.Type) :Tree {
     const scope = this.tree.scope.extend([self])
-    const tree = new DefTree(kind, this.tree, this.owner, self, scope, branches, typefn)
+    const tree = new DefTree(kind, this.tree, this.owner, self, scope, branches, sigfn)
     self.tree = tree
     return this.tree.setBranch(this.idx, tree)
   }
@@ -232,6 +284,7 @@ export class TreeEditor {
     return this.setTreeBranch("tconst", [cnst], t => new TP.Const(t.constAt(0)))
   }
   setTRef (sym :S.Symbol) :Tree {
+    // TODO: only make recursive type defs lazy
     return this.setTreeBranch("tref", [sym], t => t.symAt(0).type)
   }
   setArrow (from :Tree, to :Tree) :Tree {
@@ -240,41 +293,41 @@ export class TreeEditor {
   }
   setTApp () :Tree {
     return this.setTreeBranch("tapp", [emptyTree, emptyTree],
-                              t => new TP.App(t.symAt(0).type, t.symAt(1).type))
+                              t => new TP.App(t.treeAt(0).sig, t.treeAt(1).sig))
   }
   setTAbs (name :Name) :Tree {
-    const sym = new TreeSym("type", name, this.owner)
+    const sym = new TypeVarTreeSym(name, this.owner)
     return this.setDefTreeBranch("tabs", sym, [sym, emptyTree],
-                                 t => new TP.Abs(t.symAt(0).name, t.symAt(1).type))
+                                 t => new TP.Abs(sym, t.treeAt(1).sig))
   }
   setField (name :Name) :Tree {
     const sym = new TreeSym("term", name, this.owner)
-    return this.setDefTreeBranch("field", sym, [sym, emptyTree], t => t.treeAt(1).type)
+    return this.setDefTreeBranch("field", sym, [sym, emptyTree], t => t.treeAt(1).sig)
   }
   setProd (fields :Tree[]) :Tree {
     return this.setTreeBranch("prod", fields,
-                              t => new TP.Prod(t.branches.map(b => (b as Tree).type as TP.Def)))
+                              t => new TP.Prod(t.branches.map(b => (b as Tree).sig as TP.Def)))
   }
   setProdN (cases :number) :Tree {
     return this.setProd(Array(cases).fill(emptyTree))
   }
   setSum (cases :Tree[]) :Tree {
     return this.setTreeBranch("sum", cases,
-                              t => new TP.Sum(t.branches.map(b => (b as Tree).type as TP.Def)))
+                              t => new TP.Sum(t.branches.map(b => (b as Tree).sig as TP.Def)))
   }
   setCtor (name :Name) :Tree {
     const sym = new TreeSym("func", name, this.owner)
     this.owner.module.scope.insert(sym)
-    return this.setDefTreeBranch("ctor", sym, [sym, emptyTree], t => t.treeAt(1).type)
+    return this.setDefTreeBranch("ctor", sym, [sym, emptyTree], ctorType)
   }
   // TODO
   // Array Type
   // Interface Name Params Methods
   // Method Name Type
-  setType (name :Name) :Tree {
-    const sym = new TreeSym("type", name, this.owner)
-    return this.setDefTreeBranch("type", sym, [sym, emptyTree], t => t.treeAt(1).type)
-  }
+  // setType (name :Name) :Tree {
+  //   const sym = new TreeSym("type", name, this.owner)
+  //   return this.setDefTreeBranch("type", sym, [sym, emptyTree], t => t.treeAt(1).type)
+  // }
 
   // Pattern trees
   setPHole () :Tree {
@@ -297,20 +350,19 @@ export class TreeEditor {
     return this.setDefTreeBranch("let", sym,[sym, emptyTree, emptyTree, emptyTree],
                                  t => TP.hole) // TODO: type
   }
-  setLetFun (name :Name, value :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
+  setLetFun (name :Name) :Tree {
     const sym = new TreeSym("func", name, this.owner)
-    return this.setDefTreeBranch("letfun", sym, [sym, value, expr],
-                                 t => TP.hole) // TODO: type
+    return this.setDefTreeBranch("letfun", sym, [sym, emptyTree, emptyTree],
+                                 t => t.treeAt(1).sig)
   }
-  setAll (name :Name, body :Tree = emptyTree) :Tree {
-    const sym = new TreeSym("type", name, this.owner)
-    return this.setDefTreeBranch("all", sym,[sym, body],
-                                 t => TP.hole) // TODO: type
+  setAll (name :Name) :Tree {
+    const sym = new TypeVarTreeSym(name, this.owner)
+    return this.setDefTreeBranch("all", sym,[sym, emptyTree], t => new TP.Abs(sym, t.treeAt(1).sig))
   }
-  setAbs (name :Name, type :Tree = emptyTree, body :Tree = emptyTree) :Tree {
-    const sym = new TreeSym("term", name, this.owner)
-    return this.setDefTreeBranch("abs", sym, [sym, type, body],
-                                 t => TP.hole) // TODO: type
+  setAbs (name :Name) :Tree {
+    const sym = new VarTreeSym(name, this.owner, t => t.treeAt(1).sig)
+    return this.setDefTreeBranch("abs", sym, [sym, emptyTree, emptyTree], t =>
+                                 new TP.Arrow(t.treeAt(1).sig, t.treeAt(2).sig))
   }
 
   // Expression terms
@@ -320,15 +372,15 @@ export class TreeEditor {
   setRef (sym :S.Symbol) :Tree {
     return this.setTreeBranch("ref", [sym], t => t.symAt(0).type)
   }
-  setAsc (type :Tree = emptyTree, expr :Tree = emptyTree) :Tree {
-    return this.setTreeBranch("asc", [type, expr], t => t.treeAt(0).type)
+  setAsc () :Tree {
+    return this.setTreeBranch("asc", [emptyTree, emptyTree], t => t.treeAt(0).sig)
   }
   setHole (xtype :TP.Type) :Tree {
     return this.setTreeBranch("hole", [], t => xtype)
   }
-  setApp (fun :Tree = emptyTree, arg :Tree = emptyTree) :Tree {
-    return this.setTreeBranch("app", [fun, arg],
-                              t => TP.hole) // TODO: type
+  setApp () :Tree {
+    return this.setTreeBranch("app", [emptyTree, emptyTree],
+                              t => TP.funApply(t.treeAt(0).sig, t.treeAt(1).sig))
   }
   setInApp (arg :Tree = emptyTree, fun :Tree = emptyTree) :Tree {
     return this.setTreeBranch("inapp", [arg, fun],
@@ -388,7 +440,7 @@ export function mkFunDef (mod :S.ModuleSym, name :Name) :DefTree {
   // insert this term symbol into the module scope
   mod.scope.insert(sym)
   const tree = new DefTree("fun", undefined, mod, sym, mod.scope.extend([sym]), [sym, emptyTree],
-                           t => TP.hole) // TODO: type
+                           t => t.treeAt(1).sig)
   sym.tree = tree
   return tree
 }
@@ -398,7 +450,7 @@ export function mkTypeDef (mod :S.ModuleSym, name :Name) :DefTree {
   // insert this type symbol into the module scope
   mod.scope.insert(sym)
   const tree = new DefTree("type", undefined, mod, sym, mod.scope.extend([sym]), [sym, emptyTree],
-                           t => t.treeAt(1).type)
+                           t => new TP.Def(sym, t.treeAt(1).sigKind))
   sym.tree = tree
   return tree
 }
@@ -407,11 +459,24 @@ export function mkTypeDef (mod :S.ModuleSym, name :Name) :DefTree {
 // Tree symbols
 // ------------
 
-/** Symbols assigned to trees. Obtains type information from tree type. */
+/** Symbols assigned to definition trees. Obtains type information from tree type. */
 class TreeSym extends S.Symbol {
-  tree! :Tree // initialized in tree constructor
+  tree! :Tree // initialized by tree (in constructor or when reincarnated)
   constructor (kind :S.Kind, name :Name, readonly owner :TreeSym|S.ModuleSym) { super(kind, name) }
-  get type () :TP.Type { return this.tree.type }
+  get type () :TP.Type { return this.tree.sig }
+}
+
+/** Symbols assigned to var trees. */
+class VarTreeSym extends TreeSym {
+  constructor (name :Name, readonly owner :TreeSym|S.ModuleSym,
+               readonly typefn :(t :Tree) => TP.Type) { super("term", name, owner) }
+  get type () :TP.Type { return this.typefn(this.tree) }
+}
+
+/** Symbols assigned to type var trees. */
+class TypeVarTreeSym extends TreeSym {
+  constructor (name :Name, readonly owner :TreeSym|S.ModuleSym) { super("type", name, owner) }
+  get type () :TP.Var { return new TP.Var(this) }
 }
 
 // export class ScalarDef extends TypeTree {
@@ -457,15 +522,26 @@ export type Edit = (te :TreeEditor) => void
 
 export const testModSym = new S.ModuleSym("test")
 
-const natSym = new TreeSym("type", "Nat", testModSym)
-const intSym = new TreeSym("type", "Int", testModSym)
-const stringSym = new TreeSym("type", "String", testModSym)
+class PrimTreeSym extends TreeSym {
+  constructor (name :Name, readonly owner :TreeSym|S.ModuleSym) { super("type", name, owner) }
+  get type () :TP.Type { return new TP.Def(this, TP.star) }
+}
+
+const natSym = new PrimTreeSym("Nat", testModSym)
+const intSym = new PrimTreeSym("Int", testModSym)
+const stringSym = new PrimTreeSym("String", testModSym)
 testModSym.scope.insert(natSym)
 testModSym.scope.insert(intSym)
 testModSym.scope.insert(stringSym)
 
-const addSym = new TreeSym("func", "+", testModSym)
-const subSym = new TreeSym("func", "-", testModSym)
+class PrimFunTreeSym extends TreeSym {
+  constructor (name :Name, readonly owner :TreeSym|S.ModuleSym,
+               readonly _type :TP.Type) { super("func", name, owner) }
+  get type () :TP.Type { return this._type }
+}
+
+const addSym = new PrimFunTreeSym("+", testModSym, new TP.Arrow(natSym.type, natSym.type))
+const subSym = new PrimFunTreeSym("-", testModSym, new TP.Arrow(natSym.type, natSym.type))
 testModSym.scope.insert(addSym)
 testModSym.scope.insert(subSym)
 
