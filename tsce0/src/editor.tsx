@@ -5,7 +5,6 @@ import { observer } from 'mobx-react'
 import * as F from './format'
 import * as M from './markup'
 import * as N from './names'
-import * as S from './symbols'
 import * as T from './trees'
 
 // Cursor and selection model
@@ -46,9 +45,9 @@ export class DefStore {
   @observable elem! :M.Elem
   @observable curs  :Cursor = {path: M.emptyPath, editing: false}
   @observable sel   :Selection = emptySelection
+  @observable showTypes :boolean = false
 
-  @computed get sym () :S.Symbol { return this.def.self }
-  @computed get name () :N.Name { return this.sym.name }
+  @computed get name () :N.Name { return this.def.self.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
 
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
@@ -61,7 +60,7 @@ export class DefStore {
 
   setDef (def :T.DefTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
-    let {elem, path} = F.format(def, focus || T.emptyPath)
+    let {elem, path} = F.format(def, focus || T.emptyPath, this.showTypes)
     transaction(() => {
       this.def = def
       this.elem = elem
@@ -78,6 +77,14 @@ export class DefStore {
       }
     })
   }
+
+  setShowTypes (showTypes :boolean) {
+    if (this.showTypes != showTypes) {
+      this.showTypes = showTypes
+      this.setDef(this.def)
+    }
+  }
+
   toString () {
     return `${this.name}/${this.def}`
   }
@@ -128,7 +135,15 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   render () {
     const {curs, elem} = this.props.store
     const cname = this.props.store.isActive ? "editor selectedEditor" : "editor"
-    return (<div className={cname}>{this.renderElem(0, curs, elem)}</div>)
+    const toggleTypes = (ev :React.FormEvent<HTMLInputElement>) =>
+      this.props.store.setShowTypes((ev.target as HTMLInputElement).checked)
+    return (<div className={cname}>
+              <div className="typeToggle">
+                Show types: <input type="checkbox" checked={this.props.store.showTypes}
+                                   onChange={toggleTypes}/>
+              </div>
+              {this.renderElem(0, curs, elem)}
+            </div>)
   }
 
   renderElems (curs :Cursor, elems :M.Elem[]) :JSX.Element[] {

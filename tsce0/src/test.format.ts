@@ -25,7 +25,7 @@ import * as F from './format'
 // })
 
 it('formats things', () => {
-  const tree = T.boxExample
+  const tree = T.revExample
   console.log(tree.debugShow().join("\n"))
   const {elem} = F.format(tree, [])
   console.dir(elem)

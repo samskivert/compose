@@ -53,10 +53,6 @@ export class ModuleSym extends Symbol {
   toString () { return `msym#${this.id}:${this.name}` }
 }
 
-function isCompletion (prefix :string, name :Name) {
-  return name.toLowerCase().startsWith(prefix)
-}
-
 export abstract class Scope {
 
   lookupTerm (name :Name) :Symbol { return this.lookup("term", name) }
@@ -76,6 +72,10 @@ export abstract class Scope {
   }
 
   abstract _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) :void
+
+  protected isCompletion (prefix :string, name :Name) :boolean {
+    return name.toLowerCase().startsWith(prefix)
+  }
 }
 
 class LexicalScope extends Scope {
@@ -90,7 +90,7 @@ class LexicalScope extends Scope {
     else return new MissingSym(kind, name)
   }
 
-  collect(into :Symbol[]) {
+  collect (into :Symbol[]) {
     into.push(...this.symbols)
     if (this.parent instanceof LexicalScope) this.parent.collect(into)
   }
@@ -103,9 +103,7 @@ class LexicalScope extends Scope {
 
   _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {
     for (let sym of this.symbols) {
-      if (pred(sym) && isCompletion(prefix, sym.name)) {
-        syms.push(sym)
-      }
+      if (pred(sym) && this.isCompletion(prefix, sym.name)) syms.push(sym)
     }
     if (this.parent) this.parent._addCompletions(pred, prefix, syms)
   }
@@ -150,7 +148,7 @@ export class ModuleScope extends Scope {
     // TODO: such inefficient, so expense
     for (let symvec of Array.from(this.symbols.values())) {
       for (let sym of symvec) {
-        if (pred(sym) && isCompletion(prefix, sym.name)) {
+        if (pred(sym) && this.isCompletion(prefix, sym.name)) {
           syms.push(sym)
         }
       }

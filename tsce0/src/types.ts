@@ -9,21 +9,31 @@ export interface Symbol {
   readonly name :Name
 }
 
+export interface DefSymbol extends Symbol {
+  readonly bodyType :Type
+}
+
 export abstract class Kind {
+  abstract equals (that :Kind) :boolean
 }
 
 export class Star extends Kind {
+  equals (that :Kind) :boolean { return that instanceof Star }
   toString () { return "*" }
 }
 export const star = new Star()
 
 export class KArrow extends Kind {
   constructor (readonly from :Kind, readonly to :Kind) { super() }
+  equals (that :Kind) :boolean {
+    return that instanceof KArrow && this.from.equals(that.from) && this.to.equals(that.to)
+  }
   toString () { return `${this.from} → ${this.to}` }
 }
 
 export class KError extends Kind {
   constructor (readonly msg :string) { super() }
+  equals (that :Kind) :boolean { return false }
   toString () { return `!!${this.msg}!!` }
 }
 
@@ -34,6 +44,15 @@ export class KError extends Kind {
 export abstract class Type {
   abstract get kind () :Kind
   abstract subsumes (that :Type) :boolean
+  abstract equals (that :Type) :boolean
+  join (that :Type) :Type {
+    if (this.equals(that)) return this
+    else if (that instanceof Def) return that.join(this)
+    else return this._joinFailure(that)
+  }
+  protected _joinFailure (that :Type) :Type {
+    return new Error(`Cannot join '${this}' with '${that}'`)
+  }
   skolemize (vars :Map<Symbol, Skolem>) :Type { return this }
   map (vars :Map<Skolem, Type>) :Type { return this }
   unify (that :Type, csts :Map<Skolem, Type>) :void {
@@ -44,7 +63,11 @@ export abstract class Type {
 
 export class Hole extends Type {
   constructor (readonly kind :Kind = star) { super() }
+  equals (that :Type) :boolean {
+    return that instanceof Hole && this.kind.equals(that.kind)
+  }
   subsumes (that :Type) :boolean { return false }
+  join (that :Type) :Type { return that }
   // TODO: correct?
   // subsumes (that :Type) :boolean { return true }
   toString () { return `Hole` }
@@ -53,6 +76,8 @@ export const hole = new Hole()
 
 export class Error extends Type {
   constructor (readonly msg :string, readonly kind :Kind = star) { super() }
+  equals (that :Type) :boolean { return false }
+  join (that :Type) :Type { return this }
   subsumes (that :Type) :boolean { return false }
   toString () { return `!!${this.msg}!!` }
 }
@@ -60,6 +85,15 @@ export class Error extends Type {
 export class Const extends Type {
   get kind () { return star }
   constructor (readonly cnst :Constant) { super() }
+  equals (that :Type) :boolean { return that instanceof Const && this.cnst.equals(that.cnst) }
+  join (that :Type) :Type {
+    if (that instanceof Const) {
+      if (this.cnst.tag != that.cnst.tag) return super.join(that)
+      else if (this.cnst.value === that.cnst.value) return this
+      else return new Scalar(this.cnst.tag, Math.max(this.cnst.bitWidth, that.cnst.bitWidth))
+    }
+    else return that.join(this)
+  }
   subsumes (that :Type) :boolean {
     if (that instanceof Const) {
       return (this.cnst.tag === that.cnst.tag &&
@@ -73,6 +107,7 @@ export class Const extends Type {
 export class Var extends Type {
   get kind () { return star }
   constructor (readonly sym :Symbol) { super() }
+  equals (that :Type) :boolean { return that instanceof Var && this.sym === that.sym }
   skolemize (vars :Map<Symbol, Skolem>) :Type {
     const skolem = vars.get(this.sym)
     return skolem ? skolem : this
@@ -86,6 +121,7 @@ export class Var extends Type {
 export class Skolem extends Type {
   get kind () { return star }
   constructor (readonly name :Name) { super() }
+  equals (that :Type) :boolean { return this === that }
   subsumes (that :Type) :boolean { return this === that }
   map (vars :Map<Skolem, Type>) :Type {
     const repl = vars.get(this)
@@ -93,12 +129,7 @@ export class Skolem extends Type {
   }
   unify (that :Type, csts :Map<Skolem, Type>) :void {
     const exists = csts.get(this)
-    if (exists) {
-      // TODO: join that and exists
-      console.log(`TODO: join ${that} and ${exists}`)
-    } else {
-      csts.set(this, that)
-    }
+    csts.set(this, exists ? that.join(exists) : that)
   }
   toString () { return `*${this.name}` }
 }
@@ -106,6 +137,16 @@ export class Skolem extends Type {
 export class Arrow extends Type {
   get kind () { return star }
   constructor (readonly from :Type, readonly to :Type) { super() }
+  get finalResult () :Type {
+    return (this.to instanceof Arrow) ? this.to.finalResult : this.to
+  }
+  equals (that :Type) :boolean {
+    return that instanceof Arrow && this.from.equals(that.from) && this.to.equals(that.to)
+  }
+  join (that :Type) :Type {
+    if (that instanceof Arrow) return new Arrow(this.from.join(that.from), this.to.join(that.to))
+    else return super.join(that)
+  }
   subsumes (that :Type) :boolean {
     if (that instanceof Arrow) {
       return this.from.subsumes(that.from) && that.to.subsumes(this.to)
@@ -130,6 +171,13 @@ export class Arrow extends Type {
 export class App extends Type {
   get kind () { return kindApply(this.ctor.kind, this.arg.kind) }
   constructor (readonly ctor :Type, readonly arg :Type) { super () }
+  equals (that :Type) :boolean {
+    return that instanceof App && this.ctor.equals(that.ctor) && this.arg.equals(that.arg)
+  }
+  join (that :Type) :Type {
+    if (that instanceof App) return new App(this.ctor.join(that.ctor), this.arg.join(that.arg))
+    else return super.join(that)
+  }
   subsumes (that :Type) :boolean {
     if (that instanceof App) return this.ctor.subsumes(that.ctor) && this.arg.subsumes(that.arg)
     else return false
@@ -152,6 +200,11 @@ export class App extends Type {
 export class Abs extends Type {
   get kind () { return new KArrow(star, this.body.kind) }
   constructor (readonly sym :Symbol, readonly body :Type) { super() }
+  equals (that :Type) :boolean {
+    // TODO: can the symbols be equal but the body not equal?
+    return that instanceof Abs && this.sym === that.sym && this.body.equals(that.body)
+  }
+  // TODO: can we join type abstractions?
   // TODO: does abs subsume anything
   subsumes (that :Type) :boolean { return false }
   skolemize (vars :Map<Symbol, Skolem>) :Type {
@@ -166,17 +219,42 @@ export class Abs extends Type {
 export class Scalar extends Type {
   get kind () { return star }
   constructor (readonly tag :Tag, readonly size :number) { super () }
+  equals (that :Type) :boolean {
+    return that instanceof Scalar && this.tag === that.tag && this.size == that.size
+  }
+  join (that :Type) :Type {
+    if (that instanceof Scalar) {
+      if (this.tag !== that.tag) return super.join(that)
+      else return this.size > that.size ? this : that
+    } else if (that instanceof Const) {
+      if (this.tag !== that.cnst.tag) return super.join(that)
+      // TODO: will tag dictate signed versus unsigned?
+      else return this
+    }
+    else return super.join(that)
+  }
   subsumes (that :Type) :boolean {
+    if (that instanceof Const) {
+      if (this.tag !== that.cnst.tag) return false
+      // TODO: will tag dictate signed versus unsigned?
+      else return true
+    }
     // TODO: widenings, coercions, whatnot
-    return that instanceof Scalar && this.tag == that.tag && this.size == that.size
+    return that instanceof Scalar && this.tag == that.tag && this.size >= that.size
   }
   toString () { return `Scalar:${this.tag}${this.size}`}
 }
 
 export class Def extends Type {
-  constructor (readonly sym :Symbol, readonly kind :Kind) { super() }
+  get kind () :Kind { return this.sym.bodyType.kind }
+  constructor (readonly sym :DefSymbol) { super() }
+  equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
+  join (that :Type) :Type {
+    if (this.subsumes(that)) return this
+    else return this._joinFailure(that)
+  }
   subsumes (that :Type) :boolean {
-    return that instanceof Def && this.sym == that.sym
+    return (that instanceof Def && this.sym == that.sym) || this.sym.bodyType.subsumes(that)
   }
   toString () { return `${this.sym.name}`}
 }
@@ -186,6 +264,9 @@ export class Def extends Type {
 export class Prod extends Type {
   get kind () { return star }
   constructor (readonly fields :Def[]) { super() }
+  equals (that :Type) :boolean {
+    return that instanceof Prod && this.fields.every((f, ii) => f.equals(that.fields[ii]))
+  }
   subsumes (that :Type) :boolean { return false }
   toString () { return `Record${this.fields.length}` }
 }
@@ -193,6 +274,9 @@ export class Prod extends Type {
 export class Sum extends Type {
   get kind () { return star }
   constructor (readonly cases :Def[]) { super() }
+  equals (that :Type) :boolean {
+    return that instanceof Sum && this.cases.every((c, ii) => c.equals(that.cases[ii]))
+  }
   subsumes (that :Type) :boolean { return false }
   toString () { return `Sum${this.cases.length}` }
 }
@@ -232,4 +316,40 @@ export function arrowApply (fun :Arrow, arg :Type) :Type {
   if (!fun.from.subsumes(arg)) return new Error(
     `Cannot apply fun of type ${fun} to arg of type ${arg}`)
   else return fun.to
+}
+
+export function patUnapply (type :Type) :Type {
+  if (!(type instanceof Arrow)) return new Error(`Cannot unapply non-arrow type ${type}`)
+  else if (type.to instanceof Arrow) return new Arrow(type.from, patUnapply(type.to))
+  else return type.from
+}
+
+export function patLastArg (type :Type) :Type {
+  if (!(type instanceof Arrow)) return new Error(`Cannot get last arg of non-arrow type ${type}`)
+  else if (type.to instanceof Arrow) return patLastArg(type.to)
+  else return type.to
+}
+
+export function patFlipArrow (type :Type) :Type {
+  function flip (from :Type, to :Type) :Type {
+    if (from instanceof Arrow) return flip(from.to, new Arrow(from.from, to))
+    else return new Arrow(from, to)
+  }
+  if (type instanceof Arrow) return flip(type.to, type.from)
+  else return type
+}
+
+export function patUnify (ctorType :Type, prototype :Type) :Type {
+  if (ctorType instanceof Abs) {
+    const skCtor = patFlipArrow(ctorType.skolemize(new Map()))
+    console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
+    const mappings = new Map()
+    if (skCtor instanceof Arrow) skCtor.from.unify(prototype, mappings)
+    else skCtor.unify(prototype, mappings)
+    const uCtor = skCtor.map(mappings)
+    // TODO: regeneralize?
+    return uCtor
+  } else {
+    return ctorType
+  }
 }

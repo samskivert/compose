@@ -9,6 +9,6 @@ export class Stack extends React.Component<{store :W.WorkspaceStore}> {
 
   render () {
     return (<div className="stack">{this.props.store.defs.slice().map(
-      store => <E.DefEditor key={store.sym.id} store={store} />)}</div>)
+      store => <E.DefEditor key={store.def.self.id} store={store} />)}</div>)
   }
 }
