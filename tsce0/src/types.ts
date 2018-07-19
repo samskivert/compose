@@ -313,7 +313,16 @@ export function funApply (fun :Type, arg :Type) :Type {
 }
 
 export function arrowApply (fun :Arrow, arg :Type) :Type {
-  if (!fun.from.subsumes(arg)) return new Error(
+  // if arg is generalized...
+  if (arg instanceof Abs) {
+    const skarg = arg.skolemize(new Map())
+    const mappings = new Map()
+    skarg.unify(fun.to, mappings)
+    const uarg = skarg.map(mappings)
+    // TODO: regeneralize?
+    return arrowApply(fun, uarg)
+  }
+  else if (!fun.from.subsumes(arg)) return new Error(
     `Cannot apply fun of type ${fun} to arg of type ${arg}`)
   else return fun.to
 }
@@ -342,7 +351,7 @@ export function patFlipArrow (type :Type) :Type {
 export function patUnify (ctorType :Type, prototype :Type) :Type {
   if (ctorType instanceof Abs) {
     const skCtor = patFlipArrow(ctorType.skolemize(new Map()))
-    console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
+    // console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
     const mappings = new Map()
     if (skCtor instanceof Arrow) skCtor.from.unify(prototype, mappings)
     else skCtor.unify(prototype, mappings)
