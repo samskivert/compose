@@ -31,8 +31,6 @@ function followCursor ({path, editing} :Cursor, idx :number) :Cursor {
 // | reset such that it starts and ends at the cursor's node.
 type Selection = {start :T.Path, end :T.Path}
 
-const emptySelection = {start: [], end: []}
-
 // | A span is either normal, selected or being edited.
 const enum Mode { Normal, Selected, Edited }
 
@@ -44,7 +42,7 @@ export class DefStore {
   @observable def!  :T.DefTree
   @observable elem! :M.Elem
   @observable curs  :Cursor = {path: M.emptyPath, editing: false}
-  @observable sel   :Selection = emptySelection
+  @observable sel   :Selection|void = undefined
   @observable showTypes :boolean = false
 
   @computed get name () :N.Name { return this.def.self.name }
@@ -60,21 +58,17 @@ export class DefStore {
 
   setDef (def :T.DefTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
-    let {elem, path} = F.format(def, focus || T.emptyPath, this.showTypes)
+    let {elem, path} = F.format(def, focus, this.showTypes)
     transaction(() => {
       this.def = def
       this.elem = elem
-      if (focus) {
-        if (M.isEmptyPath(path)) {
-          console.warn(`No path for focus: ${focus}`)
-          console.warn(def.debugShow().join("\n"))
-          this.curs.editing = false
-        } else {
-          this.curs = {path, editing: true}
-        }
-      } else {
+      if (!focus) this.curs.editing = false
+      else if (M.isEmptyPath(path)) {
+        console.warn(`No path for focus: ${focus}`)
+        console.warn(def.debugShow().join("\n"))
         this.curs.editing = false
       }
+      else this.curs = {path, editing: true}
     })
   }
 

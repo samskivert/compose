@@ -27,7 +27,7 @@ import * as F from './format'
 it('formats things', () => {
   const tree = T.revExample
   console.log(tree.debugShow().join("\n"))
-  const {elem} = F.format(tree, [])
+  const {elem} = F.format(tree, new T.Path(tree))
   console.dir(elem)
   console.log(elem.debugShow().join("\n"))
 })

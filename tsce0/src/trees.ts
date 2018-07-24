@@ -14,8 +14,8 @@ type Branch = Tree|S.Symbol|C.Constant
 let treeId = 0
 function nextTreeId () { treeId += 1 ; return treeId }
 
-type EditFn = (te :TreeEditor) => void
-type EditFns = { [key :string]: EditFn }
+export type EditFn = (te :TreeEditor) => void
+export type EditFns = { [key :string]: EditFn }
 
 export abstract class Tree {
   readonly id = nextTreeId()
@@ -35,16 +35,16 @@ export abstract class Tree {
     return name.substring(0, name.length-4).toLowerCase() // trim the tree
   }
 
+  get requireParent () :Tree {
+    if (this.parent) return this.parent
+    throw new Error(`Missing required parent @ ${this}`)
+  }
+
   abstract get sig () :TP.Type
 
   get branchIds () :string[] { return [] }
   branch (id :string) :Branch { return this[id] }
   setBranch (id :string, branch :Branch) { this[id] = branch }
-
-  get requireParent () :Tree {
-    if (this.parent) return this.parent
-    throw new Error(`Missing required parent @ ${this}`)
-  }
 
   /** Returns the prototype (expected type) for this tree. */
   get prototype () :TP.Type {
@@ -63,74 +63,28 @@ export abstract class Tree {
     if (this.parent) this.parent._sigQuants(acc)
   }
 
-  init (parent :Tree|void, parentId :string, owner :S.ModuleSym|TreeSym, scope :S.Scope) {
+  init (parent :Tree, parentId :string) {
     this._parent = parent
     this._parentId = parentId
-    this._owner = owner
-    this._scope = scope
+    this._owner = parent.childOwner(parentId)
+    this._scope = parent.childScope(parentId)
   }
 
   get firstEditableId () :string|void { return this.branchIds[0] }
 
-  firstEditable () :Path {
-    const path :Path = []
-    let tree :Tree = this
-    let firstId = tree.firstEditableId
-    while (firstId) {
-      let first = tree[firstId]
-      if (first instanceof Tree) {
-        path.push(firstId)
-        tree = first
-        firstId = tree.firstEditableId
-      } else if (first instanceof S.Symbol) {
-        path.push(firstId)
-        return path
-      }
-      else return path
-    }
-    return path
-  }
-
-  /** Applies `edit` to the branch identified by `path`. */
-  edit (path :Path, edit :Edit) :this {
-    if (path.length == 0) throw new Error(`Invalid (empty) path for edit of ${this}`)
-    const id = path[0]
-    if (path.length == 1) edit(this.editAt(id))
-    else {
-      const branch = this.branch(id)
-      if (branch instanceof Tree) branch.edit(path.slice(1), edit)
-      else throw new Error(`Edit path terminated in non-tree @${id} in ${this} (branch ${branch})`)
-    }
-    return this
-  }
-
-  select (path :Path) :Branch {
-    return this._select(path, 0)
-  }
-  _select (path :Path, pos :number) :Branch {
-    const id = path[pos]
-    this.checkBranchId(id, "select")
-    const branch = this.branch(id)
-    if (pos == path.length-1) return branch
-    else if (branch instanceof Tree) return branch._select(path, pos+1)
-    else {
-      throw new Error(`Select path terminated in non-tree @${id} in ${this} (branch ${branch})`)
-    }
-  }
-
   /** Adopts `child` by `reparent`ing it with `this` as its parent. */
   adopt (id :string, child :Tree) {
     console.log(`Adopting at ${id}:\n${child.debugShow().join("\n")}`)
-    child.reparent(this)
+    child.reparent(this, id)
     this.setBranch(id, child)
   }
 
   /** Changes this tree's parent to `parent`, potentially recreating its scope hierarchy. */
-  reparent (parent :Tree) {
-    this._parent = parent
+  reparent (parent :Tree, parentId :string) {
+    this.init(parent, parentId)
     for (let id of this.branchIds) {
       const branch = this.branch(id)
-      if (branch instanceof Tree) branch.reparent(this)
+      if (branch instanceof Tree) branch.reparent(this, id)
     }
   }
 
@@ -149,9 +103,9 @@ export abstract class Tree {
 
   editAt (id :string) :TreeEditor {
     this.checkBranchId(id, "edit@")
-    return new TreeEditor(this, this.childOwner(id), this.childScope(id), id)
+    return new TreeEditor(this, id)
   }
-  protected childOwner (id :string) :S.ModuleSym|TreeSym { return this.owner }
+  childOwner (id :string) :S.ModuleSym|TreeSym { return this.owner }
   protected childScope (id :string) :S.Scope { return this.scope }
 
   editBranch (id :string, editfn :(te :TreeEditor) => void) :this {
@@ -199,13 +153,52 @@ export abstract class Tree {
 
 export abstract class DefTree extends Tree {
   constructor (readonly self :TreeSym) { super() }
-  reparent (parent :Tree) {
-    // recreate our scope before calling super as we need the new scope to be in place when we
-    // recursively reparent our children
-    this._scope = parent.scope.extend([this.self])
-    super.reparent(parent)
+
+  mkPath (...ids :string[]) :Path { return new Path(this, ids) }
+
+  firstEditable () :Path {
+    const path :Path = new Path(this)
+    let tree :Tree = this
+    let firstId = tree.firstEditableId
+    while (firstId) {
+      let first = tree[firstId]
+      if (first instanceof Tree) {
+        path.push(firstId)
+        tree = first
+        firstId = tree.firstEditableId
+      } else if (first instanceof S.Symbol) {
+        path.push(firstId)
+        return path
+      }
+      else return path
+    }
+    return path
   }
-  protected childOwner (id :string) :S.ModuleSym|TreeSym { return this.self }
+
+  init (parent :Tree, parentId :string) {
+    super.init(parent, parentId)
+    this.self.tree = this
+    this._scope = new DefTreeScope(this.self, this.scope)
+  }
+
+  childOwner (id :string) :S.ModuleSym|TreeSym { return this.self }
+}
+
+class DefTreeScope extends S.Scope {
+
+  constructor (readonly sym :S.Symbol, readonly parent :S.Scope) { super() }
+
+  lookup (kind :S.Kind, name :Name) :S.Symbol {
+    const defsym = this.sym
+    if (kind == defsym.kind && name == defsym.name) return defsym
+    else return this.parent.lookup(kind, name)
+  }
+
+  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+    const defsym = this.sym
+    if (pred(defsym) && this.isCompletion(prefix, defsym.name)) syms.push(defsym)
+    return this.parent._addCompletions(pred, prefix, syms)
+  }
 }
 
 const emptyModSym = new S.ModuleSym("<empty>")
@@ -525,25 +518,33 @@ class CaseBodyScope extends S.Scope {
   }
 }
 
-// ----------------
-// Definition trees
-// ----------------
+// -------------------
+// Top-level def trees
+// -------------------
 
-export class FunDefTree extends DefTree {
+abstract class TopDefTree extends DefTree {
+  initMod (mod :S.ModuleSym) {
+    this._owner = mod
+    this._scope = mod.scope
+    this.self.tree = this
+  }
+}
+
+export class FunDefTree extends TopDefTree {
   body :Tree = emptyTree
   constructor (readonly sym :TreeSym) { super(sym) }
   get branchIds () :string[] { return ["sym", "body"] }
   get sig () :TP.Type { return this.body.sig }
 }
 
-export class TypeDefTree extends DefTree {
+export class TypeDefTree extends TopDefTree {
   body :Tree = emptyTree
   constructor (readonly sym :TypeTreeSym) { super(sym) }
   get branchIds () :string[] { return ["sym", "body"] }
   get sig () :TP.Type { return new TP.Def(this.sym) }
 }
 
-export class DefHoleTree extends DefTree {
+export class DefHoleTree extends TopDefTree {
   constructor (readonly sym :TreeSym) { super(sym) }
   get branchIds () :string[] { return ["sym"] }
   get sig () :TP.Type { return TP.hole }
@@ -554,23 +555,14 @@ export class DefHoleTree extends DefTree {
 // --------------------------
 
 export class TreeEditor {
-  constructor (readonly tree :Tree,
-               readonly owner :S.ModuleSym|TreeSym,
-               readonly scope :S.Scope,
-               readonly id :string) {}
+  constructor (readonly tree :Tree, readonly id :string) {}
 
   get currentTree () :Tree { return this.tree.treeAt(this.id) }
+  get owner () :S.ModuleSym|TreeSym { return this.tree.childOwner(this.id) }
 
   setName (name :Name) { this.tree.symAt(this.id).name = name }
   setBranch (tree :Tree) :Tree {
-    tree.init(this.tree, this.id, this.owner, this.scope)
-    this.tree.setBranch(this.id, tree)
-    return tree
-  }
-  setDefBranch (tree :DefTree) :Tree {
-    const scope = this.scope.extend([tree.self])
-    tree.init(this.tree, this.id, this.owner, scope)
-    tree.self.tree = tree
+    tree.init(this.tree, this.id)
     this.tree.setBranch(this.id, tree)
     return tree
   }
@@ -582,17 +574,17 @@ export class TreeEditor {
   setArrow () :Tree { return this.setBranch(new ArrowTree()) }
   setTApp () :Tree { return this.setBranch(new TAppTree()) }
   setTAbs (name :Name) :Tree {
-    return this.setDefBranch(new TAbsTree(new TypeVarTreeSym(name, this.owner)))
+    return this.setBranch(new TAbsTree(new TypeVarTreeSym(name, this.owner)))
   }
   setField (name :Name) :Tree {
-    return this.setDefBranch(new FieldTree(new TreeSym("term", name, this.owner)))
+    return this.setBranch(new FieldTree(new TreeSym("term", name, this.owner)))
   }
   setProd () :Tree { return this.setBranch(new ProdTree()) }
   setSum () :Tree { return this.setBranch(new SumTree()) }
   setCtor (name :Name) :Tree {
     const sym = new TreeSym("func", name, this.owner)
     this.owner.module.scope.insert(sym)
-    return this.setDefBranch(new CtorTree(sym))
+    return this.setBranch(new CtorTree(sym))
   }
   // TODO
   // Array Type
@@ -613,17 +605,17 @@ export class TreeEditor {
 
   // Abstraction terms
   setLet (name :Name) :Tree {
-    return this.setDefBranch(new LetTree(new TreeSym("term", name, this.owner)))
+    return this.setBranch(new LetTree(new TreeSym("term", name, this.owner)))
   }
   setLetFun (name :Name) :Tree {
-    return this.setDefBranch(new LetFunTree(new TreeSym("func", name, this.owner)))
+    return this.setBranch(new LetFunTree(new TreeSym("func", name, this.owner)))
   }
   setAll (name :Name) :Tree {
-    return this.setDefBranch(new AllTree(new TypeVarTreeSym(name, this.owner)))
+    return this.setBranch(new AllTree(new TypeVarTreeSym(name, this.owner)))
   }
   setAbs (name :Name) :Tree {
     const sym = new VarTreeSym(name, this.owner, tree => (tree as AbsTree).type.sig)
-    return this.setDefBranch(new AbsTree(sym))
+    return this.setBranch(new AbsTree(sym))
   }
 
   // Expression terms
@@ -668,8 +660,7 @@ export class TreeEditor {
 export function mkDefHole (mod :S.ModuleSym) :DefTree {
   const sym = new TreeSym("term", "", mod)
   const tree = new DefHoleTree(sym)
-  tree.init(undefined, "", mod, mod.scope)
-  sym.tree = tree
+  tree.initMod(mod)
   return tree
 }
 
@@ -678,8 +669,7 @@ export function mkFunDef (mod :S.ModuleSym, name :Name) :DefTree {
   // insert this term symbol into the module scope
   mod.scope.insert(sym)
   const tree = new FunDefTree(sym)
-  tree.init(undefined, "", mod, mod.scope.extend([sym]))
-  sym.tree = tree
+  tree.initMod(mod)
   return tree
 }
 
@@ -688,8 +678,7 @@ export function mkTypeDef (mod :S.ModuleSym, name :Name) :DefTree {
   // insert this type symbol into the module scope
   mod.scope.insert(sym)
   const tree = new TypeDefTree(sym)
-  tree.init(undefined, "", mod, mod.scope.extend([sym]))
-  sym.tree = tree
+  tree.initMod(mod)
   return tree
 }
 
@@ -754,14 +743,60 @@ class TypeVarTreeSym extends TreeSym {
  * cannot, in general, obtain the "thing" to which a path points as there is no single type that
  * describes it.
  */
-export type Path = string[]
+export class Path {
+  constructor (readonly root :DefTree, private ids :string[] = []) {}
 
-export const emptyPath :Path = []
-export const extendPath = (path :Path, id :string) :Path => path.concat([id])
-export const pathsEqual = (pa :Path, pb :Path) :boolean => {
-  if (pa.length !== pb.length) return false
-  for (let ii = 0; ii < pa.length; ii += 1) if (pa[ii] !== pb[ii]) return false
-  return true
+  /** Returns whether this path is empty. */
+  get isEmpty () :boolean { return this.ids.length === 0 }
+  /** Returns the length of this path. */
+  get length () :number { return this.ids.length }
+
+  /** Returns the branch selected by this path. */
+  get selected () :Branch { return this.treeAt(this.length-2).branch(this.id(this.length-1)) }
+
+  /** Returns the child id at offset `idx` (must be `0 <= idx < length`). */
+  id (idx :number) :string { return this.ids[idx] }
+  /** Returns the tree selected by the `idx`th component of this path. */
+  treeAt (idx :number) :Tree {
+    let tree :Tree = this.root
+    for (let ii = 0; ii <= idx; ii++) tree = tree.treeAt(this.id(ii))
+    return tree
+  }
+  /** Returns the kind of the tree selected by the `idx`th component of this path. */
+  kindAt (idx :number) :string { return this.treeAt(idx).kind }
+
+  /** Returns a new path which extends this path with `id`. */
+  x (id :string) :Path { return new Path(this.root, this.ids.concat(id)) }
+  /** Returns a new path which extends this path with `ids`. */
+  concat (ids :string[]) :Path { return new Path(this.root, this.ids.concat(ids)) }
+  /** Mutates this path in place, extending it with `id`. */
+  push (id :string) { this.ids.push(id) }
+
+  /** Returns a new path which omits the final selector from `this` path (popping up one level of
+    * the tree). */
+  pop () :Path { return new Path(this.root, this.ids.slice(0, -1)) }
+
+  /** Applies `editfn` to the subtree selected by this path.
+    * @return the edited root tree. */
+  edit (editfn :EditFn, ...fsuff :string[]) :DefTree {
+    const subtree = this.treeAt(this.length-2), childId = this.ids[this.length-1]
+    editfn(subtree.editAt(childId))
+    return this.root
+  }
+
+  /** Returns whether `this` path is equal to `that` path. */
+  equals (that :Path) :boolean {
+    // console.log(`Path.equals ${this} ?== ${that}`)
+    if (this.root !== that.root || this.length !== that.length) return false
+    for (let ii = 0; ii < this.length; ii++) {
+      if (this.id(ii) !== that.id(ii)) return false
+    }
+    return true
+  }
+
+  toString () {
+    return `${this.root}@[${this.ids}]`
+  }
 }
 
 export type Edit = (te :TreeEditor) => void

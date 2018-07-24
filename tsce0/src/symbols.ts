@@ -67,45 +67,10 @@ export abstract class Scope {
     return syms
   }
 
-  extend (symbols :Symbol[]) :Scope {
-    return new LexicalScope(this, symbols)
-  }
-
   abstract _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) :void
 
   protected isCompletion (prefix :string, name :Name) :boolean {
     return name.toLowerCase().startsWith(prefix)
-  }
-}
-
-class LexicalScope extends Scope {
-
-  constructor (readonly parent :Scope|void, readonly symbols :Symbol[]) { super() }
-
-  lookup (kind :Kind, name :Name) :Symbol {
-    const sym = this.symbols.find(sym => sym.name === name)
-    const parent = this.parent
-    if (sym && sym.kind === kind) return sym
-    else if (parent) return parent.lookup(kind, name)
-    else return new MissingSym(kind, name)
-  }
-
-  collect (into :Symbol[]) {
-    into.push(...this.symbols)
-    if (this.parent instanceof LexicalScope) this.parent.collect(into)
-  }
-
-  toString () {
-    const syms :Symbol[] = []
-    this.collect(syms)
-    return `[${syms}]`
-  }
-
-  _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {
-    for (let sym of this.symbols) {
-      if (pred(sym) && this.isCompletion(prefix, sym.name)) syms.push(sym)
-    }
-    if (this.parent) this.parent._addCompletions(pred, prefix, syms)
   }
 }
 
@@ -170,4 +135,8 @@ export class ModuleScope extends Scope {
   }
 }
 
-export const emptyScope = new LexicalScope(undefined, [])
+class EmptyScope extends Scope {
+  lookup (kind :Kind, name :Name) :Symbol { return new MissingSym(kind, name) }
+  _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {}
+}
+export const emptyScope :Scope = new EmptyScope()
