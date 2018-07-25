@@ -125,7 +125,7 @@ export abstract class Tree {
   protected _debugShow (indent :string, id :string, buf :string[]) {
     const pre = id ? `${id}=` : "";
     buf.push(`${indent}${pre}${this.kind} ` +
-             `parent=${this.parent ? this.parent.kind : "<none>"} ` +
+             // `parent=${this.parent ? this.parent.kind : "<none>"} ` +
              `owner=${this.owner} ` +
              `scope=${this.scope}`)
     for (let id of this.branchIds) {

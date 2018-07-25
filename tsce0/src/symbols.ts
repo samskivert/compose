@@ -26,7 +26,7 @@ export abstract class Symbol {
     return osym as ModuleSym
   }
 
-  toString () { return `sym#${this.id}:${this.name}` }
+  toString () { return `${this.name}#${this.id}` }
 }
 
 export class MissingSym extends Symbol {
@@ -66,6 +66,8 @@ export abstract class Scope {
     this._addCompletions(pred, prefix.toLowerCase(), syms)
     return syms
   }
+
+  toString () { return this.constructor.name }
 
   abstract _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) :void
 
@@ -141,6 +143,7 @@ export class ModuleScope extends Scope {
 
 class EmptyScope extends Scope {
   lookup (kind :Kind, name :Name) :Symbol { return new MissingSym(kind, name) }
+  toString () { return `<empty>` }
   _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {}
 }
 export const emptyScope :Scope = new EmptyScope()
