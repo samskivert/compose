@@ -44,6 +44,7 @@ export class DefStore {
   @observable curs  :Cursor = {path: M.emptyPath, editing: false}
   @observable sel   :Selection|void = undefined
   @observable showTypes :boolean = false
+  @observable showTree :boolean = false
 
   @computed get name () :N.Name { return this.def.self.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
@@ -92,7 +93,8 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   handleKey (ev :KeyboardEvent) :boolean {
-    if (this.props.store.curs.editing) return false
+    const {curs} = this.props.store
+    if (curs.editing) return false
 
     switch (ev.code) {
     case "ArrowLeft":  this._moveCursor(M.moveHoriz(M.HDir.Left))  ; break
@@ -127,16 +129,20 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   render () {
-    const {curs, elem} = this.props.store
-    const cname = this.props.store.isActive ? "editor selectedEditor" : "editor"
-    const toggleTypes = (ev :React.FormEvent<HTMLInputElement>) =>
-      this.props.store.setShowTypes((ev.target as HTMLInputElement).checked)
+    const {store} = this.props
+    const {curs, elem} = store
+    const cname = store.isActive ? "editor selectedEditor" : "editor"
     return (<div className={cname}>
-              <div className="typeToggle">
-                Show types: <input type="checkbox" checked={this.props.store.showTypes}
-                                   onChange={toggleTypes}/>
+              <div className="sideToggle">
+                tree <input type="checkbox" checked={store.showTree}
+                            onChange={ev => store.showTree = ev.target.checked}/>
+              </div>
+              <div className="sideToggle">
+                Show: types <input type="checkbox" checked={store.showTypes}
+                                   onChange={ev => store.setShowTypes(ev.target.checked)}/> &nbsp;
               </div>
               {this.renderElem(0, curs, elem)}
+              {store.showTree ? <pre className="debugTree">{store.def.debugShow().join("\n")}</pre> : undefined}
             </div>)
   }
 

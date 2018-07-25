@@ -46,7 +46,7 @@ export class HoleSym extends Symbol {
 }
 
 export class ModuleSym extends Symbol {
-  readonly scope = new ModuleScope()
+  readonly scope = new ModuleScope(this)
   constructor (name :Name) { super("module", name) }
   get type () :Type { return hole } // TODO: special module type? none type?
   get owner () :Symbol { return this }
@@ -82,7 +82,7 @@ export class ModuleScope extends Scope {
   symbols = new Map<Name,Symbol[]>()
   listeners = new Map<Symbol,Disposer>()
 
-  constructor () { super() }
+  constructor (readonly owner :ModuleSym) { super() }
 
   // TODO: revamp to return all matching symbols
   lookup (kind :Kind, name :Name) :Symbol {
@@ -107,6 +107,10 @@ export class ModuleScope extends Scope {
     if (sym.name !== "") this.unmap(sym.name, sym)
     const disp = this.listeners.get(sym)
     disp && disp()
+  }
+
+  toString () :string {
+    return `<module:${this.owner.name}>`
   }
 
   _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {

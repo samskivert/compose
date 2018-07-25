@@ -230,14 +230,14 @@ class Acc {
     this.block.push(sub.elem)
   }
 
-  appendAnnType (path :T.Path, tree :T.Tree) {
+  appendAnnType (path :T.Path, tree :T.Tree, termBodyPath? :T.Path) {
     if (tree.kind !== "empty") {
       // this.appendKeySpan(":")
       this.appendSepSpan(":")
       this.appendTree(path, tree)
     } else if (this.focus && path.equals(this.focus)) {
       this.appendSepSpan(":")
-      this.appendTypeExprSpan(path, tree.scope, "", tree.sig)
+      this.appendTypeExprSpan(path, tree.scope, "", tree.sig, undefined, termBodyPath)
     } // otherwise append nothing
   }
 
@@ -248,7 +248,7 @@ class Acc {
     const typePath = path.x("type")
     const bodyPath = path.x("body"), body = tree.body
     this.appendTermDefSpan(argPath, tree.scope, tree.sym, typePath, bodyPath)
-    this.appendAnnType(typePath, tree.type)
+    this.appendAnnType(typePath, tree.type, bodyPath)
     if (body instanceof T.AbsTree) {
       this.appendKeySpan(" → ")
       this.appendAbs(bodyPath, body, pos+1)
@@ -319,9 +319,9 @@ class Acc {
     this.appendKindAnnot(start, sym.type.kind)
   }
   appendTypeExprSpan (path :T.Path, scope :S.Scope, text :string, type :TP.Type,
-                      bodyPath? :T.Path) {
+                      typeBodyPath? :T.Path, termBodyPath? :T.Path) {
     let start = this.lineWidth
-    this.appendSpan(new TypeExprSpan(path, scope, text, bodyPath), path)
+    this.appendSpan(new TypeExprSpan(path, scope, text, typeBodyPath, termBodyPath), path)
     this.appendKindAnnot(start, type.kind)
   }
   appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol,
@@ -505,7 +505,8 @@ class TypeExprSpan extends TreeSpan {
     path :T.Path,
     scope :S.Scope,
     readonly sourceText :string,
-    readonly bodyPath? :T.Path
+    readonly typeBodyPath? :T.Path,
+    readonly termBodyPath? :T.Path
   ) { super(path, scope) }
 
   get styles () { return ["type"] }
@@ -514,15 +515,31 @@ class TypeExprSpan extends TreeSpan {
   handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
     const setRef = (te :T.TreeEditor) =>
       text == "" ? te.setTHole() : te.setTRef(te.tree.scope.lookupType(text))
-    const {path, bodyPath} = this
+    const {path, typeBodyPath, termBodyPath} = this
     switch (key) {
     case "Enter":
     case "Tab":
       return this.edit(path, setRef)
     case " ":
-      return bodyPath ?
-        this.edit(bodyPath, te => te.setTAbs("").adopt("body", te.currentTree)) :
-        this.edit(path, setRef)
+      if (typeBodyPath) {
+        return this.edit(typeBodyPath, te => te.setTAbs("").adopt("body", te.currentTree))
+      }
+      // TODO: stop the instanity, refactor all this to use composable rules
+      else if (termBodyPath) {
+        let tree = path.edit(setRef)
+        // if the body is an empty abs, we want to simply start editing it
+        // if not, we want to insert an empty abs first (and then edit that)
+        let child = termBodyPath.selected
+        if (!(child instanceof T.AbsTree) || child.sym.name !== "") {
+          tree = termBodyPath.edit(te => {
+            const oldBody = te.currentTree
+            return (mods.shift ? te.setTAbs("").adopt("body", oldBody) :
+                    te.setAbs("").adopt("body", oldBody))
+          })
+        }
+        return ({tree, focus: termBodyPath.x("sym")})
+      }
+      else this.edit(path, setRef)
     case "Escape":
       return "cancel"
     default:

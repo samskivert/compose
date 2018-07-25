@@ -199,6 +199,8 @@ class DefTreeScope extends S.Scope {
     if (pred(defsym) && this.isCompletion(prefix, defsym.name)) syms.push(defsym)
     return this.parent._addCompletions(pred, prefix, syms)
   }
+
+  toString () :string { return `${this.sym},${this.parent}` }
 }
 
 const emptyModSym = new S.ModuleSym("<empty>")

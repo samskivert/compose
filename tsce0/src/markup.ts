@@ -50,7 +50,7 @@ export abstract class Span {
   /** Returns the completions to show given the current `text`. */
   getCompletions (text :string) :Completion[] { return [] }
 
-  toString () { return this.displayText }
+  toString () :string { return this.displayText }
 }
 
 export abstract class EditableSpan extends Span {
