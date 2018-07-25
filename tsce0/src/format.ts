@@ -513,13 +513,23 @@ class TypeExprSpan extends TreeSpan {
   get editPlaceHolder () { return "<type>" }
 
   handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
-    const setRef = (te :T.TreeEditor) =>
-      text == "" ? te.setTHole() : te.setTRef(te.tree.scope.lookupType(text))
+    const setRef = (te :T.TreeEditor) => {
+      if (comp instanceof SymbolCompletion) te.setTRef(comp.item)
+      else if (text !== "") te.setTRef(te.tree.scope.lookupType(text))
+      else te.setTHole()
+    }
     const {path, typeBodyPath, termBodyPath} = this
     switch (key) {
     case "Enter":
     case "Tab":
       return this.edit(path, setRef)
+    case "=":
+      // TODO: do we want to allow = in type names?
+      if (termBodyPath) {
+        const tree = path.edit(setRef)
+        return {tree, focus: termBodyPath}
+      }
+      else return this.edit(path, setRef)
     case " ":
       if (typeBodyPath) {
         return this.edit(typeBodyPath, te => te.setTAbs("").adopt("body", te.currentTree))
@@ -579,22 +589,28 @@ class TermDefSpan extends TreeSpan {
       console.log(`Commit term edit ${path} => ${path.selected}`)
       return commitEdit(text, bodyPath)
     case ":":
-      if (!typePath) return commitEdit(text)
-      return ({tree: path.edit(setName), focus: typePath})
+      if (typePath) {
+        const tree = path.edit(setName)
+        if (typePath.selected instanceof T.EmptyTree) {
+          typePath.edit(te => te.setTHole())
+        }
+        return ({tree, focus: typePath})
+      } else return commitEdit(text)
     case " ":
-      if (!bodyPath) return commitEdit(text)
-      let tree = path.edit(setName)
-      // if the body is an empty abs, we want to simply start editing it
-      // if not, we want to insert an empty abs first (and then edit that)
-      let child = bodyPath.selected
-      if (!(child instanceof T.AbsTree) || child.sym.name !== "") {
-        tree = bodyPath.edit(te => {
-          const oldBody = te.currentTree
-          return (mods.shift ? te.setTAbs("").adopt("body", oldBody) :
-                  te.setAbs("").adopt("body", oldBody))
-        })
-      }
-      return ({tree, focus: bodyPath.x("sym")})
+      if (bodyPath) {
+        let tree = path.edit(setName)
+        // if the body is an empty abs, we want to simply start editing it
+        // if not, we want to insert an empty abs first (and then edit that)
+        let child = bodyPath.selected
+        if (!(child instanceof T.AbsTree) || child.sym.name !== "") {
+          tree = bodyPath.edit(te => {
+            const oldBody = te.currentTree
+            return (mods.shift ? te.setTAbs("").adopt("body", oldBody) :
+                    te.setAbs("").adopt("body", oldBody))
+          })
+        }
+        return ({tree, focus: bodyPath.x("sym")})
+      } else return commitEdit(text)
     case "Escape":
       return "cancel"
     default:
