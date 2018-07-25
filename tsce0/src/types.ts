@@ -24,11 +24,11 @@ export class Star extends Kind {
 export const star = new Star()
 
 export class KArrow extends Kind {
-  constructor (readonly from :Kind, readonly to :Kind) { super() }
+  constructor (readonly arg :Kind, readonly res :Kind) { super() }
   equals (that :Kind) :boolean {
-    return that instanceof KArrow && this.from.equals(that.from) && this.to.equals(that.to)
+    return that instanceof KArrow && this.arg.equals(that.arg) && this.res.equals(that.res)
   }
-  toString () { return `${this.from} → ${this.to}` }
+  toString () { return `${this.arg} → ${this.res}` }
 }
 
 export class KError extends Kind {
@@ -43,10 +43,12 @@ export class KError extends Kind {
 
 export abstract class Type {
   abstract get kind () :Kind
+  get isError () :Boolean { return false }
   abstract subsumes (that :Type) :boolean
   abstract equals (that :Type) :boolean
   join (that :Type) :Type {
     if (this.equals(that)) return this
+    else if (that instanceof Hole) return this
     else if (that instanceof Def) return that.join(this)
     else return this._joinFailure(that)
   }
@@ -76,6 +78,7 @@ export const hole = new Hole()
 
 export class Error extends Type {
   constructor (readonly msg :string, readonly kind :Kind = star) { super() }
+  get isError () :Boolean { return true }
   equals (that :Type) :boolean { return false }
   join (that :Type) :Type { return this }
   subsumes (that :Type) :boolean { return false }
@@ -136,36 +139,36 @@ export class Skolem extends Type {
 
 export class Arrow extends Type {
   get kind () { return star }
-  constructor (readonly from :Type, readonly to :Type) { super() }
+  constructor (readonly arg :Type, readonly res :Type) { super() }
   get finalResult () :Type {
-    return (this.to instanceof Arrow) ? this.to.finalResult : this.to
+    return (this.res instanceof Arrow) ? this.res.finalResult : this.res
   }
   equals (that :Type) :boolean {
-    return that instanceof Arrow && this.from.equals(that.from) && this.to.equals(that.to)
+    return that instanceof Arrow && this.arg.equals(that.arg) && this.res.equals(that.res)
   }
   join (that :Type) :Type {
-    if (that instanceof Arrow) return new Arrow(this.from.join(that.from), this.to.join(that.to))
-    else return super.join(that)
+    return (that instanceof Arrow) ? new Arrow(this.arg.join(that.arg), this.res.join(that.res)) :
+      super.join(that)
   }
   subsumes (that :Type) :boolean {
     if (that instanceof Arrow) {
-      return this.from.subsumes(that.from) && that.to.subsumes(this.to)
+      return this.arg.subsumes(that.arg) && that.res.subsumes(this.res)
     }
     return false
   }
   skolemize (vars :Map<Symbol, Skolem>) :Type {
-    return new Arrow(this.from.skolemize(vars), this.to.skolemize(vars))
+    return new Arrow(this.arg.skolemize(vars), this.res.skolemize(vars))
   }
   map (vars :Map<Skolem, Type>) :Type {
-    return new Arrow(this.from.map(vars), this.to.map(vars))
+    return new Arrow(this.arg.map(vars), this.res.map(vars))
   }
   unify (that :Type, csts :Map<Skolem, Type>) :void {
     if (that instanceof Arrow) {
-      this.from.unify(that.from, csts)
-      this.to.unify(that.to, csts)
+      this.arg.unify(that.arg, csts)
+      this.res.unify(that.res, csts)
     } else super.unify(that, csts)
   }
-  toString () { return `${this.from} → ${this.to}`}
+  toString () { return `${this.arg} → ${this.res}`}
 }
 
 export class App extends Type {
@@ -175,8 +178,8 @@ export class App extends Type {
     return that instanceof App && this.ctor.equals(that.ctor) && this.arg.equals(that.arg)
   }
   join (that :Type) :Type {
-    if (that instanceof App) return new App(this.ctor.join(that.ctor), this.arg.join(that.arg))
-    else return super.join(that)
+    return (that instanceof App) ? new App(this.ctor.join(that.ctor), this.arg.join(that.arg)) :
+      super.join(that)
   }
   subsumes (that :Type) :boolean {
     if (that instanceof App) return this.ctor.subsumes(that.ctor) && this.arg.subsumes(that.arg)
@@ -251,6 +254,7 @@ export class Def extends Type {
   equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
   join (that :Type) :Type {
     if (this.subsumes(that)) return this
+    // TODO: do we need to check for Hole here since we're not calling super.join?
     else return this._joinFailure(that)
   }
   subsumes (that :Type) :boolean {
@@ -290,7 +294,7 @@ export function kindApply (fun :Kind, arg :Kind) :Kind {
     `Cannot apply type arg (kind: ${arg}) to non-arrow kind ${fun}`)
   else if (arg !== star) return new Error(
     `Cannot apply type arrow (${fun}) to non-star kind ${arg}`)
-  else return fun.to
+  else return fun.res
 }
 
 export function funApply (fun :Type, arg :Type) :Type {
@@ -302,7 +306,7 @@ export function funApply (fun :Type, arg :Type) :Type {
       `Cannot apply arg (type: ${arg}) to non-fun: ${skfun}`)
     // unfiy...
     const mappings = new Map()
-    skfun.from.unify(arg, mappings)
+    skfun.arg.unify(arg, mappings)
     const ufun = skfun.map(mappings)
     // and regeneralize... (TODO)
     return arrowApply(ufun as Arrow, arg)
@@ -317,34 +321,34 @@ export function arrowApply (fun :Arrow, arg :Type) :Type {
   if (arg instanceof Abs) {
     const skarg = arg.skolemize(new Map())
     const mappings = new Map()
-    skarg.unify(fun.to, mappings)
+    skarg.unify(fun.res, mappings)
     const uarg = skarg.map(mappings)
     // TODO: regeneralize?
     return arrowApply(fun, uarg)
   }
-  else if (!fun.from.subsumes(arg)) return new Error(
+  else if (!fun.arg.subsumes(arg)) return new Error(
     `Cannot apply fun of type ${fun} to arg of type ${arg}`)
-  else return fun.to
+  else return fun.res
 }
 
 export function patUnapply (type :Type) :Type {
   if (!(type instanceof Arrow)) return new Error(`Cannot unapply non-arrow type ${type}`)
-  else if (type.to instanceof Arrow) return new Arrow(type.from, patUnapply(type.to))
-  else return type.from
+  else if (type.res instanceof Arrow) return new Arrow(type.arg, patUnapply(type.res))
+  else return type.arg
 }
 
 export function patLastArg (type :Type) :Type {
   if (!(type instanceof Arrow)) return new Error(`Cannot get last arg of non-arrow type ${type}`)
-  else if (type.to instanceof Arrow) return patLastArg(type.to)
-  else return type.to
+  else if (type.res instanceof Arrow) return patLastArg(type.res)
+  else return type.res
 }
 
 export function patFlipArrow (type :Type) :Type {
   function flip (from :Type, to :Type) :Type {
-    if (from instanceof Arrow) return flip(from.to, new Arrow(from.from, to))
+    if (from instanceof Arrow) return flip(from.res, new Arrow(from.arg, to))
     else return new Arrow(from, to)
   }
-  if (type instanceof Arrow) return flip(type.to, type.from)
+  if (type instanceof Arrow) return flip(type.res, type.arg)
   else return type
 }
 
@@ -353,7 +357,7 @@ export function patUnify (ctorType :Type, prototype :Type) :Type {
     const skCtor = patFlipArrow(ctorType.skolemize(new Map()))
     // console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
     const mappings = new Map()
-    if (skCtor instanceof Arrow) skCtor.from.unify(prototype, mappings)
+    if (skCtor instanceof Arrow) skCtor.arg.unify(prototype, mappings)
     else skCtor.unify(prototype, mappings)
     const uCtor = skCtor.map(mappings)
     // TODO: regeneralize?

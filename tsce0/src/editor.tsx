@@ -124,7 +124,6 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   _startEdit () {
-    console.log(`Starting edit: ${this.props.store.def}`)
     this.props.store.curs.editing = true
   }
 
@@ -175,7 +174,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
 
   renderSpan (idx :number, mode :Mode, span :M.Span) :JSX.Element {
     if (mode == Mode.Edited && span.isEditable) {
-      return <SpanEditor store={new SpanStore(span.sourceText)} defStore={this.props.store}
+      return <SpanEditor store={new SpanStore(span)} defStore={this.props.store}
                          key={idx} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
@@ -206,8 +205,9 @@ export class SpanStore {
   @observable completions :M.Completion[] = []
   @observable selCompIdx = 0
 
-  constructor (text :string) {
-    this.text = text
+  constructor (span :M.Span) {
+    const text = this.text = span.sourceText
+    this.completions = span.getCompletions(text)
   }
 
   get selectedCompletion () :M.Completion|void {
@@ -226,17 +226,19 @@ export class SpanEditor  extends React.Component<{
 
   render () {
     // console.log(`SpanEditor render ${this.props.span}`)
-    const comps = this.props.store.completions.map((comp, ii) => {
+    const store = this.props.store
+    const comps = store.completions.map((comp, ii) => {
       const line = comp.display()
-      const isSelected = ii == this.props.store.selCompIdx
+      const isSelected = ii == store.selCompIdx
       const styles = isSelected ? ["selected"] : []
-      return <div className={styles.join(" ")}>{line.spans.map((ss, ii) => spanSpan(ss, ii))}</div>
+      return <div key={ii} className={styles.join(" ")}>{
+        line.spans.map((ss, ii) => spanSpan(ss, ii))}</div>
     })
     return (
       <div className={"spanEditor"}>
         <input type="text" autoFocus={true}
                placeholder={this.props.span.editPlaceHolder}
-               value={this.props.store.text}
+               value={store.text}
                onChange={this.onChange.bind(this)}
                onBlur={ev => this.handleKey("Blur")}
                onKeyDown={ev => this.handleKey(ev.key, ev)} />
@@ -254,7 +256,7 @@ export class SpanEditor  extends React.Component<{
       const comps = this.props.span.getCompletions(text)
       store.completions = comps
       if (oldComp) {
-        const oldIdx = comps.findIndex(comp => comp.item === oldComp.item)
+        const oldIdx = comps.findIndex(comp => comp.equals(oldComp))
         if (oldIdx >= 0) store.selCompIdx = oldIdx
         else store.selCompIdx = 0
       } else store.selCompIdx = 0

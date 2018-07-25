@@ -156,24 +156,7 @@ export abstract class DefTree extends Tree {
 
   mkPath (...ids :string[]) :Path { return new Path(this, ids) }
 
-  firstEditable () :Path {
-    const path :Path = new Path(this)
-    let tree :Tree = this
-    let firstId = tree.firstEditableId
-    while (firstId) {
-      let first = tree[firstId]
-      if (first instanceof Tree) {
-        path.push(firstId)
-        tree = first
-        firstId = tree.firstEditableId
-      } else if (first instanceof S.Symbol) {
-        path.push(firstId)
-        return path
-      }
-      else return path
-    }
-    return path
-  }
+  firstEditable () :Path { return new Path(this).firstEditable() }
 
   init (parent :Tree, parentId :string) {
     super.init(parent, parentId)
@@ -433,7 +416,7 @@ class BaseAppTree extends Tree {
   protected childPrototype (id :string) :TP.Type|void {
     if (id === "arg") {
       const funType = this.fun.sig
-      if (funType instanceof TP.Arrow) return funType.from
+      if (funType instanceof TP.Arrow) return funType.arg
     } else if (id === "fun") {
       return new TP.Arrow(this.arg.sig, this.prototype)
     }
@@ -753,8 +736,16 @@ export class Path {
   /** Returns the length of this path. */
   get length () :number { return this.ids.length }
 
+  // TODO: these only sort of accidentally work when the path selects the root tree node
   /** Returns the branch selected by this path. */
-  get selected () :Branch { return this.treeAt(this.length-2).branch(this.id(this.length-1)) }
+  get selected () :Branch {
+    return this.ids.length == 0 ? this.root : this.selectedParent.branch(this.id(this.length-1))
+  }
+  /** Returns the tree that contains the branch selected by this path. */
+  get selectedParent () :Tree {
+    if (this.ids.length == 0) throw new Error(`Path references root, has no parent.`)
+    return this.treeAt(this.length-2)
+  }
 
   /** Returns the child id at offset `idx` (must be `0 <= idx < length`). */
   id (idx :number) :string { return this.ids[idx] }
@@ -767,6 +758,30 @@ export class Path {
   /** Returns the kind of the tree selected by the `idx`th component of this path. */
   kindAt (idx :number) :string { return this.treeAt(idx).kind }
 
+  /** Returns whether this path ends with the supplied path matching expression. Paths are matched
+    * with sequences of alternating tree `kind` and branch `id` tokens. The last token is always a
+    * branch `id`. For example: `[abs, sym]` matches a path that ends by selecting the `sym` branch
+    * of an `abs` tree node, `[typedef, body, tabs, body]` matches a path that ends by selecting the
+    * `body` branch of a `tabs` node which is directly nested under a `typedef` node in the `body`
+    * branch. The special token `*` can be used to match any tree `kind` or branch `id`.
+    *
+    * TODO: support some way to express matches that skip over intermediate tree nodes.
+    */
+  endsWith (...comps :string[]) :boolean {
+    let cii = comps.length-1, pii = this.ids.length-1, checkId = true
+    while (cii >= 0) {
+      if (checkId) {
+        if (this.ids[pii] !== comps[cii]) return false
+        pii -= 1
+      } else {
+        if (this.kindAt(pii) !== comps[cii]) return false
+      }
+      checkId = !checkId
+      cii -= 1
+    }
+    return true
+  }
+
   /** Returns a new path which extends this path with `id`. */
   x (id :string) :Path { return new Path(this.root, this.ids.concat(id)) }
   /** Returns a new path which extends this path with `ids`. */
@@ -777,6 +792,37 @@ export class Path {
   /** Returns a new path which omits the final selector from `this` path (popping up one level of
     * the tree). */
   pop () :Path { return new Path(this.root, this.ids.slice(0, -1)) }
+  /** Returns a new path which moves to the sibling of `this` path identified by `id`. This could be
+    * used, for example, to move from the `sym` branch of an `abs` node to the `type` branch. */
+  sib (id :string) :Path {
+    const ids = this.ids.slice(0)
+    ids[ids.length-1] = id
+    return new Path(this.root, ids)
+  }
+
+  /** Returns the extension of this path that selects the first editable. */
+  firstEditable () :Path {
+    let selected = this.selected
+    if (selected instanceof Tree) {
+      let tree :Tree = selected
+      let path = this
+      let firstId = tree.firstEditableId
+      while (firstId) {
+        let first = tree.branch(firstId)
+        if (first instanceof Tree) {
+          path.push(firstId)
+          tree = first
+          firstId = tree.firstEditableId
+        } else if (first instanceof S.Symbol) {
+          path.push(firstId)
+          return path
+        }
+        else return path
+      }
+      return path
+    }
+    else throw new Error(`Can't obtain firstEditable, path does not select tree: ${this}`)
+  }
 
   /** Applies `editfn` to the subtree selected by this path.
     * @return the edited root tree. */
@@ -797,7 +843,8 @@ export class Path {
   }
 
   toString () {
-    return `${this.root}@[${this.ids}]`
+    return `${this.root}` + this.ids.map(
+      (id, idx) => idx == this.ids.length-1 ? `.${id}` : `.${id}/${this.kindAt(idx)}`).join("")
   }
 }
 

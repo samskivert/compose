@@ -36,15 +36,15 @@ class Acc {
 
     if (tree instanceof T.FunDefTree) {
       this.appendKeySpan("fun ")
-      this.appendTermDefSpan(path.x(("sym")), tree.scope, tree.sym, undefined, path.x("body"))
+      this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
       this.appendSepSpan(" ")
-      this.appendTree(path.x(("body")), tree.body)
+      this.appendTree(path.x("body"), tree.body)
 
     } else if (tree instanceof T.TypeDefTree) {
       if (this.depth == 0) this.appendKeySpan("type ")
       const body = tree.body
-      const bodyPath = path.x(("body"))
-      this.appendTypeDefSpan(path.x(("sym")), tree.scope, tree.sym, bodyPath)
+      const bodyPath = path.x("body")
+      this.appendTypeDefSpan(path.x("sym"), tree.scope, tree.sym, bodyPath)
       if (body instanceof T.TAbsTree) {
         this.appendTAbs(bodyPath, body, 0)
       } else {
@@ -53,13 +53,13 @@ class Acc {
       }
 
     } else if (tree instanceof T.DefHoleTree) {
-      this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), path.x(("sym")))
+      this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), path.x("sym"))
 
     } else if (tree instanceof T.CtorTree) {
       this.depth += 1
-      this.appendTypeDefSpan(path.x(("sym")), tree.scope, tree.sym, path.x(("prod")))
+      this.appendTypeDefSpan(path.x("sym"), tree.scope, tree.sym, path.x("prod"))
       this.depth -= 1
-      this.appendTree(path.x(("prod")), tree.prod)
+      this.appendTree(path.x("prod"), tree.prod)
       this.appendTypeAnnot(start, tree.sig)
 
     } else if (tree instanceof T.EmptyTree) {
@@ -72,9 +72,9 @@ class Acc {
       this.appendTypeExprSpan(path, tree.scope, tree.cnst.value, tree.sig)
 
     } else if (tree instanceof T.ArrowTree) {
-      this.appendTree(path.x(("from")), tree.from)
+      this.appendTree(path.x("from"), tree.from)
       this.appendKeySpan(" → ")
-      this.appendTree(path.x(("to")), tree.to)
+      this.appendTree(path.x("to"), tree.to)
 
     // } else if (tpe instanceof T.ScalarDef) {
     //   this.appendTypeExprSpan(path, `${tpe.tag}${tpe.size}`)
@@ -86,30 +86,30 @@ class Acc {
       this.appendTAbs(path, tree, 0)
 
     } else if (tree instanceof T.TAppTree) {
-      this.appendTree(path.x(("ctor")), tree.ctor)
+      this.appendTree(path.x("ctor"), tree.ctor)
       // this.appendSepSpan("[")
       this.appendSepSpan(" ")
-      this.appendTree(path.x(("arg")), tree.arg)
+      this.appendTree(path.x("arg"), tree.arg)
       // this.appendSepSpan("]")
       this.appendKindAnnot(start, tree.sig.kind)
 
     } else if (tree instanceof T.FieldTree) {
-      this.appendTermDefSpan(path.x(("sym")), tree.scope, tree.sym)
-      this.appendAnnType(path.x(("type")), tree.type)
+      this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
+      this.appendAnnType(path.x("type"), tree.type)
 
     } else if (tree instanceof T.ProdTree) {
       for (let ii = 0; ii < tree.fields.length; ii += 1) {
         // TODO: newline separate if documented?
         // this.appendSepSpan(ii == 0 ? "(" : ",")
         this.appendSepSpan(" ")
-        this.appendTree(path.x((`${ii}`)), tree.fields[ii])
+        this.appendTree(path.x(`${ii}`), tree.fields[ii])
       }
       // if (tree.branches.length > 0) this.appendSepSpan(")")
 
     } else if (tree instanceof T.SumTree) {
       for (let ii = 0; ii < tree.cases.length; ii += 1) {
         this.newLine()
-        this.appendSubTree(path.x((`${ii}`)), tree.cases[ii])
+        this.appendSubTree(path.x(`${ii}`), tree.cases[ii])
       }
 
     } else if (tree instanceof T.LitTree) {
@@ -125,57 +125,55 @@ class Acc {
       this.appendExprSpan(path, tree.scope, tree.cnst.value, tree.sig, "constant")
 
     } else if (tree instanceof T.PBindTree) {
-      this.appendTermDefSpan(path.x(("sym")), tree.scope, tree.sym)
+      this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
 
     } else if (tree instanceof T.PDtorTree) {
       this.appendExprSpan(path, tree.scope, tree.ctor.name, tree.sig, tree.ctor.kind)
 
     } else if (tree instanceof T.PAppTree) {
-      this.appendTree(path.x(("fun")), tree.fun)
+      this.appendTree(path.x("fun"), tree.fun)
       this.appendSepSpan(" ")
-      this.appendTree(path.x(("arg")), tree.arg)
+      this.appendTree(path.x("arg"), tree.arg)
 
     } else if (tree instanceof T.AppTree) {
-      this.appendTree(path.x(("fun")), tree.fun)
+      this.appendTree(path.x("fun"), tree.fun)
       this.appendSepSpan(" ")
       const wantParens = (tree.fun.kind !== "inapp" && tree.arg.kind === "app")
       if (wantParens) this.appendSepSpan("(")
-      this.appendTree(path.x(("arg")), tree.arg)
+      this.appendTree(path.x("arg"), tree.arg)
       if (wantParens) this.appendSepSpan(")")
       this.appendTypeAnnot(start, tree.sig)
 
     } else if (tree instanceof T.InAppTree) {
-      this.appendTree(path.x(("arg")), tree.arg)
+      this.appendTree(path.x("arg"), tree.arg)
       this.appendSepSpan(" ")
-      this.appendTree(path.x(("fun")), tree.fun)
+      this.appendTree(path.x("fun"), tree.fun)
       this.appendTypeAnnot(start, tree.sig)
 
     } else if (tree instanceof T.LetTree) {
       this.appendKeySpan("let ")
-      const typePath = path.x(("type"))
-      const bodyPath = path.x(("body"))
-      this.appendTermDefSpan(path.x(("sym")), tree.scope, tree.sym, typePath, bodyPath)
-      this.appendAnnType(typePath, tree.type)
+      this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
+      this.appendAnnType(path.x("type"), tree.type)
       this.appendKeySpan(" = ")
-      this.appendTree(bodyPath, tree.body)
+      this.appendTree(path.x("body"), tree.body)
       this.appendTypeAnnot(start, tree.sig)
       this.newLine()
       this.appendKeySpan("in ")
-      this.appendTree(path.x(("expr")), tree.expr)
+      this.appendTree(path.x("expr"), tree.expr)
 
     } else if (tree instanceof T.LetFunTree) {
       this.appendKeySpan("fun ")
-      this.appendTermDefSpan(path.x(("sym")), tree.scope, tree.sym, undefined, path.x(("body")))
+      this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
       this.appendSepSpan(" ")
-      this.appendTree(path.x(("body")), tree.body)
+      this.appendTree(path.x("body"), tree.body)
       this.appendTypeAnnot(start, tree.sig)
       this.newLine()
-      this.appendTree(path.x(("expr")), tree.expr)
+      this.appendTree(path.x("expr"), tree.expr)
 
     } else if (tree instanceof T.AscTree) {
-      this.appendTree(path.x(("expr")), tree.expr)
+      this.appendTree(path.x("expr"), tree.expr)
       this.appendSepSpan(":")
-      this.appendTree(path.x(("type")), tree.type)
+      this.appendTree(path.x("type"), tree.type)
 
     } else if (tree instanceof T.AllTree) {
       this.appendAll(path, tree, 0)
@@ -185,27 +183,27 @@ class Acc {
 
     } else if (tree instanceof T.IfTree) {
       this.appendKeySpan("if ")
-      this.appendTree(path.x(("test")), tree.test)
+      this.appendTree(path.x("test"), tree.test)
       this.appendKeySpan(" then ")
-      this.appendTree(path.x(("texp")), tree.texp)
+      this.appendTree(path.x("texp"), tree.texp)
       this.appendKeySpan(" else ")
-      this.appendTree(path.x(("fexp")), tree.fexp)
+      this.appendTree(path.x("fexp"), tree.fexp)
       this.appendTypeAnnot(start, tree.sig)
 
     } else if (tree instanceof T.MatchTree) {
       this.appendKeySpan("case ")
-      this.appendTree(path.x(("scrut")), tree.scrut)
+      this.appendTree(path.x("scrut"), tree.scrut)
       this.appendKeySpan(" of")
       this.appendTypeAnnot(start, tree.sig)
       for (let ii = 0; ii < tree.cases.length; ii += 1) {
         this.newLine()
-        this.appendSubTree(path.x((`${ii}`)), tree.cases[ii])
+        this.appendSubTree(path.x(`${ii}`), tree.cases[ii])
       }
 
     } else if (tree instanceof T.CaseTree) {
-      this.appendTree(path.x(("pat")), tree.pat)
+      this.appendTree(path.x("pat"), tree.pat)
       this.appendKeySpan(" → ")
-      this.appendTree(path.x(("body")), tree.body)
+      this.appendTree(path.x("body"), tree.body)
       this.appendTypeAnnot(start, tree.sig)
 
     } else {
@@ -244,11 +242,9 @@ class Acc {
   // Coalescing abs:
   // - abs inspects body: if it's another abs, append the arg & 'lift' the body
   appendAbs (path :T.Path, tree :T.AbsTree, pos :number) {
-    const argPath  = path.x("sym")
-    const typePath = path.x("type")
     const bodyPath = path.x("body"), body = tree.body
-    this.appendTermDefSpan(argPath, tree.scope, tree.sym, typePath, bodyPath)
-    this.appendAnnType(typePath, tree.type, bodyPath)
+    this.appendTermDefSpan(path.x("sym"), tree.scope, tree.sym)
+    this.appendAnnType(path.x("type"), tree.type, bodyPath)
     if (body instanceof T.AbsTree) {
       this.appendKeySpan(" → ")
       this.appendAbs(bodyPath, body, pos+1)
@@ -324,10 +320,9 @@ class Acc {
     this.appendSpan(new TypeExprSpan(path, scope, text, typeBodyPath, termBodyPath), path)
     this.appendKindAnnot(start, type.kind)
   }
-  appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol,
-                     typePath? :T.Path, bodyPath? :T.Path) {
+  appendTermDefSpan (path :T.Path, scope :S.Scope, sym :S.Symbol) {
     let start = this.lineWidth
-    this.appendSpan(new TermDefSpan(path, scope, sym, typePath, bodyPath), path)
+    this.appendSpan(new TermDefSpan(path, scope, sym), path)
     this.appendTypeAnnot(start, sym.type)
   }
   appendExprSpan (path :T.Path, scope :S.Scope, name :string, type :TP.Type, style :string) {
@@ -400,11 +395,37 @@ class Acc {
 
 const blank = (count :number) :string => '\u00A0'.repeat(count)
 
-export class SymbolCompletion implements M.Completion {
+class SymbolCompletion implements M.Completion {
   constructor (readonly item :S.Symbol) {}
-
+  get type () :TP.Type { return this.item.type }
   display () :M.Line {
-    return new M.Line([new M.TextSpan(this.item.name)], []) // TODO
+    const item = this.item, sig = item.kind == "type" ? item.type.kind : item.type
+    const sigStyle = item.kind == "type" ? "kind" : "type"
+    return new M.Line([new M.TextSpan(item.name, [item.kind]),
+                       new M.TextSpan(` :`),
+                       new M.TextSpan(sig.toString(), [sigStyle])], []) // TODO: better formating
+  }
+  apply (te :T.TreeEditor) {
+    const item = this.item
+    if (item.kind == "type") te.setTRef(item)
+    else te.setRef(item)
+  }
+  equals (that :M.Completion) :boolean {
+    return that instanceof SymbolCompletion && this.item === that.item
+  }
+}
+
+class ConstCompletion implements M.Completion {
+  constructor (readonly cnst :C.Constant) {}
+  get type () :TP.Type { return new TP.Const(this.cnst) }
+  display () :M.Line {
+    return new M.Line([new M.TextSpan(this.cnst.value, ["constant"])], [])
+  }
+  apply (te :T.TreeEditor) {
+    te.setLit(this.cnst)
+  }
+  equals (that :M.Completion) :boolean {
+    return that instanceof ConstCompletion && this.cnst.equals(that.cnst)
   }
 }
 
@@ -417,12 +438,6 @@ abstract class TreeSpan extends M.EditableSpan {
   }
 
   toString () { return `${this.displayText} @ ${this.path}` }
-}
-
-function mkFun (msym :S.ModuleSym) {
-  return T.mkFunDef(msym, "").editBranch(
-    "body", body => body.setAbs("").editBranch(
-      "body", body => body.setHole(TP.hole)))
 }
 
 class DefHoleSpan extends TreeSpan {
@@ -450,15 +465,150 @@ class DefHoleSpan extends TreeSpan {
   commitEdit (text :string, comp :M.Completion|void) :M.EditAction {
     const msym = this.root.owner as S.ModuleSym
     if (text === "fun") {
-      const funtree = mkFun(msym)
-      return {tree: funtree, focus: funtree.mkPath("sym")}
+      const tree = T.mkFunDef(msym, "").editBranch(
+        "body", body => body.setAbs("").editBranch(
+          "body", body => body.setHole(TP.hole)))
+      return {tree, focus: tree.mkPath("sym")}
+    }
+    else if (text === "sum") {
+      const tree = T.mkTypeDef(msym, "").editBranch(
+        "body", body => body.setSum().editBranch(
+          "0", zero => zero.setCtor("").editBranch(
+            "prod", prod => prod.setProd())))
+      return {tree, focus: tree.mkPath("sym")}
+    }
+    else if (text === "prod") {
+      const tree = T.mkTypeDef(msym, "").editBranch(
+        "body", body => body.setCtor("").editBranch(
+          "prod", prod => prod.setProd().editBranch(
+            "0", zero => zero.setField("").editBranch(
+              "type", type => type.setTHole()))))
+      return {tree, focus: tree.mkPath("sym")}
     // } else if (text === "let") {
       // TODO
-    } else return "extend"
+    }
+    else return "extend"
   }
 }
 
-class TypeDefSpan extends TreeSpan {
+type Rule = {
+  name: string
+  keyPred :(key :string, mods :M.Modifiers) => boolean
+  pathPred :(path :T.Path) => boolean
+  editOp :(path :T.Path, text :string, comp :M.Completion|void, mods :M.Modifiers) => T.DefTree
+  focusOp? :(path :T.Path) => T.Path
+}
+
+const addArgType :Rule = {
+  name: "addArgType",
+  keyPred: (key, mods) => key === ":",
+  pathPred: path => path.endsWith("abs", "sym"),
+  editOp: (path, text, comp, mods) => {
+    path.edit(te => te.setName(text))
+    const typePath = path.pop().x("type")
+    if (typePath.selected instanceof T.EmptyTree) {
+      typePath.edit(te => te.setTHole())
+    }
+    return path.root
+  },
+  focusOp: path => path.pop().x("type")
+}
+
+const isEmptyAbs = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name === ""
+const isEmptyTAbs = (tree :T.Tree) => tree instanceof T.TAbsTree && tree.sym.name === ""
+const isEmptyAll = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name === ""
+
+const addAbs :Rule = {
+  name: "addAbs",
+  keyPred: (key, mods) => key === " " && !mods.shift,
+  pathPred: path => path.endsWith("abs", "sym") || path.endsWith("fundef", "sym"),
+  editOp: (path, text, comp, mods) => {
+    let tree = path.edit(te => te.setName(text))
+    const bodyPath = path.sib("body"), body = bodyPath.selected as T.Tree
+    return isEmptyAbs(body) ? tree : bodyPath.edit(te => te.setAbs("").adopt("body", body))
+  },
+  focusOp: path => path.sib("body").x("sym")
+}
+
+const addTAbs :Rule = {
+  name: "addTAbs",
+  keyPred: (key, mods) => key === " ",
+  pathPred: path => path.endsWith("tabs", "sym") || path.endsWith("typedef", "sym"),
+  editOp: (path, text, comp, mods) => {
+    let tree = path.edit(te => te.setName(text))
+    const bodyPath = path.sib("body"), body = bodyPath.selected as T.Tree
+    return isEmptyTAbs(body) ? tree : bodyPath.edit(te => te.setTAbs("").adopt("body", body))
+  },
+  focusOp: path => path.sib("body").x("sym")
+}
+
+const addAll :Rule = {
+  name: "addAll",
+  keyPred: (key, mods) => key === " " && !!mods.shift,
+  pathPred: path => path.endsWith("fundef", "sym") || path.endsWith("all", "sym"),
+  editOp: (path, text, comp, mods) => {
+    let tree = path.edit(te => te.setName(text))
+    const bodyPath = path.sib("body"), body = bodyPath.selected as T.Tree
+    return isEmptyAll(body) ? tree : bodyPath.edit(te => te.setAbs("").adopt("body", body))
+  },
+  focusOp: path => path.sib("body").x("sym")
+}
+
+function findBody (tree :T.Tree, path :T.Path) :T.Path {
+  // TODO: maybe aggregate these into some shared abstract base class...
+  if (tree instanceof T.TypeDefTree ||
+      tree instanceof T.TAbsTree ||
+      tree instanceof T.FunDefTree ||
+      tree instanceof T.AllTree ||
+      tree instanceof T.AbsTree) return findBody(tree.body, path.x("body"))
+  else return path
+}
+
+const eqToBody :Rule = {
+  name: "eqToBody",
+  keyPred: (key, mods) => key === "=",
+  pathPred: path => (path.endsWith("typedef", "sym") ||
+                     path.endsWith("tabs", "sym") ||
+                     path.endsWith("fundef", "sym") ||
+                     path.endsWith("all", "sym") ||
+                     path.endsWith("abs", "sym")),
+  editOp: (path, text, comp, mods) => path.edit(te => te.setName(text)),
+  focusOp: path => findBody(path.selectedParent, path.pop()).firstEditable()
+}
+
+const rules :Rule[] = [
+  addArgType,
+  addAbs,
+  addTAbs,
+  addAll,
+  eqToBody,
+]
+
+abstract class RuleDefSpan extends TreeSpan {
+
+  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
+    const {path} = this
+    for (let rule of rules) {
+      if (rule.keyPred(key, mods) && rule.pathPred(path)) {
+        console.log(`FIRE ${rule.name}`)
+        const focus = rule.focusOp && rule.focusOp(path)
+        return {tree: rule.editOp(path, text, comp, mods), focus}
+      }
+    }
+
+    switch (key) {
+    case "Enter":
+    case "Tab":
+      return this.edit(this.path, te => te.setName(text))
+    case "Escape":
+      return "cancel"
+    default:
+      return "extend"
+    }
+  }
+}
+
+class TypeDefSpan extends RuleDefSpan {
   constructor (
     path :T.Path,
     scope :S.Scope,
@@ -470,30 +620,17 @@ class TypeDefSpan extends TreeSpan {
   get styles () { return ["type"] }
   get editPlaceHolder () { return "<name>" }
 
-  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
-    const {path, bodyPath} = this
-    console.log(`typeNameEdit ${key} @ ${text}`)
-    const setName :T.EditFn = te => te.setName(text)
-    switch (key) {
-    case "Enter":
-    case "Tab":
-    case "=":
-      return {tree: this.path.edit(setName), focus: bodyPath}
-    case ":":
-      // TODO: should we just allow : in type names? could be problematic?
-      return {tree: this.path.edit(setName)}
-    case " ":
-      if (bodyPath) {
-        path.edit(setName)
-        return this.edit(bodyPath, te => te.setTAbs("").adopt("body", te.currentTree), "sym")
-      }
-      else return this.edit(path, setName)
-    case "Escape":
-      return "cancel"
-    default:
-      return "extend"
-    }
+  getCompletions (text :string) :M.Completion[] {
+    return [] // TODO
   }
+}
+
+class TermDefSpan extends RuleDefSpan {
+  constructor (path :T.Path, scope :S.Scope, readonly sym :S.Symbol) { super(path, scope) }
+
+  get styles () { return [this.sym.kind] }
+  get sourceText () { return this.sym.name }
+  get editPlaceHolder () { return "<name>" }
 
   getCompletions (text :string) :M.Completion[] {
     return [] // TODO
@@ -514,7 +651,7 @@ class TypeExprSpan extends TreeSpan {
 
   handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
     const setRef = (te :T.TreeEditor) => {
-      if (comp instanceof SymbolCompletion) te.setTRef(comp.item)
+      if (comp) comp.apply(te)
       else if (text !== "") te.setTRef(te.tree.scope.lookupType(text))
       else te.setTHole()
     }
@@ -532,7 +669,10 @@ class TypeExprSpan extends TreeSpan {
       else return this.edit(path, setRef)
     case " ":
       if (typeBodyPath) {
-        return this.edit(typeBodyPath, te => te.setTAbs("").adopt("body", te.currentTree))
+        return this.edit(typeBodyPath, te => {
+          const body = te.currentTree
+          return te.setTAbs("").adopt("body", body)
+        })
       }
       // TODO: stop the instanity, refactor all this to use composable rules
       else if (termBodyPath) {
@@ -558,68 +698,9 @@ class TypeExprSpan extends TreeSpan {
   }
 
   getCompletions (text :string) :M.Completion[] {
+    console.log(`getCompletions ${text} at ${this.path.selected}`)
     return this.scope.getCompletions(sym => sym.kind === "type", text).
       map(sym => new SymbolCompletion(sym))
-  }
-}
-
-class TermDefSpan extends TreeSpan {
-  constructor (
-    path :T.Path,
-    scope :S.Scope,
-    readonly sym :S.Symbol,
-    readonly typePath? :T.Path,
-    readonly bodyPath? :T.Path
-  ) { super(path, scope) }
-
-  get styles () { return [this.sym.kind] }
-  get sourceText () { return this.sym.name }
-  get editPlaceHolder () { return "<name>" }
-
-  handleKey (text :string, comp :M.Completion|void, key :string, mods :M.Modifiers) :M.EditAction {
-    const {path, bodyPath, typePath} = this
-    console.log(`termNameEdit ${key} : ${text} @ ${path}`)
-    const setName = (te :T.TreeEditor) => te.setName(text)
-    const commitEdit = (text :string, focus? :T.Path) :M.EditAction =>
-      ({tree: this.path.edit(te => te.setName(text)), focus})
-    switch (key) {
-    case "Enter":
-    case "Tab":
-    case "=":
-      console.log(`Commit term edit ${path} => ${path.selected}`)
-      return commitEdit(text, bodyPath)
-    case ":":
-      if (typePath) {
-        const tree = path.edit(setName)
-        if (typePath.selected instanceof T.EmptyTree) {
-          typePath.edit(te => te.setTHole())
-        }
-        return ({tree, focus: typePath})
-      } else return commitEdit(text)
-    case " ":
-      if (bodyPath) {
-        let tree = path.edit(setName)
-        // if the body is an empty abs, we want to simply start editing it
-        // if not, we want to insert an empty abs first (and then edit that)
-        let child = bodyPath.selected
-        if (!(child instanceof T.AbsTree) || child.sym.name !== "") {
-          tree = bodyPath.edit(te => {
-            const oldBody = te.currentTree
-            return (mods.shift ? te.setTAbs("").adopt("body", oldBody) :
-                    te.setAbs("").adopt("body", oldBody))
-          })
-        }
-        return ({tree, focus: bodyPath.x("sym")})
-      } else return commitEdit(text)
-    case "Escape":
-      return "cancel"
-    default:
-      return "extend"
-    }
-  }
-
-  getCompletions (text :string) :M.Completion[] {
-    return [] // TODO
   }
 }
 
@@ -647,23 +728,17 @@ class TermExprSpan extends TreeSpan {
     }
   }
 
-  commitEdit (text :string, comp :M.Completion|void, viaSpace :boolean) :M.EditAction {
+  commitEdit (text :string, compM :M.Completion|void, viaSpace :boolean) :M.EditAction {
     const path = this.path
-    const setValue = (editfn :T.EditFn) :M.EditAction => {
+    const setValue = (editfn :T.EditFn, vtype :TP.Type) :M.EditAction => {
       if (!viaSpace) return this.edit(path, editfn)
       // if a non-fun is entered and then space is pressed, we want to create an inapp with this
       // value as the arg, and move the focus to the fun
       else return this.edit(path, te => te.setInApp().editBranches({
         "arg": editfn,
-        "fun": fun => fun.setHole() // TODO: expect argType -> ? type...
+        "fun": fun => fun.setHole(new TP.Arrow(vtype, TP.hole))
       }), "fun")
     }
-
-    // if the text is a literal, complete that (TODO: this should be via the completion; when
-    // generating a list of completions for text that matches a literal, we should make the first
-    // (and only) completion a tree that displays the literal with its appropriate (expected?) type)
-    const asLit = C.parseLit(text)
-    if (asLit !== undefined) return setValue(te => te.setLit(asLit))
 
     // if the text is a keyword, create the appropriate AST subtree
     switch (text) {
@@ -673,15 +748,14 @@ class TermExprSpan extends TreeSpan {
     case "":     return this.edit(path, te => te.setHole(TP.hole))
     }
 
-    // TODO: if we didn't get a completion, do something...
-    if (!(comp instanceof SymbolCompletion)) return setValue(
-      te => te.setRef(te.tree.scope.lookupTerm(text)))
+    // if we didn't get a completion, fake it by looking up the text as a symbol (TODO...)
+    const comp = compM || new SymbolCompletion(path.selectedParent.scope.lookupTerm(text))
 
-    let termType = comp.item.type
-    let edit :T.EditFn = te => te.setRef(comp.item)
+    let termType = comp.type
+    let edit :T.EditFn = te => comp.apply(te)
 
     // if we're setting a non-function, use our setValue helper
-    if (!(termType instanceof TP.Arrow)) return setValue(edit)
+    if (!(termType instanceof TP.Arrow)) return setValue(edit, termType)
 
     // if we're setting the fun of an inapp, add holes in for the remaining args
     const lastIdx = path.length-1
@@ -691,23 +765,35 @@ class TermExprSpan extends TreeSpan {
       // now pop up a level and wrap this whole inapp in an app with a hole for an arg
       return this.edit(path.pop(), te => {
         const oldInApp = te.currentTree
+        const oldFunType = oldInApp.sig
+        const argType = oldFunType instanceof TP.Arrow ? oldFunType.arg : TP.hole
+        console.log(`oldInApp ${oldInApp} :: ${oldInApp.sig}`)
         te.setApp()
-          .editBranch("arg", arg => arg.setHole()) // TODO: provide expected type from inapp sig
+          .editBranch("arg", arg => arg.setHole(argType))
           .adopt("fun", oldInApp)
       }, "arg")
     }
     // otherwise we're just setting a fun, so add holes for all args
     else while (termType instanceof TP.Arrow) {
-      const {from, to} = termType
+      const {arg, res} = termType
       const inner = edit
-      edit = te => te.setApp().editBranches({"fun": inner, "arg": arg => arg.setHole(from)})
-      termType = to
+      edit = te => te.setApp().editBranches({"fun": inner, "arg": arge => arge.setHole(arg)})
+      termType = res
     }
     return this.edit(path, edit)
   }
 
   getCompletions (text :string) :M.Completion[] {
-    const pred = (sym :S.Symbol) => sym.kind === "term" || sym.kind === "func"
+    // if the text is a literal, return a single completion which is that literal
+    const asLit = C.parseLit(text)
+    console.log(`is literal ${text} ?? ${asLit}`)
+    if (asLit !== undefined) return [new ConstCompletion(asLit)]
+
+    // otherwise find a symbol that completes the text & matches the desired type
+    const sel = this.path.selected, selType = sel instanceof T.Tree ? sel.sig : TP.hole
+    console.log(`getCompletions ${text} at ${this.path.selected} :: ${selType}`)
+    const pred = (sym :S.Symbol) => (sym.kind === "term" || sym.kind === "func") &&
+      !sym.type.join(selType).isError
     return this.scope.getCompletions(pred, text).map(sym => new SymbolCompletion(sym))
   }
 }

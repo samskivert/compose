@@ -1,7 +1,5 @@
-import * as C from './constants'
-import * as N from './names'
-import * as S from './symbols'
 import * as T from './trees'
+import * as TP from './types'
 
 // ------------
 // Markup model
@@ -63,10 +61,14 @@ export class TextSpan extends Span {
 }
 
 export interface Completion {
-  /** The completed item. */
-  readonly item :N.Name|S.Symbol|C.Constant
-  /** The markup to display for `item` in the completion list. */
+  /** The type of the completed element. */
+  readonly type :TP.Type
+  /** The markup to display in the completion list. */
   display () :Line
+  /** Inserts the completion into the tree via `te`. */
+  apply (te :T.TreeEditor) :void
+  /** Returns whether or not `this` is equal to `that`. */
+  equals (that :Completion) :boolean
 }
 
 // When a tree is formatted into a span, the editable spans know how to propagate edits back to the
@@ -109,9 +111,13 @@ export abstract class Elem {
   /** Extracts the sub-element identified by `idxs` (a path). */
   elemAt (idxs :number[]) :Elem { return this }
 
-  /** Extracts the spans addressed by `idxs` from the tree rooted at `elem`.
+  /** Extracts the spans addressed by `idxs` from the tree rooted at `this` elem.
     * Yields `[]` if the path is invalid and does not address a `Line` or `Para`. */
   spansAt (idxs :number[]) :Span[] { return this.elemAt(idxs).spans }
+
+  /** Extracts the span addressed by `path` from the tree rooted at `this` elem.
+    * Yields `undefined` if the path is invalid. */
+  spanAt (path :Path) :Span|void { return this.elemAt(path.idxs).spans[path.span] }
 
   protected get spans () :Span[] { return [] }
 
