@@ -12,6 +12,18 @@ import * as TP from './types'
 
 export type Modifiers = {shift? :boolean, meta? :boolean, alt? :boolean, ctrl? :boolean}
 
+/** A slight contraction of the full KeyboardEvent API to make it easier for us to
+  * fake keyboard events when needed. */
+export type KeyEvent = {
+  readonly key :string
+  readonly code :string
+  readonly ctrlKey :boolean
+  readonly shiftKey :boolean
+  readonly altKey :boolean
+  readonly metaKey :boolean
+  preventDefault :() => void
+}
+
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * Spans that represent components of an AST node will be editable, spans that display contextual
   * punctuation or keywords will not. */
@@ -36,17 +48,17 @@ export abstract class Span {
   /** The text to display for this span. */
   get displayText () :string { return this.sourceText || this.displayPlaceHolder }
 
-  /** Handles a key press from an active span editor.
-    * @param text the current text of the span (prior to the key press).
-    * @param comp the current completion (if one exists).
-    * @param key the JavaScript description of the pressed key.
-    * @return the action to take based on the key press.
-    */
-  handleKey (text :string, comp :Completion|void, key :string, mods :Modifiers) :EditAction {
-    return "extend" }
-
   /** Returns the completions to show given the current `text`. */
   getCompletions (text :string) :Completion[] { return [] }
+
+  /** Handles a key press from an active span editor.
+    * @param ev the key event.
+    * @param text the current text of the span (prior to the key press).
+    * @param comp the current completion (if one exists).
+    * @return the action to take based on the key press.
+    */
+  handleKey (ev :KeyEvent, text :string, comp :Completion|void) :EditAction|void {
+    return undefined }
 
   toString () :string { return this.displayText }
 }
@@ -60,15 +72,17 @@ export class TextSpan extends Span {
   constructor (readonly sourceText :string, readonly styles :string[] = []) { super() }
 }
 
-export interface Completion {
+export abstract class Completion {
   /** The type of the completed element. */
-  readonly type :TP.Type
+  abstract readonly type :TP.Type
   /** The markup to display in the completion list. */
-  display () :Line
-  /** Inserts the completion into the tree via `te`. */
-  apply (te :T.TreeEditor) :void
+  abstract display () :Line
+  /** Applies this completion to the tree via `te`. */
+  abstract apply (te :T.TreeEditor) :void
   /** Returns whether or not `this` is equal to `that`. */
-  equals (that :Completion) :boolean
+  abstract equals (that :Completion) :boolean
+  /** Edits the tree at `path` by applying this completion. */
+  edit (path :T.Path) :EditAction { return {tree: path.edit(te => this.apply(te))} }
 }
 
 // When a tree is formatted into a span, the editable spans know how to propagate edits back to the
@@ -84,12 +98,9 @@ export interface Completion {
 // introduce a nested abstraction (effectively adding an argument to the function being defined by
 // the let).
 
-/** The action to take in response to a keypress when editng a term:
-  * - extend: extend the currently edited text with the character
-  * - cancel: abort the current edit
-  * - {tree, focus}: commit the edit, using the replacement tree and (optional) new focus
-  */
-export type EditAction = "extend" | "cancel" | {tree :T.DefTree, focus? :T.Path}
+/** A change to apply in response to a keypress when editing a term: a replacement `tree` and an
+  * optional new `focus`. */
+export type EditAction = {tree :T.DefTree, focus? :T.Path}
 
 // TODO: do we want a separate visualization model for docs?
 // could allow the HTML layout engine to handle wrapping...

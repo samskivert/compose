@@ -40,6 +40,7 @@ export abstract class Tree {
     throw new Error(`Missing required parent @ ${this}`)
   }
 
+  get isHole () :boolean { return false }
   abstract get sig () :TP.Type
 
   get branchIds () :string[] { return [] }
@@ -200,6 +201,7 @@ export const emptyTree = new EmptyTree()
 // ----------
 
 export class THoleTree extends Tree {
+  get isHole () :boolean { return true }
   get sig () :TP.Type { return TP.hole }
 }
 
@@ -356,6 +358,9 @@ export class LetTree extends DefTree {
   constructor (readonly sym :TreeSym) { super(sym) }
   get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
   get sig () :TP.Type { return TP.hole } // TODO
+  protected childPrototype (id :string) :TP.Type|void {
+    if (id === "expr") return this.prototype
+  }
 }
 
 export class LetFunTree extends DefTree {
@@ -405,8 +410,8 @@ export class AscTree extends Tree {
 }
 
 export class HoleTree extends Tree {
-  constructor (readonly xtype :TP.Type) { super() }
-  get sig () :TP.Type { return this.xtype }
+  get isHole () :boolean { return true }
+  get sig () :TP.Type { return this.prototype }
 }
 
 class BaseAppTree extends Tree {
@@ -437,6 +442,13 @@ export class IfTree extends Tree {
   fexp :Tree = emptyTree
   get branchIds () :string[] { return ["test", "texp", "fexp"] }
   get sig () :TP.Type { return TP.hole } // TODO
+  protected childPrototype (id :string) :TP.Type|void {
+    switch (id) {
+    case "test": return undefined // TODO: bool
+    case "texp":
+    case "fexp": return this.prototype
+    }
+  }
 }
 
 export class MatchTree extends Tree {
@@ -604,7 +616,7 @@ export class TreeEditor {
   }
 
   // Expression terms
-  setHole (xtype :TP.Type = TP.hole) :Tree { return this.setBranch(new HoleTree(xtype)) }
+  setHole () :Tree { return this.setBranch(new HoleTree()) }
   setLit (cnst :C.Constant) :Tree { return this.setBranch(new LitTree(cnst)) }
   setRef (sym :S.Symbol) :Tree { return this.setBranch(new RefTree(sym)) }
   setAsc () :Tree { return this.setBranch(new AscTree()) }
@@ -616,30 +628,6 @@ export class TreeEditor {
   // TODO
   // Cond Array CondCase
   // CondCase Expr Expr
-
-  // Holey setters
-  setLetH (xtype :TP.Type = TP.hole) :Tree {
-    return this.setLet("").editBranches({
-      "value": value => value.setHole(),
-      "body": body => body.setHole(xtype)
-    })
-  }
-  setMatchH (xtype :TP.Type = TP.hole) :Tree {
-    return this.setMatch().editBranches({
-      "scrut": scrut => scrut.setHole(),
-      "0": case0 => case0.setCase().editBranches({
-        "pat": pat => pat.setHole(),
-        "body": body => body.setHole(xtype)
-      })
-    })
-  }
-  setIfH (xtype :TP.Type = TP.hole) :Tree {
-    return this.setIf().editBranches({
-      "test": test => test.setHole(), // TODO: Bool
-      "texp": texp => texp.setHole(xtype),
-      "fexp": fexp => fexp.setHole(xtype)
-    })
-  }
 }
 
 export function mkDefHole (mod :S.ModuleSym) :DefTree {
@@ -745,6 +733,11 @@ export class Path {
   get selectedParent () :Tree {
     if (this.ids.length == 0) throw new Error(`Path references root, has no parent.`)
     return this.treeAt(this.length-2)
+  }
+  /** Returns true if the branch selected by this path is a "hole" tree. */
+  get selectsHole () :boolean {
+    const sel = this.selected
+    return sel instanceof Tree && sel.isHole
   }
 
   /** Returns the child id at offset `idx` (must be `0 <= idx < length`). */

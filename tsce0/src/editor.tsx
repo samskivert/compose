@@ -215,6 +215,16 @@ export class SpanStore {
   }
 }
 
+const blurEvent :M.KeyEvent = {
+  key: "Blur",
+  code: "0",
+  ctrlKey :false,
+  shiftKey: false,
+  altKey: false,
+  metaKey: false,
+  preventDefault: () => {},
+}
+
 @observer
 export class SpanEditor  extends React.Component<{
   store :SpanStore,
@@ -240,8 +250,8 @@ export class SpanEditor  extends React.Component<{
                placeholder={this.props.span.editPlaceHolder}
                value={store.text}
                onChange={this.onChange.bind(this)}
-               onBlur={ev => this.handleKey("Blur")}
-               onKeyDown={ev => this.handleKey(ev.key, ev)} />
+               onBlur={ev => this.handleKey(blurEvent)}
+               onKeyDown={ev => this.handleKey(ev.nativeEvent)} />
         {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
       </div>
     )
@@ -263,25 +273,25 @@ export class SpanEditor  extends React.Component<{
     })
   }
 
-  handleKey (key :string, ev? :React.KeyboardEvent<HTMLInputElement>) {
-    const store = this.props.store
+  handleKey (keyEv :M.KeyEvent) {
+    const store = this.props.store, key = keyEv.key
     // if key is up/down arrow, change selected completion
-    if (key == "ArrowUp") {
+    if (key === "ArrowUp") {
       store.selCompIdx = Math.max(store.selCompIdx-1, 0)
-    } else if (key == "ArrowDown") {
+    } else if (key === "ArrowDown") {
       store.selCompIdx = Math.min(store.selCompIdx+1, store.completions.length-1)
+    } else if (key === "Escape") {
+      keyEv.preventDefault()
+      this.props.stopEditing()
     } else {
-      const mods = !ev ? {} :
-        {shift: ev.shiftKey, meta: ev.metaKey, alt: ev.altKey, ctrl: ev.ctrlKey}
-      const action = this.props.span.handleKey(store.text, store.selectedCompletion, key, mods)
-      if (action === "extend") return
-      ev && ev.preventDefault()
-      if (action === "cancel") this.props.stopEditing()
-      else {
+      const action = this.props.span.handleKey(keyEv, store.text, store.selectedCompletion)
+      if (action) {
+        keyEv.preventDefault()
         let {tree, focus} = action
         this.props.defStore.setDef(tree, focus)
+        // TODO: "advance" backwards on S-Tab?
         if (key == "Tab" && !focus) this.props.advanceCursor()
-      }
+      } // otherwise just let the key be added to the text
     }
   }
 }
