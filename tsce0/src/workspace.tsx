@@ -20,7 +20,11 @@ export class WorkspaceStore {
   }
 
   insertDef (index :number, def :T.DefTree, editing = false) {
-    this.defs.splice(index, 0, new E.DefStore(def, computed(() => this.selectedDef), editing))
+    const store = new E.DefStore(def, computed(() => this.selectedDef), () => {
+      const idx = this.defs.indexOf(store)
+      if (idx >= 0) this.selidx = idx
+    }, editing)
+    this.defs.splice(index, 0, store)
   }
 
   moveSelection (delta :number) {

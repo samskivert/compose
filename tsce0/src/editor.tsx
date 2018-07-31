@@ -14,12 +14,6 @@ import * as T from './trees'
 // | where editing will start if a "begin editing" operation is performed.
 type Cursor = {path :M.Path, editing :boolean}
 
-const nullCursor :Cursor = {path: M.emptyPath, editing: false}
-
-function followCursor ({path, editing} :Cursor, idx :number) :Cursor {
-  return M.popPath(nullCursor, p => ({path: p, editing}), idx, path)
-}
-
 // | Models the editing selection: a range of nodes that are selected (and visually highlighted) so
 // | that they may act as the target of an editing operation (like cut, extract into binding, etc.).
 // |
@@ -54,7 +48,7 @@ export class DefStore {
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
   constructor (def :T.DefTree, readonly selStore :IComputedValue<DefStore|void>,
-               editing :boolean = false) {
+               readonly mkActive :() => void, editing :boolean = false) {
     this.setDef(def, def.firstEditable())
     this.curs.editing = editing
   }
@@ -170,39 +164,40 @@ export class DefEditor extends React.Component<{store :DefStore}> {
                 Show: types <input type="checkbox" checked={store.showTypes}
                                    onChange={ev => store.setShowTypes(ev.target.checked)}/> &nbsp;
               </div>
-              {this.renderElem(0, curs, elem)}
+              {this.renderElem([], 0, curs, elem)}
               {store.showTree ? <pre className="debugTree">{store.def.debugShow().join("\n")}</pre> : undefined}
             </div>)
   }
 
-  renderElems (curs :Cursor, elems :M.Elem[]) :JSX.Element[] {
-    return elems.map((elem, idx) => this.renderElem(idx, followCursor(curs, idx), elem))
+  renderElems (ppre :number[], curs :Cursor, elems :M.Elem[]) :JSX.Element[] {
+    return elems.map((elem, idx) => this.renderElem(ppre.concat([idx]), idx, curs, elem))
   }
 
-  renderElem (idx :number, curs :Cursor, elem :M.Elem) :JSX.Element {
+  renderElem (ppre :number[], idx :number, curs :Cursor, elem :M.Elem) :JSX.Element {
     if (elem instanceof M.Block) {
-      return (<div key={idx} className="block">{this.renderElems(curs, elem.elems)}</div>)
+      return (<div key={idx} className="block">{this.renderElems(ppre, curs, elem.elems)}</div>)
     } else if (elem instanceof M.Para) {
-      return (<div key={idx} className="docs">{this.renderSpans(curs, elem.spans)}</div>)
+      return (<div key={idx} className="docs">{this.renderSpans(ppre, curs, elem.spans)}</div>)
     } else if (elem instanceof M.Line) {
       if (elem.annots.length > 0) {
         return (<div key={idx}>
-                  <div key="spans">{this.renderSpans(curs, elem.spans)}</div>
+                  <div key="spans">{this.renderSpans(ppre, curs, elem.spans)}</div>
                   {elem.annots.map(renderAnnots)}
                 </div>)
-      } else return (<div key={idx}>{this.renderSpans(curs, elem.spans)}</div>)
+      } else return (<div key={idx}>{this.renderSpans(ppre, curs, elem.spans)}</div>)
     } else {
       return (<div key={idx}>Unknown elem: {elem}</div>)
     }
   }
 
-  renderSpans ({path, editing} :Cursor, spans :M.Span[]) :JSX.Element[] {
-    const mode = (idx :number) => ((!M.isLeaf(path) || (idx != path.span)) ? Mode.Normal :
+  renderSpans (ppre :number[], {path, editing} :Cursor, spans :M.Span[]) :JSX.Element[] {
+    const prefixMatch = M.prefixMatch(ppre, path)
+    const mode = (idx :number) => ((!prefixMatch || (idx != path.span)) ? Mode.Normal :
                                    (editing ? Mode.Edited : Mode.Selected))
-    return spans.map((span, idx) => this.renderSpan(idx, mode(idx), span))
+    return spans.map((span, idx) => this.renderSpan(ppre, idx, mode(idx), span))
   }
 
-  renderSpan (idx :number, mode :Mode, span :M.Span) :JSX.Element {
+  renderSpan (ppre :number[], idx :number, mode :Mode, span :M.Span) :JSX.Element {
     if (mode == Mode.Edited && span.isEditable) {
       console.log(`Edit span ${span} :: ${span.constructor.name}`)
       return <SpanEditor store={new SpanStore(span)} defStore={this.props.store}
@@ -210,7 +205,11 @@ export class DefEditor extends React.Component<{store :DefStore}> {
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
     } else {
-      return spanSpan(span, idx, mode == Mode.Selected, this.props.store.isActive)
+      const onPress = span.isEditable ? () => {
+        this.props.store.curs = {path: M.mkPath(ppre, idx), editing: false}
+        this.props.store.mkActive()
+      } : undefined
+      return spanSpan(span, idx, mode == Mode.Selected, this.props.store.isActive, onPress)
     }
   }
 }
@@ -223,12 +222,13 @@ function renderAnnots (annots :M.Annot[], idx :number) {
   return <div key={idx}>{annots.map(renderAnnot)}</div>
 }
 
-function spanSpan (span :M.Span, idx :number,
-                   selected :Boolean = false, active :Boolean = true) :JSX.Element {
+function spanSpan (span :M.Span, idx :number, selected :Boolean = false, active :Boolean = true,
+                   onPress? :() => void) :JSX.Element {
   const sstyles = selected ?
     span.styles.concat([active ? "selectedSpan" : "lowSelectedSpan"]) :
     span.styles
-  return <span className={sstyles.join(" ")} key={idx}>{span.displayText}</span>
+  return <span className={sstyles.join(" ")} key={idx} onMouseDown={onPress}>{
+    span.displayText}</span>
 }
 
 export class SpanStore {

@@ -215,6 +215,12 @@ export const emptyPath = {idxs: [], span: -1}
 export const mkPath = (idxs :number[], span :number) => ({idxs, span})
 export const isLeaf = (path :Path) => path.idxs.length == 0
 export const isEmptyPath = (path :Path) => path === emptyPath
+export const prefixMatch = (ppre :number[], path :Path) :boolean => {
+  const idxs = path.idxs
+  if (ppre.length != idxs.length) return false
+  for (let ii = 0; ii < ppre.length; ii += 1) if (ppre[ii] !== idxs[ii]) return false
+  return true
+}
 
 /** Removes the top component of a path and applies `op` to the remainder. If the top of the path is
   * not equal to `idx`, `dflt` is returned instead. */
