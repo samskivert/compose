@@ -1,8 +1,10 @@
 import { observable, observe } from 'mobx'
 import { Name } from './names'
-import { Type, hole } from './types'
+import { Type, Const, hole } from './types'
+import { Constant } from './constants'
 
-export type Kind = "term" | "func" | "type" | "module"
+export type Kind = "term" | "type" | "module"
+export type Flavor = "none" | "func" | "ctor" | "cnst"
 
 let symId = 0
 function nextSymId () { symId += 1 ; return symId }
@@ -11,13 +13,15 @@ export abstract class Symbol {
   readonly id :number = nextSymId()
   @observable name :Name
 
-  constructor (readonly kind :Kind, name :Name) {
+  constructor (readonly kind :Kind, readonly flavor :Flavor, name :Name) {
     this.name = name
   }
 
+  get displayName () :string { return this.name }
   abstract get type () :Type
   abstract get owner () :Symbol
 
+  get isHole () :boolean { return this.name === "" }
   get module () :ModuleSym {
     let osym = this.owner
     while (osym.kind !== "module") {
@@ -30,24 +34,41 @@ export abstract class Symbol {
 }
 
 export class MissingSym extends Symbol {
-  constructor (kind :Kind, name :Name) {
-    super(kind, `<missing: ${name}>`)
-  }
+  constructor (kind :Kind, name :Name) { super(kind, "none", name) }
+  get displayName () :string { return `<missing: ${name}>` }
   get type () { return hole }
   get owner () :Symbol { return this}
 }
 
-export class HoleSym extends Symbol {
-  constructor () {
-    super ("term", "")
-  }
+export class TermHoleSym extends Symbol {
+  constructor () { super("term", "none", "") }
+  get displayName () :string { return "?" }
   get type () { return hole }
-  get owner () { return this }
+  get owner () { return this } // TODO: proper owner?
+}
+
+export class TypeHoleSym extends Symbol {
+  constructor () { super("type", "none", "") }
+  get displayName () :string { return "?" }
+  get type () { return hole }
+  get owner () { return this } // TODO: proper owner?
+}
+
+export class TermConstSym extends Symbol {
+  constructor (readonly cnst :Constant) { super("term", "cnst", cnst.value) }
+  get type () { return new Const(this.cnst) }
+  get owner () { return this } // TODO: none?
+}
+
+export class TypeConstSym extends Symbol {
+  constructor (readonly cnst :Constant) { super("type", "cnst", cnst.value) }
+  get type () { return new Const(this.cnst) }
+  get owner () { return this } // TODO: none?
 }
 
 export class ModuleSym extends Symbol {
   readonly scope = new ModuleScope(this)
-  constructor (name :Name) { super("module", name) }
+  constructor (name :Name) { super("module", "none", name) }
   get type () :Type { return hole } // TODO: special module type? none type?
   get owner () :Symbol { return this }
   toString () { return `msym#${this.id}:${this.name}` }
@@ -56,7 +77,6 @@ export class ModuleSym extends Symbol {
 export abstract class Scope {
 
   lookupTerm (name :Name) :Symbol { return this.lookup("term", name) }
-  lookupFunc (name :Name) :Symbol { return this.lookup("func", name) }
   lookupType (name :Name) :Symbol { return this.lookup("type", name) }
 
   abstract lookup (kind :Kind, name :Name) :Symbol
@@ -71,8 +91,8 @@ export abstract class Scope {
 
   abstract _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) :void
 
-  protected isCompletion (prefix :string, name :Name) :boolean {
-    return name.toLowerCase().startsWith(prefix)
+  protected isCompletion (prefix :string, sym :Symbol) :boolean {
+    return !sym.isHole && sym.name.toLowerCase().startsWith(prefix)
   }
 }
 
@@ -119,7 +139,7 @@ export class ModuleScope extends Scope {
     // TODO: such inefficient, so expense
     for (let symvec of Array.from(this.symbols.values())) {
       for (let sym of symvec) {
-        if (pred(sym) && this.isCompletion(prefix, sym.name)) {
+        if (pred(sym) && this.isCompletion(prefix, sym)) {
           syms.push(sym)
         }
       }

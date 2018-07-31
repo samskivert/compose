@@ -57,9 +57,9 @@ export abstract class Type {
   }
   skolemize (vars :Map<Symbol, Skolem>) :Type { return this }
   map (vars :Map<Skolem, Type>) :Type { return this }
-  unify (that :Type, csts :Map<Skolem, Type>) :void {
+  unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {
     // TODO: obvs throwing error here is not a viable error reporting strategy
-    if (this.constructor != that.constructor) throw new Error(`Cannot unify ${this} with ${that}`)
+    if (this.constructor != that.constructor) errors.push(`Cannot unify ${this} with ${that}`)
   }
 }
 
@@ -130,7 +130,7 @@ export class Skolem extends Type {
     const repl = vars.get(this)
     return repl ? repl : this
   }
-  unify (that :Type, csts :Map<Skolem, Type>) :void {
+  unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {
     const exists = csts.get(this)
     csts.set(this, exists ? that.join(exists) : that)
   }
@@ -162,11 +162,11 @@ export class Arrow extends Type {
   map (vars :Map<Skolem, Type>) :Type {
     return new Arrow(this.arg.map(vars), this.res.map(vars))
   }
-  unify (that :Type, csts :Map<Skolem, Type>) :void {
+  unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {
     if (that instanceof Arrow) {
-      this.arg.unify(that.arg, csts)
-      this.res.unify(that.res, csts)
-    } else super.unify(that, csts)
+      this.arg.unify(that.arg, csts, errors)
+      this.res.unify(that.res, csts, errors)
+    } else super.unify(that, csts, errors)
   }
   toString () { return `${this.arg} → ${this.res}`}
 }
@@ -191,11 +191,11 @@ export class App extends Type {
   map (vars :Map<Skolem, Type>) :Type {
     return new App(this.ctor.map(vars), this.arg.map(vars))
   }
-  unify (that :Type, csts :Map<Skolem, Type>) :void {
+  unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {
     if (that instanceof App) {
-      this.ctor.unify(that.ctor, csts)
-      this.arg.unify(that.arg, csts)
-    } else super.unify(that, csts)
+      this.ctor.unify(that.ctor, csts, errors)
+      this.arg.unify(that.arg, csts, errors)
+    } else super.unify(that, csts, errors)
   }
   toString () { return `${this.ctor} ${this.arg}`}
 }
@@ -254,7 +254,7 @@ export class Def extends Type {
   equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
   join (that :Type) :Type {
     if (this.subsumes(that)) return this
-    // TODO: do we need to check for Hole here since we're not calling super.join?
+    else if (that instanceof Hole) return this
     else return this._joinFailure(that)
   }
   subsumes (that :Type) :boolean {
@@ -297,6 +297,15 @@ export function kindApply (fun :Kind, arg :Kind) :Kind {
   else return fun.res
 }
 
+export function unifyApply (uleft :Type, uright :Type, aleft :Type) :Type {
+  const mappings = new Map()
+  const errors :string[] = []
+  uleft.unify(uright, mappings, errors)
+  // TODO: should we report all unification errors?
+  if (errors.length > 0) return new Error(errors[0])
+  return aleft.map(mappings)
+}
+
 export function funApply (fun :Type, arg :Type) :Type {
   // if the function is generalized...
   if (fun instanceof Abs) {
@@ -304,12 +313,11 @@ export function funApply (fun :Type, arg :Type) :Type {
     const skfun = fun.skolemize(new Map())
     if (!(skfun instanceof Arrow)) return new Error(
       `Cannot apply arg (type: ${arg}) to non-fun: ${skfun}`)
-    // unfiy...
-    const mappings = new Map()
-    skfun.arg.unify(arg, mappings)
-    const ufun = skfun.map(mappings)
+    // unify...
+    const ufun = unifyApply(skfun.arg, arg, skfun)
+    if (!(ufun instanceof Arrow)) return ufun // error
     // and regeneralize... (TODO)
-    return arrowApply(ufun as Arrow, arg)
+    return arrowApply(ufun, arg)
   }
   else if (!(fun instanceof Arrow)) return new Error(
     `Cannot apply arg (type: ${arg}) to non-fun: ${fun}`)
@@ -320,9 +328,7 @@ export function arrowApply (fun :Arrow, arg :Type) :Type {
   // if arg is generalized...
   if (arg instanceof Abs) {
     const skarg = arg.skolemize(new Map())
-    const mappings = new Map()
-    skarg.unify(fun.res, mappings)
-    const uarg = skarg.map(mappings)
+    const uarg = unifyApply(skarg, fun.res, skarg)
     // TODO: regeneralize?
     return arrowApply(fun, uarg)
   }
@@ -356,13 +362,20 @@ export function patUnify (ctorType :Type, prototype :Type) :Type {
   if (ctorType instanceof Abs) {
     const skCtor = patFlipArrow(ctorType.skolemize(new Map()))
     // console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
-    const mappings = new Map()
-    if (skCtor instanceof Arrow) skCtor.arg.unify(prototype, mappings)
-    else skCtor.unify(prototype, mappings)
-    const uCtor = skCtor.map(mappings)
+    const uCtor = unifyApply(skCtor instanceof Arrow ? skCtor.arg : skCtor, prototype, skCtor)
     // TODO: regeneralize?
     return uCtor
   } else {
     return ctorType
+  }
+}
+
+export function patApplies (ctorType :Type, scrutType :Type) :boolean {
+  const uCtorType = patUnify(ctorType, scrutType)
+  // TODO: is equals the right check here? join?
+  if (uCtorType instanceof Arrow) {
+    return uCtorType.arg.equals(scrutType)
+  } else {
+    return uCtorType.equals(scrutType)
   }
 }

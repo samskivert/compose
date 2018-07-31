@@ -49,6 +49,8 @@ export class DefStore {
   @computed get name () :N.Name { return this.def.self.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
 
+  get selectedSpan () :M.Span|void { return this.elem.spanAt(this.curs.path) }
+
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
   constructor (def :T.DefTree, readonly selStore :IComputedValue<DefStore|void>,
@@ -88,6 +90,26 @@ export class DefStore {
 @observer
 export class DefEditor extends React.Component<{store :DefStore}> {
 
+  plainKeymap = {
+    "ArrowLeft":  () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
+    "ArrowRight": () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
+    "ArrowUp":    () => this._moveCursor(M.moveVert(M.VDir.Up)),
+    "ArrowDown":  () => this._moveCursor(M.moveVert(M.VDir.Down)),
+    "Tab":        () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
+    "Enter":      () => this._startEdit(),
+  }
+
+  shiftKeymap = {
+    "Tab":        () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
+  }
+
+  ctrlKeymap = {
+    "ArrowLeft":  () => this._insertHole(M.Dir.Left),
+    "ArrowRight": () => this._insertHole(M.Dir.Right),
+    "ArrowUp":    () => this._insertHole(M.Dir.Up),
+    "ArrowDown":  () => this._insertHole(M.Dir.Down),
+  }
+
   componentWillMount() {
     this.props.store.keyHandler = this.handleKey.bind(this)
   }
@@ -95,32 +117,40 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   handleKey (ev :KeyboardEvent) :boolean {
     const {curs} = this.props.store
     if (curs.editing) return false
-
-    switch (ev.code) {
-    case "ArrowLeft":  this._moveCursor(M.moveHoriz(M.HDir.Left))  ; break
-    case "ArrowRight": this._moveCursor(M.moveHoriz(M.HDir.Right)) ; break
-    case "ArrowUp":    this._moveCursor(M.moveVert(M.VDir.Up))     ; break
-    case "ArrowDown":  this._moveCursor(M.moveVert(M.VDir.Down))   ; break
-    case "Enter":
-      this._startEdit()
-      break
-    case "Tab":
-      const dir = ev.shiftKey ? M.HDir.Left : M.HDir.Right
-      this._moveCursor(M.moveHoriz(dir))
+    const keymap =
+      ev.shiftKey ? this.shiftKeymap :
+      ev.ctrlKey ? this.ctrlKeymap : this.plainKeymap;
+    const action = keymap[ev.code]
+    if (action) {
       ev.preventDefault()
-      break
-    default:
+      action()
+      return true
+    } else {
       console.log(`TODO: handleKey ${ev.code}`)
-      break
+      return false
     }
-    return true
   }
 
   _moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
-    const oldPath = this.props.store.curs.path
-    const newPath = mover(this.props.store.elem, oldPath)
-    console.log(`moveCursor ${JSON.stringify(newPath)}`)
-    this.props.store.curs = {path: newPath, editing: false}
+    const store = this.props.store
+    const oldPath = store.curs.path
+    const newPath = mover(store.elem, oldPath)
+    const selSpan = store.elem.spanAt(newPath)
+    const selIsHole = selSpan ? selSpan.isHole : false
+    // console.log(`moveCursor ${JSON.stringify(newPath)} (${selSpan} // ${selIsHole})`)
+    store.curs = {path: newPath, editing: selIsHole}
+  }
+
+  _insertHole (dir :M.Dir) {
+    const span = this.props.store.selectedSpan
+    if (span) {
+      const edit = span.insertHole(dir)
+      if (edit) {
+        let {tree, focus} = edit
+        this.props.store.setDef(tree, focus)
+      }
+    }
+    return true
   }
 
   _startEdit () {
@@ -167,13 +197,14 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   renderSpans ({path, editing} :Cursor, spans :M.Span[]) :JSX.Element[] {
-    const mode = (idx :number) => (!(M.isLeaf(path) && (idx == path.span)) ? Mode.Normal :
+    const mode = (idx :number) => ((!M.isLeaf(path) || (idx != path.span)) ? Mode.Normal :
                                    (editing ? Mode.Edited : Mode.Selected))
     return spans.map((span, idx) => this.renderSpan(idx, mode(idx), span))
   }
 
   renderSpan (idx :number, mode :Mode, span :M.Span) :JSX.Element {
     if (mode == Mode.Edited && span.isEditable) {
+      console.log(`Edit span ${span} :: ${span.constructor.name}`)
       return <SpanEditor store={new SpanStore(span)} defStore={this.props.store}
                          key={idx} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
@@ -204,6 +235,9 @@ export class SpanStore {
   @observable text :string
   @observable completions :M.Completion[] = []
   @observable selCompIdx = 0
+  // keeps track of whether some sort of action was taken by the user, indicating that they want us
+  // to apply the currently selected completion
+  actionTaken = false
 
   constructor (span :M.Span) {
     const text = this.text = span.sourceText
@@ -283,6 +317,9 @@ export class SpanEditor  extends React.Component<{
     } else if (key === "Escape") {
       keyEv.preventDefault()
       this.props.stopEditing()
+    } else if (key == "Tab" && !store.actionTaken) {
+      keyEv.preventDefault()
+      this.props.advanceCursor()
     } else {
       const action = this.props.span.handleKey(keyEv, store.text, store.selectedCompletion)
       if (action) {
@@ -293,5 +330,6 @@ export class SpanEditor  extends React.Component<{
         if (key == "Tab" && !focus) this.props.advanceCursor()
       } // otherwise just let the key be added to the text
     }
+    store.actionTaken = true
   }
 }

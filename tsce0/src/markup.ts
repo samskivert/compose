@@ -1,5 +1,6 @@
 import * as T from './trees'
 import * as TP from './types'
+import { Name } from './names'
 
 // ------------
 // Markup model
@@ -24,6 +25,9 @@ export type KeyEvent = {
   preventDefault :() => void
 }
 
+/** Used to insert holes relative to a selected span. See `Span.insertHole`. */
+export const enum  Dir { Up = 0, Down = 1, Left = 2, Right = 3 }
+
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * Spans that represent components of an AST node will be editable, spans that display contextual
   * punctuation or keywords will not. */
@@ -38,6 +42,9 @@ export abstract class Span {
 
   /** Whether or not this span is editable. */
   get isEditable () :Boolean { return false }
+
+  /** Whether or not this span displays a hole. */
+  get isHole () :boolean { return false }
 
   /** The text to show in formatted code when `text` is empty. */
   get displayPlaceHolder () :string { return "?" }
@@ -60,6 +67,10 @@ export abstract class Span {
   handleKey (ev :KeyEvent, text :string, comp :Completion|void) :EditAction|void {
     return undefined }
 
+  /** Inserts a hole relative to this span. If the span cannot insert a hole in the requested
+    * direction, `undefined` is returned. */
+  insertHole (dir :Dir) :EditAction|void { return undefined }
+
   toString () :string { return this.displayText }
 }
 
@@ -73,8 +84,12 @@ export class TextSpan extends Span {
 }
 
 export abstract class Completion {
+  /** The name of the completed element. */
+  abstract readonly name :Name
   /** The type of the completed element. */
   abstract readonly type :TP.Type
+  /** Returns true if this completion is a tree template with holes. */
+  get isTemplate () :boolean { return false }
   /** The markup to display in the completion list. */
   abstract display () :Line
   /** Applies this completion to the tree via `te`. */
