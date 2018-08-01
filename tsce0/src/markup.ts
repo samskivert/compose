@@ -55,6 +55,9 @@ export abstract class Span {
   /** The text to display for this span. */
   get displayText () :string { return this.sourceText || this.displayPlaceHolder }
 
+  /** The tooltip text to display for this span. */
+  get tooltip () :string|void { return undefined }
+
   /** Returns the completions to show given the current `text`. */
   getCompletions (text :string) :Completion[] { return [] }
 

@@ -225,10 +225,10 @@ function renderAnnots (annots :M.Annot[], idx :number) {
 function spanSpan (span :M.Span, idx :number, selected :Boolean = false, active :Boolean = true,
                    onPress? :() => void) :JSX.Element {
   const sstyles = selected ?
-    span.styles.concat([active ? "selectedSpan" : "lowSelectedSpan"]) :
-    span.styles
-  return <span className={sstyles.join(" ")} key={idx} onMouseDown={onPress}>{
-    span.displayText}</span>
+      span.styles.concat([active ? "selectedSpan" : "lowSelectedSpan"]) :
+      span.styles
+  return <span className={sstyles.join(" ")} title={span.tooltip || ""}
+               onMouseDown={onPress}>{span.displayText}</span>
 }
 
 export class SpanStore {

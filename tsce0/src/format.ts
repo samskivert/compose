@@ -585,6 +585,8 @@ abstract class TreeSpan extends M.EditableSpan {
     return false
   }
 
+  get tooltip () :string { return this.tree.sig.toString() }
+
   insertHole (dir :M.Dir) :M.EditAction|void {
     switch (dir) {
     case M.Dir.Left:
@@ -652,6 +654,9 @@ abstract class TreeSpan extends M.EditableSpan {
 
 abstract class SymTreeSpan extends TreeSpan {
   abstract get sym () :S.Symbol
+  get tooltip () :string {
+    return this.sym.kind === "type" ? this.sym.type.kind.toString() : this.sym.type.toString()
+  }
   get styles () { return [symStyle(this.sym)] }
   get sourceText () { return this.sym.name }
   get displayText () { return this.sym.displayName }
