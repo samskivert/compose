@@ -95,12 +95,15 @@ export abstract class Completion {
   get isTemplate () :boolean { return false }
   /** The markup to display in the completion list. */
   abstract display () :Line
-  /** Applies this completion to the tree via `te`. */
-  abstract apply (te :T.TreeEditor) :void
   /** Returns whether or not `this` is equal to `that`. */
   abstract equals (that :Completion) :boolean
   /** Edits the tree at `path` by applying this completion. */
-  edit (path :T.Path) :EditAction { return {tree: path.edit(te => this.apply(te))} }
+  edit (path :T.Path) :T.TreeEdit { return path.edit(te => this.apply(te)) }
+  /** Returns the focus to use after applying this completion's edit, if any. */
+  focus (path :T.Path) :T.Path|void { return undefined }
+  toString () :string { return `${this.constructor.name}:${this.name}` }
+  /** Applies this completion to the tree via `te`. */
+  protected abstract apply (te :T.TreeEditor) :T.TreeEdit
 }
 
 // When a tree is formatted into a span, the editable spans know how to propagate edits back to the
@@ -116,9 +119,9 @@ export abstract class Completion {
 // introduce a nested abstraction (effectively adding an argument to the function being defined by
 // the let).
 
-/** A change to apply in response to a keypress when editing a term: a replacement `tree` and an
-  * optional new `focus`. */
-export type EditAction = {tree :T.DefTree, focus? :T.Path}
+/** A change to apply in response to a keypress when editing a term: an edit to apply to the tree
+  * and an optional new `focus`. */
+export type EditAction = {edit :T.TreeEdit, focus? :T.Path}
 
 // TODO: do we want a separate visualization model for docs?
 // could allow the HTML layout engine to handle wrapping...

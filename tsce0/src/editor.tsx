@@ -40,7 +40,7 @@ export class DefStore {
   @observable showTypes :boolean = false
   @observable showTree :boolean = false
 
-  @computed get name () :N.Name { return this.def.self.name }
+  @computed get name () :N.Name { return this.def.sym.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
 
   get selectedSpan () :M.Span|void { return this.elem.spanAt(this.curs.path) }
@@ -53,7 +53,21 @@ export class DefStore {
     this.curs.editing = editing
   }
 
-  setDef (def :T.DefTree, focus? :T.Path) {
+  applyAction (action :M.EditAction) :T.Path|void {
+    let {edit, focus} = action
+    const {root /*,undo*/} = edit(this.def)
+    this.setDef(root, focus)
+    return focus
+  }
+
+  setShowTypes (showTypes :boolean) {
+    if (this.showTypes != showTypes) {
+      this.showTypes = showTypes
+      this.setDef(this.def)
+    }
+  }
+
+  private setDef (def :T.DefTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
     let {elem, path} = F.format(def, focus, this.showTypes)
     transaction(() => {
@@ -67,13 +81,6 @@ export class DefStore {
       }
       else this.curs = {path, editing: true}
     })
-  }
-
-  setShowTypes (showTypes :boolean) {
-    if (this.showTypes != showTypes) {
-      this.showTypes = showTypes
-      this.setDef(this.def)
-    }
   }
 
   toString () {
@@ -138,10 +145,9 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   _insertHole (dir :M.Dir) {
     const span = this.props.store.selectedSpan
     if (span) {
-      const edit = span.insertHole(dir)
-      if (edit) {
-        let {tree, focus} = edit
-        this.props.store.setDef(tree, focus)
+      const action = span.insertHole(dir)
+      if (action) {
+        this.props.store.applyAction(action)
       }
     }
     return true
@@ -324,8 +330,7 @@ export class SpanEditor  extends React.Component<{
       const action = this.props.span.handleKey(keyEv, store.text, store.selectedCompletion)
       if (action) {
         keyEv.preventDefault()
-        let {tree, focus} = action
-        this.props.defStore.setDef(tree, focus)
+        const focus = this.props.defStore.applyAction(action)
         // TODO: "advance" backwards on S-Tab?
         if (key == "Tab" && !focus) this.props.advanceCursor()
       } // otherwise just let the key be added to the text
