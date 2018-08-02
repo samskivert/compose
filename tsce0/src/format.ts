@@ -660,8 +660,10 @@ class DefHoleSpan extends M.EditableSpan {
   commitEdit (text :string, comp :M.Completion|void) :M.EditAction|void {
     const msym = this.root.owner as S.ModuleSym
     function mkTreeEdit (mkTree :() => T.DefTree) :T.TreeEdit {
-      const edit :T.TreeEdit = origRoot => (
-        {root: mkTree(), undo: root => ({root: origRoot, undo: edit})})
+      const edit :T.TreeEdit = origRoot => ({
+        root: mkTree(),
+        undo: root => ({root: origRoot, undo: edit})
+      })
       return edit
     }
     if (text === "fun") return {

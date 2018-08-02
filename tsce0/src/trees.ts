@@ -836,9 +836,10 @@ export class TreeEditor {
     const path = this.path
     const edit :TreeEdit = root => {
       const tree = path.selectionParent(root), id = path.selectedId
-      tree.symAt(id).name = name
+      const sym = tree.symAt(id), oldName = sym.name
+      sym.name = name
       const undo :TreeEdit = root => {
-        // TODO: undo!
+        sym.name = oldName
         return {root, undo: edit}
       }
       return {root, undo}
@@ -850,9 +851,10 @@ export class TreeEditor {
     const path = this.path
     const edit :TreeEdit = root => {
       const tree = path.selectionParent(root), id = path.selectedId
+      const oldChild = tree.branch(id)
       tree.setBranch(id, child)
       const undo :TreeEdit = root => {
-        // TODO: undo!
+        tree.setBranch(id, oldChild)
         return {root, undo: edit}
       }
       return {root, undo}
@@ -868,7 +870,8 @@ export class TreeEditor {
       tree.setBranch(id, child)
       child.setBranch(childId, oldChild)
       const undo :TreeEdit = root => {
-        // TODO: undo!
+        if (oldChild instanceof Tree) oldChild.unlink()
+        tree.setBranch(id, oldChild)
         return {root, undo: edit}
       }
       return {root, undo}

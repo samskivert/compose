@@ -32,6 +32,12 @@ const enum Mode { Normal, Selected, Edited }
 // Definition editor
 // -----------------
 
+type UndoEntry = {edit :T.TreeEdit, curs :Cursor}
+
+function mkUndoEntry (edit :T.TreeEdit, {path, editing} :Cursor) :UndoEntry {
+  return {edit, curs: {path, editing}}
+}
+
 export class DefStore {
   @observable def!  :T.DefTree
   @observable elem! :M.Elem
@@ -39,6 +45,9 @@ export class DefStore {
   @observable sel   :Selection|void = undefined
   @observable showTypes :boolean = false
   @observable showTree :boolean = false
+
+  undoStack :UndoEntry[] = []
+  redoStack :UndoEntry[] = []
 
   @computed get name () :N.Name { return this.def.sym.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
@@ -53,17 +62,32 @@ export class DefStore {
     this.curs.editing = editing
   }
 
-  applyAction (action :M.EditAction) :T.Path|void {
-    let {edit, focus} = action
-    const {root /*,undo*/} = edit(this.def)
-    this.setDef(root, focus)
-    return focus
-  }
-
   setShowTypes (showTypes :boolean) {
     if (this.showTypes != showTypes) {
       this.showTypes = showTypes
       this.setDef(this.def)
+    }
+  }
+
+  applyAction (action :M.EditAction) :T.Path|void {
+    let {edit, focus} = action
+    const {root, undo} = edit(this.def)
+    this.undoStack.push(mkUndoEntry(undo, this.curs))
+    this.redoStack = []
+    this.setDef(root, focus)
+    return focus
+  }
+  undoAction () { this.xdoAction(this.undoStack, this.redoStack) }
+  redoAction () { this.xdoAction(this.redoStack, this.undoStack) }
+
+  private xdoAction (popStack :UndoEntry[], pushStack :UndoEntry[]) {
+    const entry = popStack.pop()
+    if (entry) {
+      const {edit, curs} = entry
+      const {root, undo} = edit(this.def)
+      pushStack.push(mkUndoEntry(undo, curs))
+      this.setDef(root)
+      this.curs = curs
     }
   }
 
@@ -88,27 +112,33 @@ export class DefStore {
   }
 }
 
+function mkKeySig (ev :KeyboardEvent) :string {
+  let sig = ev.code
+  if (ev.metaKey) sig = 'M-' + sig
+  if (ev.altKey) sig = 'A-' + sig
+  if (ev.ctrlKey) sig = 'C-' + sig
+  if (ev.shiftKey) sig = 'S-' + sig
+  return sig
+}
+
 @observer
 export class DefEditor extends React.Component<{store :DefStore}> {
 
-  plainKeymap = {
+  keymap = {
     "ArrowLeft":  () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
     "ArrowRight": () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
     "ArrowUp":    () => this._moveCursor(M.moveVert(M.VDir.Up)),
     "ArrowDown":  () => this._moveCursor(M.moveVert(M.VDir.Down)),
     "Tab":        () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
+    "S-Tab":      () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
     "Enter":      () => this._startEdit(),
-  }
-
-  shiftKeymap = {
-    "Tab":        () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
-  }
-
-  ctrlKeymap = {
-    "ArrowLeft":  () => this._insertHole(M.Dir.Left),
-    "ArrowRight": () => this._insertHole(M.Dir.Right),
-    "ArrowUp":    () => this._insertHole(M.Dir.Up),
-    "ArrowDown":  () => this._insertHole(M.Dir.Down),
+    "C-ArrowLeft":  () => this._insertHole(M.Dir.Left),
+    "C-ArrowRight": () => this._insertHole(M.Dir.Right),
+    "C-ArrowUp":    () => this._insertHole(M.Dir.Up),
+    "C-ArrowDown":  () => this._insertHole(M.Dir.Down),
+    "S-C-Minus":    () => this.props.store.undoAction(),
+    "M-Z":          () => this.props.store.undoAction(),
+    "C-Backslash":  () => this.props.store.redoAction(),
   }
 
   componentWillMount() {
@@ -118,16 +148,14 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   handleKey (ev :KeyboardEvent) :boolean {
     const {curs} = this.props.store
     if (curs.editing) return false
-    const keymap =
-      ev.shiftKey ? this.shiftKeymap :
-      ev.ctrlKey ? this.ctrlKeymap : this.plainKeymap;
-    const action = keymap[ev.code]
+    const keySig = mkKeySig(ev)
+    const action = this.keymap[keySig]
     if (action) {
       ev.preventDefault()
       action()
       return true
     } else {
-      console.log(`TODO: handleKey ${ev.code}`)
+      console.log(`TODO: handleKey ${keySig} // ${ev.key}`)
       return false
     }
   }
