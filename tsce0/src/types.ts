@@ -9,8 +9,8 @@ export interface Symbol {
   readonly name :Name
 }
 
-export interface DefSymbol extends Symbol {
-  readonly bodyType :Type
+export interface DefTree {
+  readonly body :{sig :Type}
 }
 
 export abstract class Kind {
@@ -249,8 +249,8 @@ export class Scalar extends Type {
 }
 
 export class Def extends Type {
-  get kind () :Kind { return this.sym.bodyType.kind }
-  constructor (readonly sym :DefSymbol) { super() }
+  get kind () :Kind { return this.tree.body.sig.kind }
+  constructor (readonly sym :Symbol, readonly tree :DefTree) { super() }
   equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
   join (that :Type) :Type {
     if (this.subsumes(that)) return this
@@ -258,7 +258,7 @@ export class Def extends Type {
     else return this._joinFailure(that)
   }
   subsumes (that :Type) :boolean {
-    return (that instanceof Def && this.sym == that.sym) || this.sym.bodyType.subsumes(that)
+    return (that instanceof Def && this.sym == that.sym) || this.tree.body.sig.subsumes(that)
   }
   toString () { return `${this.sym.name}`}
 }

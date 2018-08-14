@@ -4,6 +4,7 @@ import { observer } from 'mobx-react'
 
 import * as F from './format'
 import * as M from './markup'
+import * as MD from './module'
 import * as N from './names'
 import * as T from './trees'
 
@@ -56,7 +57,8 @@ export class DefStore {
 
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
-  constructor (def :T.DefTree, readonly selStore :IComputedValue<DefStore|void>,
+  constructor (readonly mod :MD.Module, def :T.DefTree,
+               readonly selStore :IComputedValue<DefStore|void>,
                readonly mkActive :() => void, editing :boolean = false) {
     this.setDef(def, def.firstEditable())
     this.curs.editing = editing
@@ -93,7 +95,7 @@ export class DefStore {
 
   private setDef (def :T.DefTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
-    let {elem, path} = F.format(def, focus, this.showTypes)
+    let {elem, path} = F.format(this.mod, def, focus, this.showTypes)
     transaction(() => {
       this.def = def
       this.elem = elem

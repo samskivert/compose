@@ -6,6 +6,7 @@ import * as E from './editor'
 import * as O from './outline'
 import * as S from './stack'
 import * as T from './trees'
+import * as P from './prefab'
 
 export class WorkspaceStore {
   @observable defs :E.DefStore[] = []
@@ -20,7 +21,7 @@ export class WorkspaceStore {
   }
 
   insertDef (index :number, def :T.DefTree, editing = false) {
-    const store = new E.DefStore(def, computed(() => this.selectedDef), () => {
+    const store = new E.DefStore(P.testMod, def, computed(() => this.selectedDef), () => {
       const idx = this.defs.indexOf(store)
       if (idx >= 0) this.selidx = idx
     }, editing)
@@ -46,7 +47,7 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
     } else if (ev.ctrlKey) {
       switch (ev.code) {
       case "KeyN":
-        store.insertDef(store.selidx, T.mkDefHole(T.testModSym), true)
+        store.insertDef(store.selidx, P.testMod.mkDefHole(), true)
         ev.preventDefault()
         return true
       }

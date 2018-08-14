@@ -1,77 +1,104 @@
-import { observable, observe } from 'mobx'
+import { observable } from 'mobx'
 import { Name } from './names'
 import { Type, Const, hole } from './types'
 import { Constant } from './constants'
 
 export type Kind = "term" | "type" | "module"
-export type Flavor = "none" | "func" | "ctor" | "cnst"
+export type Flavor = "none" | "cnst" | "func" | "ctor"
 
-let symId = 0
-function nextSymId () { symId += 1 ; return symId }
+/** Defines the API needed for symbols to register themselves with their module's index (when
+  * created), and remove themselves (when destroyed). */
+export interface Index {
+  /** Returns a peristent id for use by a new definition symbol in a module.
+    * The symbol created with this id must be `insert`ed before the next call to `nextSymId`. */
+  nextSymId () :number
+  /** Inserts `sym` into this index. */
+  insert (sym :Symbol) :void
+  /** Removes `sym` from this index. */
+  remove (sym :Symbol) :void
+}
 
 export abstract class Symbol {
-  readonly id :number = nextSymId()
+  /** The human readable name for this symbol. */
   @observable name :Name
 
-  constructor (readonly kind :Kind, readonly flavor :Flavor, name :Name) {
+  constructor (
+    /** Whether this symbol represents a term, type or module. */
+    readonly kind :Kind,
+    /** Ad-hoc further refinement of this symbol's kind. */
+    readonly flavor :Flavor,
+    /** This symbol's persistent id. Only non-`0` for symbols that refer to trees. */
+    readonly id :number,
+    name :Name) {
     this.name = name
   }
 
   get displayName () :string { return this.name }
+
   abstract get type () :Type
   abstract get owner () :Symbol
 
-  get isHole () :boolean { return this.name === "" }
-  get module () :ModuleSym {
-    let osym = this.owner
-    while (osym.kind !== "module") {
-      osym = osym.owner
+  /** Returns the root of this symbol's ownership chain. For most symbols this will be a module
+    * symbol, but some symbols can have esoteric owners (like missing syms, holes, and consts). */
+  get root () :Symbol {
+    let sym :Symbol = this, owner = this.owner
+    while (sym !== owner) {
+      sym = owner
+      owner = sym.owner
     }
-    return osym as ModuleSym
+    return sym
   }
 
-  toString () { return `${this.name}#${this.id}` }
+  /** Whether or not this symbol is lexically scoped. Lexically scoped symbols will only ever be
+    * referenced in their lexical scope. Non-lexically scoped symbols may be referenced anywhere in
+    * their module (or in other modules if they are exported). */
+  get lexical () :boolean { return this.owner.kind !== "module" }
+
+  get index () :Index { return this.owner.index }
+
+  get isHole () :boolean { return this.name === "" }
+
+  toString () {
+    return `${this.name}#${this.lexical ? "l" : "m"}${this.id}`
+  }
 }
 
 export class MissingSym extends Symbol {
-  constructor (kind :Kind, name :Name) { super(kind, "none", name) }
+  constructor (kind :Kind, name :Name) { super(kind, "none", 0, name) }
   get displayName () :string { return `<missing: ${name}>` }
   get type () { return hole }
-  get owner () :Symbol { return this}
+  get owner () :Symbol { return this }
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TermHoleSym extends Symbol {
-  constructor () { super("term", "none", "") }
+  constructor () { super("term", "none", 0, "") }
   get displayName () :string { return "?" }
   get type () { return hole }
   get owner () { return this } // TODO: proper owner?
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TypeHoleSym extends Symbol {
-  constructor () { super("type", "none", "") }
+  constructor () { super("type", "none", 0, "") }
   get displayName () :string { return "?" }
   get type () { return hole }
   get owner () { return this } // TODO: proper owner?
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TermConstSym extends Symbol {
-  constructor (readonly cnst :Constant) { super("term", "cnst", cnst.value) }
+  constructor (readonly cnst :Constant) { super("term", "cnst", 0, cnst.value) }
   get type () { return new Const(this.cnst) }
   get owner () { return this } // TODO: none?
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TypeConstSym extends Symbol {
-  constructor (readonly cnst :Constant) { super("type", "cnst", cnst.value) }
+  constructor (readonly cnst :Constant) { super("type", "cnst", 0, cnst.value) }
   get type () { return new Const(this.cnst) }
   get owner () { return this } // TODO: none?
-}
-
-export class ModuleSym extends Symbol {
-  readonly scope = new ModuleScope(this)
-  constructor (name :Name) { super("module", "none", name) }
-  get type () :Type { return hole } // TODO: special module type? none type?
-  get owner () :Symbol { return this }
-  toString () { return `msym#${this.id}:${this.name}` }
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export abstract class Scope {
@@ -96,74 +123,16 @@ export abstract class Scope {
   }
 }
 
-type Disposer = () => void
-
-// NOTE: this will eventually be subsumed by a persistent project-wide symbol database
-export class ModuleScope extends Scope {
-  // TODO: we really want a tree map or something we can prefix query
-  symbols = new Map<Name,Symbol[]>()
-  listeners = new Map<Symbol,Disposer>()
-
-  constructor (readonly owner :ModuleSym) { super() }
-
-  // TODO: revamp to return all matching symbols
-  lookup (kind :Kind, name :Name) :Symbol {
-    const syms = this.symbols.get(name)
-    if (syms) {
-      for (let sym of syms) {
-        if (sym.kind == kind) return sym
-      }
-    }
-    return new MissingSym(kind, name)
-  }
-
-  insert (sym :Symbol) {
-    if (sym.name !== "") this.map(sym.name, sym)
-    this.listeners.set(sym, observe(sym, "name", change => {
-      if (change.oldValue && change.oldValue !== "") this.unmap(change.oldValue, sym)
-      if (change.newValue !== "") this.map(change.newValue, sym)
-    }))
-  }
-
-  remove (sym :Symbol) {
-    if (sym.name !== "") this.unmap(sym.name, sym)
-    const disp = this.listeners.get(sym)
-    disp && disp()
-  }
-
-  toString () :string {
-    return `<module:${this.owner.name}>`
-  }
-
-  _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {
-    // TODO: such inefficient, so expense
-    for (let symvec of Array.from(this.symbols.values())) {
-      for (let sym of symvec) {
-        if (pred(sym) && this.isCompletion(prefix, sym)) {
-          syms.push(sym)
-        }
-      }
-    }
-  }
-
-  private map (name :Name, sym :Symbol) {
-    const syms = this.symbols.get(name)
-    if (syms) syms.push(sym)
-    else this.symbols.set(name, [sym])
-  }
-
-  private unmap (name :Name, sym :Symbol) {
-    const syms = this.symbols.get(name)
-    if (syms) {
-      const idx = syms.indexOf(sym)
-      if (idx >= 0) syms.splice(idx, 1)
-    }
-  }
-}
-
 class EmptyScope extends Scope {
   lookup (kind :Kind, name :Name) :Symbol { return new MissingSym(kind, name) }
   toString () { return `<empty>` }
   _addCompletions (pred :(sym :Symbol) => Boolean, prefix :string, syms :Symbol[]) {}
 }
 export const emptyScope :Scope = new EmptyScope()
+
+class EmptySym extends Symbol {
+  get owner () :Symbol { return this }
+  get type () :Type { return hole }
+  get index () :Index { throw new Error(`Cannot index through ${this}`) }
+}
+export const emptySym :Symbol = new EmptySym("term", "none", 0, "<empty>")

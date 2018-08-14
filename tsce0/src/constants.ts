@@ -67,3 +67,7 @@ export function parseLit (value :string) :Constant|void {
   // TODO: we want special string editing in editor
   return undefined
 }
+
+export function inflateConst (json :any) {
+  return new Constant(json.tag as Tag, json.value as string)
+}

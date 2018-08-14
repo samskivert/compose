@@ -1,4 +1,5 @@
 import * as T from './trees'
+import * as P from './prefab'
 import * as F from './format'
 
 // it('edit expr: app', () => {
@@ -25,9 +26,9 @@ import * as F from './format'
 // })
 
 it('formats things', () => {
-  const tree = T.boxExample
+  const tree = P.boxExample
   console.log(tree.debugShow().join("\n"))
-  const {elem} = F.format(tree, new T.Path())
+  const {elem} = F.format(P.testMod, tree, new T.Path())
   console.dir(elem)
   console.log(elem.debugShow().join("\n"))
 })

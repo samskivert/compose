@@ -1,15 +1,16 @@
+import { Name } from './names'
+import * as C from "./constants"
 import * as M from "./markup"
+import * as MD from "./module"
 import * as S from "./symbols"
 import * as T from "./trees"
 import * as TP from "./types"
-import * as C from "./constants"
-import { Name } from './names'
 
 export function format (
-  tree :T.DefTree, focus? :T.Path, showSigs :boolean = false
+  mod :MD.Module, tree :T.DefTree, focus? :T.Path, showSigs :boolean = false
 ) :{elem :M.Elem, path :M.Path} {
-  // console.log(`format ${tree} @ ${focus}`)
-  return new Acc(tree, focus, showSigs).appendTree(new T.Path(), tree).finalize()
+  console.log(`format ${tree} / ${tree.sym} @ ${focus}`)
+  return new Acc(mod, tree, focus, showSigs).appendTree(new T.Path(), tree).finalize()
 }
 
 class SigAnnot {
@@ -31,7 +32,11 @@ class Acc {
   markupPath :M.Path = M.emptyPath
   depth = -1
 
-  constructor (readonly root :T.DefTree, readonly focus :T.Path|void, readonly showSigs :boolean) {}
+  constructor (
+    readonly mod :MD.Module,
+    readonly root :T.DefTree,
+    readonly focus :T.Path|void,
+    readonly showSigs :boolean) {}
 
   appendTree (path :T.Path, tree :T.Tree) :this {
     this.depth += 1
@@ -56,7 +61,7 @@ class Acc {
       }
 
     } else if (tree instanceof T.DefHoleTree) {
-      this.appendSpan(new DefHoleSpan(this.root, path, tree.scope), path.x("sym"))
+      this.appendSpan(new DefHoleSpan(this.mod, path), path.x("sym"))
 
     } else if (tree instanceof T.CtorTree) {
       this.depth += 1
@@ -237,7 +242,8 @@ class Acc {
     if (this.line.length > 0) {
       this.newLine()
     }
-    let sub = new Acc(this.root, this.focus, this.showSigs).appendTree(path, tree).finalize()
+    let sub = new Acc(this.mod, this.root, this.focus, this.showSigs).
+      appendTree(path, tree).finalize()
     // if the target tree element was in the sub-expr, capture the markup path
     if (sub.path != M.emptyPath) {
       // prepend the path to the block we're about to append
@@ -493,7 +499,7 @@ const addAbs :Rule = {
     if (path.endsWith(root, "abs", "sym") || path.endsWith(root, "fundef", "sym")) {
       const bodyPath = path.sib("body")
       return isEmptyAbs(bodyPath.selectedTree(root)) ? comp.edit(path) :
-        T.merge(comp.edit(path), bodyPath.edit(te => te.spliceAbs("")))
+        T.merge(comp.edit(path), bodyPath.edit(te => te.spliceAbs()))
     }
     return undefined
   },
@@ -507,7 +513,7 @@ const addTAbs :Rule = {
     if (path.endsWith(root, "typedef", "sym") || path.endsWith(root, "tabs", "sym")) {
       const cedit = comp.edit(path), bodyPath = path.sib("body")
       return isEmptyTAbs(bodyPath.selectedTree(root)) ? cedit :
-        T.merge(cedit, bodyPath.edit(te => te.spliceTAbs("")))
+        T.merge(cedit, bodyPath.edit(te => te.spliceTAbs()))
     }
     return undefined
   },
@@ -521,7 +527,7 @@ const addAll :Rule = {
     if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "all", "sym")) {
       const cedit = comp.edit(path), bodyPath = path.sib("body")
       return isEmptyAll(bodyPath.selectedTree(root)) ? cedit :
-        T.merge(cedit, bodyPath.edit(te => te.spliceAll("")))
+        T.merge(cedit, bodyPath.edit(te => te.spliceAll()))
     }
     return undefined
   },
@@ -645,7 +651,7 @@ class DefHoleSpan extends M.EditableSpan {
   get displayPlaceHolder () { return "<new def>" }
   get editPlaceHolder () { return "<kind>" }
 
-  constructor (readonly root :T.DefTree, readonly path :T.Path, readonly scope :S.Scope) { super() }
+  constructor (readonly mod :MD.Module, readonly path :T.Path) { super() }
 
   handleKey (ev :M.KeyEvent, text :string, comp :M.Completion|void) :M.EditAction|void {
     console.log(`defHoleEdit ${ev} @ ${text}`)
@@ -658,7 +664,6 @@ class DefHoleSpan extends M.EditableSpan {
   }
 
   commitEdit (text :string, comp :M.Completion|void) :M.EditAction|void {
-    const msym = this.root.owner as S.ModuleSym
     function mkTreeEdit (mkTree :() => T.DefTree) :T.TreeEdit {
       const edit :T.TreeEdit = origRoot => ({
         root: mkTree(),
@@ -667,25 +672,25 @@ class DefHoleSpan extends M.EditableSpan {
       return edit
     }
     if (text === "fun") return {
-      edit: mkTreeEdit(() => T.mkFunDef(msym, "").setBranch(
-        "body", new T.AbsTree("").setBranch(
+      edit: mkTreeEdit(() => this.mod.mkFunDef("").setBranch(
+        "body", new T.AbsTree(1, "").setBranch(
           "body", new T.AscTree().
             setBranch("type", new T.THoleTree()).
             setBranch("expr", new T.HoleTree())))),
       focus: new T.Path("sym")
     }
     else if (text === "sum") return {
-      edit: mkTreeEdit(() => T.mkTypeDef(msym, "").setBranch(
+      edit: mkTreeEdit(() => this.mod.mkTypeDef("").setBranch(
         "body", new T.SumTree().setBranch(
-          "0", new T.CtorTree("").setBranch(
+          "0", new T.CtorTree(1, "").setBranch(
             "prod", new T.ProdTree())))),
       focus: new T.Path("sym")
     }
     else if (text === "prod") return {
-      edit: mkTreeEdit(() => T.mkTypeDef(msym, "").setBranch(
-        "body", new T.CtorTree("").setBranch(
+      edit: mkTreeEdit(() => this.mod.mkTypeDef("").setBranch(
+        "body", new T.CtorTree(1, "").setBranch(
           "prod", new T.ProdTree().setBranch(
-            "0", new T.FieldTree("").setBranch(
+            "0", new T.FieldTree(2, "").setBranch(
               "type", new T.THoleTree()))))),
       focus: new T.Path("sym")
     }
@@ -901,8 +906,8 @@ class TermExprSpan extends SymTreeSpan {
   commitEdit (text :string, compM :M.Completion|void, viaSpace :boolean) :M.EditAction {
     const {root, path} = this
     // if we didn't get a completion, fake it by looking up the text as a symbol (TODO...)
-    const comp = compM || (text === "" ? termHoleCompletion :
-                           new TermSymbolCompletion(path.selectionParent(root).scope.lookupTerm(text)))
+    const comp = compM || (text === "" ? termHoleCompletion : new TermSymbolCompletion(
+      path.selectionParent(root).scope.lookupTerm(text)))
     let compType = comp.type
 
     // if we're setting a non-function, use our setValue helper
