@@ -2,22 +2,44 @@ import * as C from "./constants"
 import * as T from "./trees"
 import * as TP from "./types"
 import * as M from "./module"
+import * as P from "./project"
+
+// ----------
+// Primitives
+// ----------
+
+// Just some hacked together stubs so we can write sane looking test trees.
+
+const primModUUID  = "e851e318-a571-11e8-98d0-529269fb1459"
+const primLibUUID  = "1df46538-a575-11e8-98d0-529269fb1459"
+const primProjUUID = "099f7118-a575-11e8-98d0-529269fb1459"
+
+const nullResolver :M.Resolver = {
+  resolve : (uuid :M.UUID) => undefined
+}
+const primMod = new M.Module(primModUUID, "prim", nullResolver, new Map())
+
+const NatID = 1, IntID = 2, StringID = 3, PlusID = 4, MinusID = 5
+
+const natTree = primMod.mkTypeDef("Nat", NatID).
+  setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
+primMod.mkTypeDef("Int", IntID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
+primMod.mkTypeDef("String", StringID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
+
+const natType = natTree.sym.type
+const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
+primMod.mkFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
+primMod.mkFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
+
+const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim")
+primLib.modules.push(primMod)
+
+export const primProject = new P.Project(primProjUUID, "prim", "internal://prim")
+primProject.components.push(primLib)
 
 // ----------
 // Test trees
 // ----------
-
-export const testMod = new M.Module("test")
-
-const natTree = testMod.mkTypeDef("Nat", 1).
-  setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-testMod.mkTypeDef("Int", 2).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-testMod.mkTypeDef("String", 3).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
-
-const natType = natTree.sym.type
-const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
-testMod.mkFunDef("+", 4).setBranch("body", new T.PrimTree(natNatToNat))
-testMod.mkFunDef("-", 5).setBranch("body", new T.PrimTree(natNatToNat))
 
 function mkSymTree (kind :string, id :number, name :string, branchId :string, branch :any) :any {
   const tree = {kind, sym: {id, name}}
@@ -25,40 +47,61 @@ function mkSymTree (kind :string, id :number, name :string, branchId :string, br
   return tree
 }
 
+const testModUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testLibUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testProjUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+
 // type Box ∀A contents:A
-export const boxExample = testMod.inflateDef(
-  mkSymTree(
-    "typedef", 10, "Box", "body", mkSymTree(
-      "tabs", 1, "A", "body", mkSymTree(
-        "ctor", 20, "Box", "prod", {
-          kind: "prod",
-          branches: [mkSymTree("field", 21, "contents", "type", {kind: "tref", symId: "l1"})]
-        }))))
+const boxJson = mkSymTree(
+  "typedef", 10, "Box", "body", mkSymTree(
+    "tabs", 1, "A", "body", mkSymTree(
+      "ctor", 20, "Box", "prod", {
+        kind: "prod",
+        branches: [mkSymTree("field", 21, "contents", "type", {kind: "tref", symId: "l1"})]
+      })))
 
 // type Person name:String age:Nat
-export const recordExample = testMod.inflateDef(
-  mkSymTree("typedef", 11, "Person", "body", {
-    kind: "prod",
-    branches: [mkSymTree("field", 22, "name", "type", {kind: "tref", symId: "m3"}),
-               mkSymTree("field", 23, "age", "type", {kind: "tref", symId: "m1"})]
-  }))
+const recordJson = mkSymTree("typedef", 11, "Person", "body", {
+  kind: "prod",
+  branches: [mkSymTree("field", 22, "name", "type", {kind: "tref", symId: "x2"}),
+             mkSymTree("field", 23, "age", "type", {kind: "tref", symId: "x1"})]
+})
 
 // type List ∀A =
 //   * Nil
 //   * Cons head:A tail:List A
-export const listExample = testMod.inflateDef(
-  mkSymTree(
-    "typedef", 12, "List", "body", mkSymTree(
-      "tabs", 1, "T", "body", {
-        kind: "sum",
-        cases: [mkSymTree("ctor", 24, "Nil", "prod", {kind: "prod", branches: []}),
-                mkSymTree("ctor", 25, "Cons", "prod", {
-          kind: "prod",
-          branches: [mkSymTree("field", 26, "head", "type", {kind: "tref", symId: "l1"}),
-                     mkSymTree("field", 27, "tail", "type", {
-            kind: "tapp", ctor: {kind: "tref", symId: "m12"}, arg: {kind: "tref", symId: "l1"}})]
-        })]
-      })))
+const listJson = mkSymTree(
+  "typedef", 12, "List", "body", mkSymTree(
+    "tabs", 1, "T", "body", {
+      kind: "sum",
+      cases: [mkSymTree("ctor", 24, "Nil", "prod", {kind: "prod", branches: []}),
+              mkSymTree("ctor", 25, "Cons", "prod", {
+        kind: "prod",
+        branches: [mkSymTree("field", 26, "head", "type", {kind: "tref", symId: "l1"}),
+                   mkSymTree("field", 27, "tail", "type", {
+          kind: "tapp", ctor: {kind: "tref", symId: "m12"}, arg: {kind: "tref", symId: "l1"}})]
+      })]
+    }))
+
+export function mkTestProject (resolver :M.Resolver) :P.Project {
+  const testModJson = {
+    uuid: testModUUID,
+    name: "test",
+    xrefs: {
+      [primModUUID]: {"1": NatID, "2": StringID}
+    },
+    defs: [boxJson, recordJson, listJson]
+  }
+
+  const testMod = M.inflateMod(resolver, testModJson)
+  const testLib = new P.Component(testLibUUID, P.Type.LIB, "test")
+  testLib.modules.push(testMod)
+
+  const testProject = new P.Project(testProjUUID, "test", "internal://test")
+  testProject.components.push(testLib)
+
+  return testProject
+}
 
 // function mkListA (tb :TreeEditor) :Tree {
 //   return tb.setTApp().editBranches({

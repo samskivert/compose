@@ -53,11 +53,12 @@ export class DefStore {
   @computed get name () :N.Name { return this.def.sym.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
 
+  get mod () :MD.Module { return this.sym.mod }
   get selectedSpan () :M.Span|void { return this.elem.spanAt(this.curs.path) }
 
   keyHandler :(ev :KeyboardEvent) => boolean = ev => true
 
-  constructor (readonly mod :MD.Module, def :T.DefTree,
+  constructor (readonly sym :MD.DefSym, def :T.DefTree,
                readonly selStore :IComputedValue<DefStore|void>,
                readonly mkActive :() => void, editing :boolean = false) {
     this.setDef(def, def.firstEditable())

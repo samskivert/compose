@@ -5,32 +5,65 @@ import { observer } from 'mobx-react'
 import * as E from './editor'
 import * as O from './outline'
 import * as S from './stack'
-import * as T from './trees'
-import * as P from './prefab'
+import * as M from './module'
+import * as P from './project'
 
-export class WorkspaceStore {
-  @observable defs :E.DefStore[] = []
-  @observable selidx :number = 0
+export class WorkspaceStore implements M.Resolver {
+  @observable projects :P.Project[] = []
+  @observable selprojidx :number = 0
+  @observable selcompidx :number = 0
+
+  @observable openDefs :E.DefStore[] = []
+  @observable seldefidx :number = 0
+
+  @computed get selectedProject () :P.Project|void {
+    const selidx = this.selprojidx, projs = this.projects
+    return projs.length > selidx ? projs[selidx] : undefined
+  }
+  @computed get selectedComponent () :P.Component|void {
+    const selidx = this.selcompidx, selproj = this.selectedProject
+    const comps = selproj ? selproj.components : []
+    return comps.length > selidx ? comps[selidx] : undefined
+  }
 
   @computed get selectedDef () :E.DefStore|void {
-    return this.defs.length > 0 ? this.defs[this.selidx] : undefined
-  }
-
-  addDef (def :T.DefTree, editing = false) {
-    this.insertDef(this.defs.length, def, editing)
-  }
-
-  insertDef (index :number, def :T.DefTree, editing = false) {
-    const store = new E.DefStore(P.testMod, def, computed(() => this.selectedDef), () => {
-      const idx = this.defs.indexOf(store)
-      if (idx >= 0) this.selidx = idx
-    }, editing)
-    this.defs.splice(index, 0, store)
+    const selidx = this.seldefidx, stores = this.openDefs
+    return stores.length > selidx ? stores[selidx] : undefined
   }
 
   moveSelection (delta :number) {
-    const stores = this.defs.length
-    this.selidx = (this.selidx+stores+delta)%stores
+    const stores = this.openDefs.length
+    this.seldefidx = (this.seldefidx+stores+delta)%stores
+  }
+
+  openDef (sym :M.DefSym) {
+    for (let od of this.openDefs) {
+      if (od.sym === sym) {
+        this.seldefidx = this.openDefs.indexOf(od)
+        // TODO: make sure selected def is scrolled into view
+        return
+      }
+    }
+    const ds = new E.DefStore(sym, sym.mod.tree(sym), computed(() => this.selectedDef), () => {
+      const idx = this.openDefs.indexOf(ds)
+      if (idx >= 0) this.seldefidx = idx
+    })
+    // TODO: insert def after selected def?
+    const idx = this.openDefs.length
+    this.openDefs.push(ds)
+    this.seldefidx = idx
+  }
+
+  // from M.Resolver
+  resolve (uuid :M.UUID) :M.Module|void {
+    // TEMP: linear search!
+    for (let proj of this.projects) {
+      for (let comp of proj.components) {
+        for (let mod of comp.modules) {
+          if (mod.uuid === uuid) return mod
+        }
+      }
+    }
   }
 }
 
@@ -44,13 +77,13 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
       case "ArrowUp": this.props.store.moveSelection(-1) ; return true
       case "ArrowDown": this.props.store.moveSelection(1) ; return true
       }
-    } else if (ev.ctrlKey) {
-      switch (ev.code) {
-      case "KeyN":
-        store.insertDef(store.selidx, P.testMod.mkDefHole(), true)
-        ev.preventDefault()
-        return true
-      }
+    // } else if (ev.ctrlKey) {
+    //   switch (ev.code) {
+    //   case "KeyN":
+    //     store.insertDef(store.seldefidx, P.testMod.mkDefHole(), true)
+    //     ev.preventDefault()
+    //     return true
+    //   }
     }
     const selDef = store.selectedDef
     return selDef ? selDef.keyHandler(ev) : false

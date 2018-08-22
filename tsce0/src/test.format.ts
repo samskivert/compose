@@ -1,4 +1,5 @@
 import * as T from './trees'
+import * as M from './module'
 import * as P from './prefab'
 import * as F from './format'
 
@@ -25,10 +26,20 @@ import * as F from './format'
 //     toEqual(new T.Let(pants, T.notype, slacks, new T.Ref("suitcase")))
 // })
 
+const testProj = P.mkTestProject({
+  resolve :(uuid :M.UUID) => P.primProject.components[0].modules[0]
+})
+const testMod = testProj.components[0].modules[0]
+const testSym = testMod.index.get(10)
+const testTree = testSym && testMod.tree(testSym as M.DefSym)
+
 it('formats things', () => {
-  const tree = P.boxExample
-  console.log(tree.debugShow().join("\n"))
-  const {elem} = F.format(P.testMod, tree, new T.Path())
-  console.dir(elem)
-  console.log(elem.debugShow().join("\n"))
+  if (testTree instanceof T.DefTree) {
+    console.log(testTree.debugShow().join("\n"))
+    const {elem} = F.format(testMod, testTree, new T.Path())
+    console.dir(elem)
+    console.log(elem.debugShow().join("\n"))
+  } else {
+    console.log(`Invalid test sym? ${testSym} / ${testTree}`)
+  }
 })

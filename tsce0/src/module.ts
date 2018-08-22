@@ -4,6 +4,11 @@ import * as S from './symbols'
 import * as T from './trees'
 import * as TP from './types'
 
+/** A globally unique id used to identify projects, components & modules across time and space. */
+export type UUID = string
+
+type XRef = {uuid :UUID, mid :number}
+
 /** Maintains the symbol and tree information for a single module. */
 export class Module implements S.Index {
 
@@ -19,16 +24,24 @@ export class Module implements S.Index {
   /** The human readable name of this module. */
   @computed get name () :Name { return this.sym.name }
 
-  private trees :Map<number, T.Tree> = new Map()
+  private trees :Map<number, T.DefTree> = new Map()
+  private jsons :Map<number, any> = new Map()
 
-  constructor (name :Name) {
+  constructor (readonly uuid :UUID, name :Name,
+               private readonly resolver :Resolver,
+               private readonly xrefs :Map<number, XRef>) {
     this.sym.name = name
   }
 
-  tree (id :number) :T.Tree {
-    const tree = this.trees.get(id)
+  tree (sym :DefSym) :T.DefTree {
+    const tree = this.trees.get(sym.id)
     if (tree) return tree
-    throw new Error(`Missing tree, id: ${id}`)
+    const json = this.jsons.get(sym.id)
+    if (json) {
+      this.jsons.delete(sym.id)
+      return this.inflateDef(sym, json)
+    }
+    throw new Error(`Missing tree, id: ${sym.id}`)
   }
 
   mkDefHole () :T.DefTree {
@@ -37,57 +50,24 @@ export class Module implements S.Index {
     return tree
   }
 
-  mkFunDef (name :Name, id :number = this.nextSymId()) :T.FunDefTree {
-    const sym = new DefSym(this, "term", "func", id, name)
+  mkFunDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+    const sym = this.mkDefSym("fundef", id, name)
     const tree = new T.FunDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
-    this.index.set(sym.id, sym)
     return tree
   }
 
-  mkTypeDef (name :Name, id :number = this.nextSymId()) :T.FunDefTree {
-    const sym = new DefSym(this, "type", "none", id, name)
+  mkTypeDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+    const sym = this.mkDefSym("typedef", id, name)
     const tree = new T.TypeDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
-    this.index.set(sym.id, sym)
     return tree
   }
 
-  inflateDef (json :any) :T.DefTree {
-    let tree :T.DefTree
-    const kind :string = json.kind, {name, id} = json.sym
-    switch (kind) {
-    case  "fundef": tree = this.mkFunDef(name, id) ; break
-    case "typedef": tree = this.mkTypeDef(name, id) ; break
-    default:
-      throw new Error(`Unknown deftree kind: '${json.kind}'`)
-    }
-
-    const locals :Map<number, S.Symbol> = new Map()
-    const index :T.SzIndex = {
-      add: (sym :S.Symbol) => {
-        locals.set(sym.id, sym)
-      },
-      req: (whence :T.Whence, id :number) => {
-        let sym :S.Symbol|void
-        switch (whence) {
-        case "l": sym = locals.get(id) ; break
-        case "m": sym = this.index.get(id) ; break
-        case "x": break // TODO
-        }
-        return sym || new S.MissingSym("term", `${whence}:${id}`)
-      },
-      // ids: (sym :S.Symbol) => {
-      //   let whence :string
-      //   if (sym.lexical) whence = "l"
-      //   else if (sym.root === mod.sym) whence = "m"
-      //   else whence = "x"
-      //   // TODO: assign persistent id?
-      //   return {whence, id: sym.reqId}
-      // }
-    }
-
-    return tree.setBranch("body", T.inflateTree(index, json.body))
+  indexDef (json :any) :DefSym {
+    const sym = this.mkDefSym(json.kind, json.sym.id, json.sym.name)
+    this.jsons.set(sym.id, json)
+    return sym
   }
 
   // from S.Index
@@ -99,6 +79,49 @@ export class Module implements S.Index {
   }
   remove (sym :S.Symbol) {
     this.index.delete(sym.id || 0)
+  }
+
+  private mkDefSym (kind :string, id :number, name :string) :DefSym {
+    let sym :DefSym
+    switch (kind) {
+    case  "fundef": sym = new DefSym(this, "term", "func", id, name) ; break
+    case "typedef": sym = new DefSym(this, "type", "none", id, name) ; break
+    default: throw new Error(`Unknown def kind: '${kind}'`)
+    }
+    this.index.set(sym.id, sym)
+    return sym
+  }
+
+  private inflateDef (sym :DefSym, json :any) :T.DefTree {
+    let tree :T.DefTree
+    switch (json.kind) {
+    case  "fundef": tree = new T.FunDefTree(sym, this.scope) ; break
+    case "typedef": tree = new T.TypeDefTree(sym, this.scope) ; break
+    default: throw new Error(`Unknown deftree kind: '${json.kind}'`)
+    }
+    this.trees.set(sym.id, tree)
+
+    const locals :Map<number, S.Symbol> = new Map()
+    const index :T.SzIndex = {
+      add: (sym :S.Symbol) => {
+        locals.set(sym.id, sym)
+      },
+      req: (whence :T.Whence, id :number) => {
+        switch (whence) {
+        case "l": return locals.get(id) || new S.MissingSym("term", `l${id}`)
+        case "m": return this.index.get(id) || new S.MissingSym("term", `m${id}`)
+        case "x":
+          let xref = this.xrefs.get(id)
+          if (!xref) return new S.MissingSym("term", `x${id}`)
+          let {uuid, mid} = xref
+          let xmod = this.resolver.resolve(uuid)
+          if (!xmod) return new S.MissingSym("term", `x${id}:${uuid}`)
+          return xmod.index.get(mid) || new S.MissingSym("term", `x${id}:${uuid}:m${mid}`)
+        }
+      },
+    }
+
+    return tree.setBranch("body", T.inflateTree(index, json.body))
   }
 }
 
@@ -116,7 +139,7 @@ export class DefSym extends S.Symbol {
   constructor (readonly mod :Module, kind :S.Kind, flavor :S.Flavor, id :number, name :Name) {
     super(kind, flavor, id, name)
   }
-  get type () :TP.Type { return this.mod.tree(this.id).sig }
+  get type () :TP.Type { return this.mod.tree(this).sig }
   get owner () :S.Symbol { return this.mod.sym }
   get index () :S.Index { return this.mod }
 }
@@ -195,8 +218,25 @@ export class ModuleScope extends S.Scope {
   }
 }
 
-export function inflateMod (json :any) :Module {
-  const mod = new Module(json.name)
-  for (let defJson of json.defs) mod.inflateDef(defJson)
+/** Used to resolve module cross references when inflating a module. */
+export interface Resolver {
+  /** Resolves and returns the module identified by `uuid`. `undefined` is returned if the module
+    * cannot be located. This is indicative of a corrupted module and/or project. */
+  resolve (uuid :UUID) :Module|void
+}
+
+export function inflateMod (resolver :Resolver, json :any) :Module {
+  // convert the xrefs table into a more more useful runtime format (from xid to uuid+mid)
+  const xrefs :Map<number,XRef> = new Map()
+  const xrefsJson :{[uuid :string] :{[xid :string] :number}} = json.xrefs
+  for (let uuid in xrefsJson) {
+    const mrefs = xrefsJson[uuid]
+    for (let xid in mrefs) {
+      const mid = mrefs[xid]
+      xrefs.set(parseInt(xid), {uuid, mid})
+    }
+  }
+  const mod = new Module(json.uuid, json.name, resolver, xrefs)
+  for (let defJson of json.defs) mod.indexDef(defJson)
   return mod
 }
