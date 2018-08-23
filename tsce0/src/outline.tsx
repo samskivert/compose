@@ -14,9 +14,7 @@ export class Outline extends React.Component<{store :W.WorkspaceStore}> {
       {store.projects.map((proj, pp) => proj.components.map((comp, cc) => comp.modules.map((mod, mm) =>
         <div key={proj.uuid}>
           <div className="header">{proj.name} : {comp.name} : {mod.name}</div>
-          <div className="defs">
-            {Array.from(mod.index.values()).map(
-              sym => sym instanceof M.DefSym ? this.renderDef(sym) : undefined)}
+          <div className="defs">{mod.defs.map(sym => this.renderDef(sym))}
           </div>
         </div>
       )))}
@@ -24,6 +22,6 @@ export class Outline extends React.Component<{store :W.WorkspaceStore}> {
   }
 
   renderDef (sym :M.DefSym) :JSX.Element {
-    return <div key={sym.id} onClick={ev => this.props.store.openDef(sym)}>{sym.name}</div>
+    return <div key={sym.id} onClick={ev => this.props.store.openDef(sym)}>{sym.displayName}</div>
   }
 }

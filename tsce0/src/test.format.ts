@@ -30,7 +30,7 @@ const testProj = P.mkTestProject({
   resolve :(uuid :M.UUID) => P.primProject.components[0].modules[0]
 })
 const testMod = testProj.components[0].modules[0]
-const testSym = testMod.index.get(10)
+const testSym = testMod.symById(10)
 const testTree = testSym && testMod.tree(testSym as M.DefSym)
 
 it('formats things', () => {

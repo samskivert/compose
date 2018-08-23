@@ -12,9 +12,6 @@ type XRef = {uuid :UUID, mid :number}
 /** Maintains the symbol and tree information for a single module. */
 export class Module implements S.Index {
 
-  /** An index of module-scoped symbols defined by this module. */
-  index :Map<number, S.Symbol> = observable.map()
-
   /** The symbol that represents this module. */
   readonly sym = new ModuleSym(this)
 
@@ -24,6 +21,10 @@ export class Module implements S.Index {
   /** The human readable name of this module. */
   @computed get name () :Name { return this.sym.name }
 
+  /** The top-level definitions in this module. */
+  @observable defs :DefSym[] = []
+
+  private index :Map<number, S.Symbol> = new Map()
   private trees :Map<number, T.DefTree> = new Map()
   private jsons :Map<number, any> = new Map()
 
@@ -31,6 +32,12 @@ export class Module implements S.Index {
                private readonly resolver :Resolver,
                private readonly xrefs :Map<number, XRef>) {
     this.sym.name = name
+  }
+
+  /** Returns the symbol defined by this module with persistent `id`, or `undefined` if no symbol
+    * exists with that id. */
+  symById (id :number) :S.Symbol|void {
+    return this.index.get(id)
   }
 
   tree (sym :DefSym) :T.DefTree {
@@ -44,29 +51,59 @@ export class Module implements S.Index {
     throw new Error(`Missing tree, id: ${sym.id}`)
   }
 
-  mkDefHole () :T.DefTree {
-    const sym = new DefSym(this, "term", "none", 0, "")
-    const tree = new T.DefHoleTree(sym, this.scope)
-    return tree
-  }
-
-  mkFunDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+  addFunDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
     const sym = this.mkDefSym("fundef", id, name)
     const tree = new T.FunDefTree(sym, this.scope)
+    tree.setBranch(
+      "body", new T.AbsTree(1, "").setBranch(
+        "body", new T.AscTree().
+          setBranch("type", new T.THoleTree()).
+          setBranch("expr", new T.HoleTree())))
+    // focus: new T.Path("sym")
     this.trees.set(sym.id, tree)
+    this.insert(sym)
+    this.defs.push(sym)
     return tree
   }
 
-  mkTypeDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+  addTypeDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
     const sym = this.mkDefSym("typedef", id, name)
     const tree = new T.TypeDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
+    this.insert(sym)
+    this.defs.push(sym)
+    return tree
+  }
+
+  addProdDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+    const tree = this.addTypeDef(name, id)
+    tree.setBranch(
+      "body", new T.CtorTree(1, "").setBranch(
+        "prod", new T.ProdTree().setBranch(
+          "0", new T.FieldTree(2, "").setBranch(
+            "type", new T.THoleTree()))))
+    //   focus: new T.Path("sym")
+    return tree
+  }
+
+  addSumDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+    const tree = this.addTypeDef(name, id)
+    tree.setBranch(
+      "body", new T.SumTree().setBranch(
+        "0", new T.CtorTree(1, "").setBranch(
+          "prod", new T.ProdTree())))
+    //   focus: new T.Path("sym")
     return tree
   }
 
   indexDef (json :any) :DefSym {
     const sym = this.mkDefSym(json.kind, json.sym.id, json.sym.name)
+    // TODO: we need to know the entire "signature" of the definition; for types this is pretty much
+    // the entire thing, for terms (funs) it is enough to reconstruct the type of the term; in the
+    // case of types we should probably just decode the entire tree, but for terms we may want to
+    // just duplicate the signature separately (via a type tree child of the 'termdef' node?)
     this.jsons.set(sym.id, json)
+    this.defs.push(sym)
     return sym
   }
 
@@ -76,9 +113,11 @@ export class Module implements S.Index {
   }
   insert (sym :S.Symbol) {
     this.index.set(sym.id, sym)
+    this.scope.onInsert(sym)
   }
   remove (sym :S.Symbol) {
     this.index.delete(sym.id || 0)
+    this.scope.onRemove(sym)
   }
 
   private mkDefSym (kind :string, id :number, name :string) :DefSym {
@@ -142,6 +181,7 @@ export class DefSym extends S.Symbol {
   get type () :TP.Type { return this.mod.tree(this).sig }
   get owner () :S.Symbol { return this.mod.sym }
   get index () :S.Index { return this.mod }
+  get displayName () :string { return this.name || "?" }
 }
 
 type Disposer = () => void
@@ -151,17 +191,7 @@ export class ModuleScope extends S.Scope {
   symbols = new Map<Name,S.Symbol[]>()
   listeners = new Map<S.Symbol,Disposer>()
 
-  constructor (readonly mod :Module) {
-    super()
-    observe(mod.index, change => {
-      const sym :S.Symbol = change.object.get(change.name)
-      switch (change.type) {
-      case "add": this.onInsert(sym) ; break
-      case "update": break // TODO: anything?
-      case "remove": this.onRemove(sym) ; break
-      }
-    })
-  }
+  constructor (readonly mod :Module) { super() }
 
   // TODO: revamp to return all matching symbols
   lookup (kind :S.Kind, name :Name) :S.Symbol {
@@ -189,7 +219,8 @@ export class ModuleScope extends S.Scope {
     }
   }
 
-  private onInsert (sym :S.Symbol) {
+  onInsert (sym :S.Symbol) {
+    console.log(`Inserted ${sym}`)
     if (sym.name !== "") this.map(sym.name, sym)
     this.listeners.set(sym, observe(sym, "name", change => {
       if (change.oldValue && change.oldValue !== "") this.unmap(change.oldValue, sym)
@@ -197,7 +228,7 @@ export class ModuleScope extends S.Scope {
     }))
   }
 
-  private onRemove (sym :S.Symbol) {
+  onRemove (sym :S.Symbol) {
     if (sym.name !== "") this.unmap(sym.name, sym)
     const disp = this.listeners.get(sym)
     disp && disp()

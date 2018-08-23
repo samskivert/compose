@@ -12,6 +12,7 @@
       #top {
         display: flex;
         flex-direction: row;
+        position: relative;
       }
 
       /** Outline styles */
@@ -48,6 +49,22 @@
         flex-grow: 2;
         background-color: #424242;
         padding: 5px;
+      }
+
+      /** Create def popup styles */
+      .createDef {
+        position: absolute;
+        left: 50%;
+        top: 50px;
+        transform: translate(-50%,0);
+        border: 1px solid #AAAAFF;
+        padding: 5px;
+        background: #AAAAAA;
+        color: #222222;
+      }
+
+      .createDef .shortcut {
+        text-decoration: underline;
       }
 
       /** Def Editor styles */

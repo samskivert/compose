@@ -617,13 +617,6 @@ export class TypeDefTree extends DefTree {
   get sig () :TP.Type { return new TP.Def(this.sym, this) }
 }
 
-export class DefHoleTree extends DefTree {
-  constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
-  get owner () :S.Symbol { return this.sym.owner }
-  get branchIds () :string[] { return ["sym"] }
-  get sig () :TP.Type { return TP.hole }
-}
-
 // ---------------
 // Tree path model
 // ---------------

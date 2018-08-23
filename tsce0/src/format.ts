@@ -60,9 +60,6 @@ class Acc {
         this.appendTree(bodyPath, body)
       }
 
-    } else if (tree instanceof T.DefHoleTree) {
-      this.appendSpan(new DefHoleSpan(this.mod, path), path.x("sym"))
-
     } else if (tree instanceof T.CtorTree) {
       this.depth += 1
       this.appendSymSpan(new TypeDefSpan(this.root, path.x("sym"), tree))
@@ -642,61 +639,6 @@ abstract class SymTreeSpan extends TreeSpan {
   get styles () { return [symStyle(this.sym)] }
   get sourceText () { return this.sym.name }
   get displayText () { return this.sym.displayName || "?" }
-}
-
-class DefHoleSpan extends M.EditableSpan {
-  get isHole () :boolean { return true }
-  get sourceText () { return "" }
-  get styles () { return ["keyword"] }
-  get displayPlaceHolder () { return "<new def>" }
-  get editPlaceHolder () { return "<kind>" }
-
-  constructor (readonly mod :MD.Module, readonly path :T.Path) { super() }
-
-  handleKey (ev :M.KeyEvent, text :string, comp :M.Completion|void) :M.EditAction|void {
-    console.log(`defHoleEdit ${ev} @ ${text}`)
-    switch (ev.key) {
-    case "Enter":
-    case "Tab":
-    case " ":
-      return this.commitEdit(text, comp)
-    }
-  }
-
-  commitEdit (text :string, comp :M.Completion|void) :M.EditAction|void {
-    function mkTreeEdit (mkTree :() => T.DefTree) :T.TreeEdit {
-      const edit :T.TreeEdit = origRoot => ({
-        root: mkTree(),
-        undo: root => ({root: origRoot, undo: edit})
-      })
-      return edit
-    }
-    if (text === "fun") return {
-      edit: mkTreeEdit(() => this.mod.mkFunDef("").setBranch(
-        "body", new T.AbsTree(1, "").setBranch(
-          "body", new T.AscTree().
-            setBranch("type", new T.THoleTree()).
-            setBranch("expr", new T.HoleTree())))),
-      focus: new T.Path("sym")
-    }
-    else if (text === "sum") return {
-      edit: mkTreeEdit(() => this.mod.mkTypeDef("").setBranch(
-        "body", new T.SumTree().setBranch(
-          "0", new T.CtorTree(1, "").setBranch(
-            "prod", new T.ProdTree())))),
-      focus: new T.Path("sym")
-    }
-    else if (text === "prod") return {
-      edit: mkTreeEdit(() => this.mod.mkTypeDef("").setBranch(
-        "body", new T.CtorTree(1, "").setBranch(
-          "prod", new T.ProdTree().setBranch(
-            "0", new T.FieldTree(2, "").setBranch(
-              "type", new T.THoleTree()))))),
-      focus: new T.Path("sym")
-    }
-    // else if (text === "let") {
-    // TODO
-  }
 }
 
 abstract class RuleSpan extends SymTreeSpan {

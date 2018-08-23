@@ -21,15 +21,15 @@ const primMod = new M.Module(primModUUID, "prim", nullResolver, new Map())
 
 const NatID = 1, IntID = 2, StringID = 3, PlusID = 4, MinusID = 5
 
-const natTree = primMod.mkTypeDef("Nat", NatID).
+const natTree = primMod.addTypeDef("Nat", NatID).
   setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-primMod.mkTypeDef("Int", IntID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-primMod.mkTypeDef("String", StringID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
+primMod.addTypeDef("Int", IntID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
+primMod.addTypeDef("String", StringID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
 
 const natType = natTree.sym.type
 const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
-primMod.mkFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
-primMod.mkFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
+primMod.addFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
+primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
 
 const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim")
 primLib.modules.push(primMod)
