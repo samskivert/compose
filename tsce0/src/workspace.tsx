@@ -1,15 +1,16 @@
-import * as React from 'react'
-import { observable, computed } from 'mobx'
-import { observer } from 'mobx-react'
+import * as React from "react"
+import { observable, computed } from "mobx"
+import { observer } from "mobx-react"
 
-import * as E from './editor'
-import * as O from './outline'
-import * as S from './stack'
-import * as M from './module'
-import * as T from './trees'
-import * as P from './project'
+import { UUID } from "./names"
+import * as E from "./editor"
+import * as O from "./outline"
+import * as S from "./stack"
+import * as M from "./module"
+import * as T from "./trees"
+import * as P from "./project"
 
-export class WorkspaceStore implements M.Resolver {
+export class WorkspaceStore implements P.Resolver, M.Resolver {
   @observable projects :P.Project[] = []
   @observable selprojidx :number = 0
   @observable selcompidx :number = 0
@@ -58,15 +59,17 @@ export class WorkspaceStore implements M.Resolver {
     this.seldefidx = idx
   }
 
-  // from M.Resolver
-  resolve (uuid :M.UUID) :M.Module|void {
+  // from P.Project
+  resolveProject (uuid :UUID) :P.Project|void {
     // TEMP: linear search!
-    for (let proj of this.projects) {
-      for (let comp of proj.components) {
-        for (let mod of comp.modules) {
-          if (mod.uuid === uuid) return mod
-        }
-      }
+    for (let proj of this.projects) if (proj.uuid === uuid) return proj
+  }
+
+  // from M.Resolver
+  resolveModule (uuid :UUID) :M.Module|void {
+    // TEMP: linear search!
+    for (let proj of this.projects) for (let comp of proj.components) {
+      for (let mod of comp.modules) if (mod.uuid === uuid) return mod
     }
   }
 }

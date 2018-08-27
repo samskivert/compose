@@ -1,7 +1,9 @@
+import { UUID } from  "./names"
 import * as C from "./constants"
 import * as T from "./trees"
 import * as TP from "./types"
 import * as M from "./module"
+import * as S from "./symbols"
 import * as P from "./project"
 
 // ----------
@@ -13,28 +15,31 @@ import * as P from "./project"
 const primModUUID  = "e851e318-a571-11e8-98d0-529269fb1459"
 const primLibUUID  = "1df46538-a575-11e8-98d0-529269fb1459"
 const primProjUUID = "099f7118-a575-11e8-98d0-529269fb1459"
+const primProjSource = "internal://prim"
 
-const nullResolver :M.Resolver = {
-  resolve : (uuid :M.UUID) => undefined
-}
-const primMod = new M.Module(primModUUID, "prim", nullResolver, new Map())
+const nullModResolver :M.Resolver = {resolveModule : (uuid :UUID) => undefined}
+const nullProjResolver :P.Resolver = {resolveProject : (uuid :UUID) => undefined}
 
 const NatID = 1, IntID = 2, StringID = 3, PlusID = 4, MinusID = 5
 
+const primMod = new M.Module(primModUUID, "prim", S.emptyScope, nullModResolver, new Map())
+
 const natTree = primMod.addTypeDef("Nat", NatID).
   setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-primMod.addTypeDef("Int", IntID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
-primMod.addTypeDef("String", StringID).setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
+primMod.addTypeDef("Int", IntID).
+  setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
+primMod.addTypeDef("String", StringID).
+  setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
 
 const natType = natTree.sym.type
 const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
 primMod.addFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
 primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
 
-const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim")
+const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim", nullProjResolver)
 primLib.modules.push(primMod)
 
-export const primProject = new P.Project(primProjUUID, "prim", "internal://prim")
+export const primProject = new P.Project(primProjUUID, "prim", primProjSource)
 primProject.components.push(primLib)
 
 // ----------
@@ -50,6 +55,7 @@ function mkSymTree (kind :string, id :number, name :string, branchId :string, br
 const testModUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
 const testLibUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
 const testProjUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testProjSource = "internal://test"
 
 // type Box ∀A contents:A
 const boxJson = mkSymTree(
@@ -83,7 +89,7 @@ const listJson = mkSymTree(
       })]
     }))
 
-export function mkTestProject (resolver :M.Resolver) :P.Project {
+export function mkTestProject (projResolver :P.Resolver, modResolver :M.Resolver) :P.Project {
   const testModJson = {
     uuid: testModUUID,
     name: "test",
@@ -93,14 +99,19 @@ export function mkTestProject (resolver :M.Resolver) :P.Project {
     defs: [boxJson, recordJson, listJson]
   }
 
-  const testMod = M.inflateMod(resolver, testModJson)
-  const testLib = new P.Component(testLibUUID, P.Type.LIB, "test")
-  testLib.modules.push(testMod)
-
-  const testProject = new P.Project(testProjUUID, "test", "internal://test")
-  testProject.components.push(testLib)
-
-  return testProject
+  const testProjJson = {
+    uuid: testProjUUID,
+    name: "test",
+    source: testProjSource,
+    components: [{
+      uuid: testLibUUID,
+      type: "LIB",
+      name: "test",
+      depends: [{source: primProjSource, puuid: primProjUUID, cuuids: [primLibUUID]}],
+      modules: [testModUUID]
+    }]
+  }
+  return P.inflateProject(projResolver, testProjJson, modResolver, [testModJson])
 }
 
 // function mkListA (tb :TreeEditor) :Tree {

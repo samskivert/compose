@@ -1,6 +1,6 @@
-import * as T from './trees'
-import * as TP from './types'
-import { Name } from './names'
+import * as T from "./trees"
+import * as TP from "./types"
+import { Name } from "./names"
 
 // ------------
 // Markup model

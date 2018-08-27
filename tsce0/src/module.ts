@@ -1,13 +1,17 @@
-import { computed, observable, observe } from 'mobx'
-import { Name } from './names'
-import * as S from './symbols'
-import * as T from './trees'
-import * as TP from './types'
-
-/** A globally unique id used to identify projects, components & modules across time and space. */
-export type UUID = string
+import { computed, observable, observe } from "mobx"
+import { Name, UUID } from "./names"
+import * as S from "./symbols"
+import * as T from "./trees"
+import * as TP from "./types"
 
 type XRef = {uuid :UUID, mid :number}
+
+/** Used to resolve module cross references. */
+export interface Resolver {
+  /** Resolves and returns the module identified by `uuid`. `undefined` is returned if the module
+    * cannot be located. This is indicative of a corrupted module and/or project. */
+  resolveModule (uuid :UUID) :Module|void
+}
 
 /** Maintains the symbol and tree information for a single module. */
 export class Module implements S.Index {
@@ -16,7 +20,7 @@ export class Module implements S.Index {
   readonly sym = new ModuleSym(this)
 
   /** A scope that encloses all of this module's module-scoped symbols. */
-  readonly scope = new ModuleScope(this)
+  readonly scope :ModuleScope
 
   /** The human readable name of this module. */
   @computed get name () :Name { return this.sym.name }
@@ -28,10 +32,11 @@ export class Module implements S.Index {
   private trees :Map<number, T.DefTree> = new Map()
   private jsons :Map<number, any> = new Map()
 
-  constructor (readonly uuid :UUID, name :Name,
+  constructor (readonly uuid :UUID, name :Name, cscope :S.Scope,
                private readonly resolver :Resolver,
                private readonly xrefs :Map<number, XRef>) {
     this.sym.name = name
+    this.scope = new ModuleScope(this, cscope)
   }
 
   /** Returns the symbol defined by this module with persistent `id`, or `undefined` if no symbol
@@ -61,7 +66,6 @@ export class Module implements S.Index {
           setBranch("expr", new T.HoleTree())))
     // focus: new T.Path("sym")
     this.trees.set(sym.id, tree)
-    this.insert(sym)
     this.defs.push(sym)
     return tree
   }
@@ -70,7 +74,6 @@ export class Module implements S.Index {
     const sym = this.mkDefSym("typedef", id, name)
     const tree = new T.TypeDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
-    this.insert(sym)
     this.defs.push(sym)
     return tree
   }
@@ -127,7 +130,7 @@ export class Module implements S.Index {
     case "typedef": sym = new DefSym(this, "type", "none", id, name) ; break
     default: throw new Error(`Unknown def kind: '${kind}'`)
     }
-    this.index.set(sym.id, sym)
+    this.insert(sym)
     return sym
   }
 
@@ -153,7 +156,7 @@ export class Module implements S.Index {
           let xref = this.xrefs.get(id)
           if (!xref) return new S.MissingSym("term", `x${id}`)
           let {uuid, mid} = xref
-          let xmod = this.resolver.resolve(uuid)
+          let xmod = this.resolver.resolveModule(uuid)
           if (!xmod) return new S.MissingSym("term", `x${id}:${uuid}`)
           return xmod.index.get(mid) || new S.MissingSym("term", `x${id}:${uuid}:m${mid}`)
         }
@@ -191,7 +194,7 @@ export class ModuleScope extends S.Scope {
   symbols = new Map<Name,S.Symbol[]>()
   listeners = new Map<S.Symbol,Disposer>()
 
-  constructor (readonly mod :Module) { super() }
+  constructor (readonly mod :Module, readonly cscope :S.Scope) { super() }
 
   // TODO: revamp to return all matching symbols
   lookup (kind :S.Kind, name :Name) :S.Symbol {
@@ -208,19 +211,23 @@ export class ModuleScope extends S.Scope {
     return `<module:${this.mod.name}>`
   }
 
-  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
     // TODO: such inefficient, so expense
-    for (let symvec of Array.from(this.symbols.values())) {
-      for (let sym of symvec) {
+    this.symbols.forEach((nsyms, name) => {
+      for (let sym of nsyms) {
         if (pred(sym) && this.isCompletion(prefix, sym)) {
           syms.push(sym)
         }
       }
-    }
+    })
+  }
+
+  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+    this.addCompletions(pred, prefix, syms)
+    this.cscope._addCompletions(pred, prefix, syms)
   }
 
   onInsert (sym :S.Symbol) {
-    console.log(`Inserted ${sym}`)
     if (sym.name !== "") this.map(sym.name, sym)
     this.listeners.set(sym, observe(sym, "name", change => {
       if (change.oldValue && change.oldValue !== "") this.unmap(change.oldValue, sym)
@@ -249,14 +256,7 @@ export class ModuleScope extends S.Scope {
   }
 }
 
-/** Used to resolve module cross references when inflating a module. */
-export interface Resolver {
-  /** Resolves and returns the module identified by `uuid`. `undefined` is returned if the module
-    * cannot be located. This is indicative of a corrupted module and/or project. */
-  resolve (uuid :UUID) :Module|void
-}
-
-export function inflateMod (resolver :Resolver, json :any) :Module {
+export function inflateMod (cscope :S.Scope, resolver :Resolver, json :any) :Module {
   // convert the xrefs table into a more more useful runtime format (from xid to uuid+mid)
   const xrefs :Map<number,XRef> = new Map()
   const xrefsJson :{[uuid :string] :{[xid :string] :number}} = json.xrefs
@@ -267,7 +267,7 @@ export function inflateMod (resolver :Resolver, json :any) :Module {
       xrefs.set(parseInt(xid), {uuid, mid})
     }
   }
-  const mod = new Module(json.uuid, json.name, resolver, xrefs)
+  const mod = new Module(json.uuid, json.name, cscope, resolver, xrefs)
   for (let defJson of json.defs) mod.indexDef(defJson)
   return mod
 }
