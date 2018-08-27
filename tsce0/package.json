@@ -8,14 +8,16 @@
     "type": "git",
     "url": "https://github.com/samskivert/compose.git"
   },
-
   "scripts": {
     "start": "node test/server.js",
-    "test": "jest"
+    "test": "jest --verbose"
   },
-
   "jest": {
-    "moduleFileExtensions": ["ts", "tsx", "js"],
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js"
+    ],
     "transform": {
       "^.+\\.(ts|tsx)$": "ts-jest"
     },
@@ -24,26 +26,26 @@
         "tsConfigFile": "tsconfig.json"
       }
     },
-    "testMatch": ["**/test.*.+(ts|tsx|js)"]
+    "testMatch": [
+      "**/test.*.+(ts|tsx|js)"
+    ]
   },
-
   "dependencies": {
-    "mobx": "^5.0.2",
-    "mobx-react": "^5.2.3",
-    "mobx-react-devtools": "^5.0.1",
-    "react": "^16.4.1",
-    "react-dom": "^16.4.1"
+    "mobx": "^5.1.0",
+    "mobx-react": "^5.2.5",
+    "mobx-react-devtools": "^6.0.3",
+    "react": "^16.4.2",
+    "react-dom": "^16.4.2",
+    "uuid": "^3.3.2"
   },
-
   "devDependencies": {
     "@types/jest": "^23.1.0",
     "@types/react": "^16.3.17",
     "@types/react-dom": "^16.0.6",
-    "awesome-typescript-loader": "^5.0.0",
+    "awesome-typescript-loader": "^5.2.0",
     "jest": "^23.1.0",
-    "react-addons-test-utils": "^15.6.2",
-    "ts-jest": "^22.4.6",
-    "typescript": "^2.9.2",
+    "ts-jest": "^23.1.4",
+    "typescript": "^3.0.1",
     "webpack": "^4.12.0",
     "webpack-dev-server": "^3.1.4"
   }
