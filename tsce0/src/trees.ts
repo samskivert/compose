@@ -1009,29 +1009,22 @@ class TypeVarTreeSym extends TreeSym {
 // Tree serialization
 // ------------------
 
-export type Whence = "l" | "m" | "x"
-export interface SzIndex {
+export interface InflateIndex {
   add (sym :S.Symbol) :void
-  req (whence :Whence, id :number) :S.Symbol
-  // ids (sym :S.Symbol) :{whence :Whence, symId :number}
+  req (encId :string) :S.Symbol
+}
+export interface DeflateIndex {
+  enc (sym :S.Symbol) :string
 }
 
-// function encodeId (whence :Whence, id :number) :string {
-//   return `${whence}${id}`
-// }
-function decodeId (symId :string) :{whence :Whence, id :number} {
-  return {whence: symId.substring(0, 1) as Whence, id: parseInt(symId.substring(1)) }
-}
-
-export function inflateTree (index :SzIndex, json :any) :Tree {
+export function inflateTree (index :InflateIndex, json :any) :Tree {
   // console.log(`inflateTree ${JSON.stringify(json)}`)
   function setsym<T extends SymTree> (tree :T) :T {
     index.add(tree.sym)
     return tree
   }
   function reqsym (symId :string) :S.Symbol {
-    const {whence, id} = decodeId(symId)
-    return index.req(whence, id)
+    return index.req(symId)
   }
   function inflateBranches<T extends Tree> (tree :T) :T {
     for (let branch of tree.branchIds) {
@@ -1081,4 +1074,33 @@ export function inflateTree (index :SzIndex, json :any) :Tree {
 
   default: throw new Error(`Unknown tree kind: '${json.kind}'`)
   }
+}
+
+export function deflateTree (index :DeflateIndex, tree :Tree) :any {
+
+  function deflateBranches (json :any) {
+    for (let branchId of tree.branchIds) {
+      const branch = tree.branch(branchId)
+      if (branch instanceof Tree) json[branchId] = deflateTree(index, branch)
+      else if (branch instanceof S.Symbol) json[branchId] = {id: branch.id, name: branch.name}
+      else if (branch instanceof C.Constant) json[branchId] = C.deflateConst(branch)
+      else throw new Error(`Unknown branch type ${branchId}: ${branch}`)
+    }
+  }
+
+  const json :any = {kind: tree.kind}
+  if (tree instanceof TRefTree) {
+    json.symId = index.enc(tree.sym)
+  } else if (tree instanceof RefTree) {
+    json.symId = index.enc(tree.sym)
+  } else if (tree instanceof ProdTree) {
+    json.fields = tree.fields.map(f => deflateTree(index, f))
+  } else if (tree instanceof SumTree) {
+    json.cases = tree.cases.map(c => deflateTree(index, c))
+  } else if (tree instanceof MatchTree) {
+    json.scrut = deflateBranches(tree.scrut)
+    json.cases = tree.cases.map(c => deflateTree(index, c))
+  } else deflateBranches(json)
+
+  return json
 }

@@ -3,37 +3,6 @@ import { Name, UUID } from "./names"
 import * as M from "./module"
 import * as S from "./symbols"
 
-/** Used to resolve project dependencies. */
-export interface Resolver {
-  /** Resolves and returns the project identified by `uuid`. `undefined` is returned if the project
-    * cannot be located. This is indicative of a corrupted project or workspace. */
-  resolveProject (uuid :UUID) :Project|void
-}
-
-export class Project {
-
-  /** The human readable name of this project. */
-  @observable name :string
-
-  /** A URL that identifies the DVCS source of this project. */
-  @observable source :string
-
-  /** The components that make up this project. */
-  @observable components :Component[] = observable.array([])
-
-  constructor (readonly uuid :UUID, name :string, source :string) {
-    this.name = name
-    this.source = source
-  }
-
-  /** Returns the component of this project with `uuid`, or `undefined`. */
-  component (uuid :UUID) :Component|void {
-    for (let comp of this.components) if (comp.uuid === uuid) return comp
-  }
-
-  toString () :string { return this.name }
-}
-
 /** Components define either libraries or applications. */
 export enum Type { LIB, APP }
 
@@ -42,6 +11,30 @@ export type Depend = {
   source :string
   puuid :UUID
   cuuids :UUID[]
+}
+
+/** The serialized form of a component. */
+type ComponentJson = {
+  uuid :UUID,
+  name :string,
+  type :Type,
+  depends :Depend[],
+  modules :UUID[]
+}
+
+/** The serialized form of a project. */
+type ProjectJson = {
+  uuid :UUID,
+  source :string,
+  name :string,
+  components :ComponentJson[]
+}
+
+/** Used to resolve component dependencies. */
+export interface Resolver {
+  /** Resolves and returns the project identified by `uuid`. `undefined` is returned if the project
+    * cannot be located. This is indicative of a corrupted project or workspace. */
+  resolveProject (uuid :UUID) :Project|void
 }
 
 /** A project component contains one or more modules and is either an application or library. The
@@ -65,6 +58,40 @@ export class Component {
     this.name = name
     this.scope = new ComponentScope(this, resolver)
   }
+
+  deflate () :ComponentJson {
+    const {uuid, type, name, depends} = this
+    return {uuid, type, name, depends, modules: this.modules.map(m => m.uuid)}
+  }
+}
+
+export class Project {
+
+  /** A URL that identifies the DVCS source of this project. */
+  @observable source :string
+
+  /** The human readable name of this project. */
+  @observable name :string
+
+  /** The components that make up this project. */
+  @observable components :Component[] = observable.array([])
+
+  constructor (readonly uuid :UUID, source :string, name :string) {
+    this.source = source
+    this.name = name
+  }
+
+  /** Returns the component of this project with `uuid`, or `undefined`. */
+  component (uuid :UUID) :Component|void {
+    for (let comp of this.components) if (comp.uuid === uuid) return comp
+  }
+
+  deflate () :ProjectJson {
+    const {uuid, source, name} = this
+    return {uuid, source, name, components: this.components.map(c => c.deflate())}
+  }
+
+  toString () :string { return this.name }
 }
 
 class ModuleRootScope extends S.Scope {
@@ -133,11 +160,11 @@ class ComponentScope extends S.Scope {
   }
 }
 
-export function inflateProject (resolver :Resolver, json :any,
+export function inflateProject (resolver :Resolver, json :ProjectJson,
                                 modResolver :M.Resolver, modJsons :any[]) :Project {
   const modJsonMap = new Map()
   for (let modJson of modJsons) modJsonMap.set(modJson.uuid, modJson)
-  const proj = new Project(json.uuid, json.name, json.source)
+  const proj = new Project(json.uuid, json.source, json.name)
   for (let cjson of json.components) {
     const comp = new Component(cjson.uuid, cjson.type, cjson.name, resolver)
     for (let djson of cjson.depends) comp.depends.push(djson)

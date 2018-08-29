@@ -12,9 +12,9 @@ import * as P from "./project"
 
 // Just some hacked together stubs so we can write sane looking test trees.
 
-const primModUUID  = "e851e318-a571-11e8-98d0-529269fb1459"
-const primLibUUID  = "1df46538-a575-11e8-98d0-529269fb1459"
-const primProjUUID = "099f7118-a575-11e8-98d0-529269fb1459"
+const primModUUID :UUID  = "e851e318-a571-11e8-98d0-529269fb1459"
+const primLibUUID :UUID  = "1df46538-a575-11e8-98d0-529269fb1459"
+const primProjUUID :UUID = "099f7118-a575-11e8-98d0-529269fb1459"
 const primProjSource = "internal://prim"
 
 const nullModResolver :M.Resolver = {resolveModule : (uuid :UUID) => undefined}
@@ -22,7 +22,8 @@ const nullProjResolver :P.Resolver = {resolveProject : (uuid :UUID) => undefined
 
 const NatID = 1, IntID = 2, StringID = 3, PlusID = 4, MinusID = 5
 
-const primMod = new M.Module(primModUUID, "prim", S.emptyScope, nullModResolver, new Map())
+const primMod = new M.Module({uuid: primModUUID, name: "prim", xrefs: {}, defs: []},
+                             S.emptyScope, nullModResolver)
 
 const natTree = primMod.addTypeDef("Nat", NatID).
   setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.Int, 32)))
@@ -52,9 +53,9 @@ function mkSymTree (kind :string, id :number, name :string, branchId :string, br
   return tree
 }
 
-const testModUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
-const testLibUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
-const testProjUUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testModUUID :UUID  = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testLibUUID :UUID  = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testProjUUID :UUID = "fa722f12-a571-11e8-98d0-529269fb1459"
 const testProjSource = "internal://test"
 
 // type Box ∀A contents:A
@@ -93,9 +94,7 @@ export function mkTestProject (projResolver :P.Resolver, modResolver :M.Resolver
   const testModJson = {
     uuid: testModUUID,
     name: "test",
-    xrefs: {
-      [primModUUID]: {"1": NatID, "2": StringID}
-    },
+    xrefs: {[primModUUID]: [NatID, 1, StringID, 2]},
     defs: [boxJson, recordJson, listJson]
   }
 
@@ -105,7 +104,7 @@ export function mkTestProject (projResolver :P.Resolver, modResolver :M.Resolver
     source: testProjSource,
     components: [{
       uuid: testLibUUID,
-      type: "LIB",
+      type: P.Type.LIB,
       name: "test",
       depends: [{source: primProjSource, puuid: primProjUUID, cuuids: [primLibUUID]}],
       modules: [testModUUID]

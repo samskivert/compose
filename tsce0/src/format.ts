@@ -203,6 +203,9 @@ class Acc {
       this.appendTree(path.x("body"), tree.body)
       this.appendAnnot(start, tree.sig)
 
+    } else if (tree instanceof T.PrimTree) {
+      this.appendSpan(new M.TextSpan("<internal>"))
+
     } else {
       throw new Error(`Unexpected tree: ${tree}`)
     }

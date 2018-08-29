@@ -68,6 +68,10 @@ export function parseLit (value :string) :Constant|void {
   return undefined
 }
 
-export function inflateConst (json :any) {
+export function inflateConst (json :any) :Constant {
   return new Constant(json.tag as Tag, json.value as string)
+}
+
+export function deflateConst (cnst :Constant) :any {
+  return {tag: cnst.tag, value: cnst.value}
 }
