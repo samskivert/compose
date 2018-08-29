@@ -240,7 +240,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
       return <SpanEditor store={new SpanStore(span)} defStore={this.props.store}
                          key={idx} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
-                         advanceCursor={() => { this._moveCursor(M.moveHoriz(M.HDir.Right)) }} />
+                         moveCursor={(dir) => { this._moveCursor(M.moveHoriz(dir)) }} />
     } else {
       const onPress = span.isEditable ? () => {
         this.props.store.curs = {path: M.mkPath(ppre, idx), editing: false}
@@ -302,7 +302,7 @@ export class SpanEditor  extends React.Component<{
   defStore :DefStore,
   span :M.Span,
   stopEditing :() => void,
-  advanceCursor :() => void
+  moveCursor :(dir :M.HDir) => void
 }> {
 
   render () {
@@ -346,8 +346,10 @@ export class SpanEditor  extends React.Component<{
 
   handleKey (keyEv :M.KeyEvent) {
     const store = this.props.store, key = keyEv.key
+    // if this is just a modifier keypress, ignore it (don't set actionTaken)
+    if (key === "Shift" || key === "Control" || key === "Meta" || key === "Alt") return
     // if key is up/down arrow, change selected completion
-    if (key === "ArrowUp") {
+    else if (key === "ArrowUp") {
       store.selCompIdx = Math.max(store.selCompIdx-1, 0)
     } else if (key === "ArrowDown") {
       store.selCompIdx = Math.min(store.selCompIdx+1, store.completions.length-1)
@@ -356,14 +358,14 @@ export class SpanEditor  extends React.Component<{
       this.props.stopEditing()
     } else if (key == "Tab" && !store.actionTaken) {
       keyEv.preventDefault()
-      this.props.advanceCursor()
+      this.props.moveCursor(keyEv.shiftKey ? M.HDir.Left : M.HDir.Right)
     } else {
       const action = this.props.span.handleKey(keyEv, store.text, store.selectedCompletion)
       if (action) {
         keyEv.preventDefault()
         const focus = this.props.defStore.applyAction(action)
-        // TODO: "advance" backwards on S-Tab?
-        if (key == "Tab" && !focus) this.props.advanceCursor()
+        if (key == "Tab" && !focus) this.props.moveCursor(
+          keyEv.shiftKey ? M.HDir.Left : M.HDir.Right)
       } // otherwise just let the key be added to the text
     }
     store.actionTaken = true
