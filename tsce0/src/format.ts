@@ -490,7 +490,7 @@ const addArgType :Rule = {
 
 const isEmptyAbs = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name === ""
 const isEmptyTAbs = (tree :T.Tree) => tree instanceof T.TAbsTree && tree.sym.name === ""
-const isEmptyAll = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name === ""
+const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name === ""
 
 const addAbs :Rule = {
   name: "addAbs",
@@ -522,7 +522,7 @@ const addTAbs :Rule = {
 
 const addAll :Rule = {
   name: "addAll",
-  key: ev => ev.key === " " && !ev.shiftKey,
+  key: ev => ev.key === " " && ev.shiftKey,
   apply: (root, path, comp) => {
     if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "all", "sym")) {
       const cedit = comp.edit(path), bodyPath = path.sib("body")
@@ -695,9 +695,9 @@ class TypeDefSpan extends RuleSpan {
 
 const termRules :Rule[] = [
   addArgType,
+  addAll,
   addAbs,
   addTAbs,
-  addAll,
   eqToBody,
 ]
 
