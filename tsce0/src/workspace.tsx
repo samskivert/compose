@@ -36,6 +36,13 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
     return stores.length > selidx ? stores[selidx] : undefined
   }
 
+  // the module in which a new def will be created: the one that owns the selected def, if we have a
+  // selected def, or the first module otherwise
+  get newDefMod () :M.Module {
+    const seldef = this.selectedDef
+    return seldef ? seldef.sym.mod : this.projects[0].components[0].modules[0]
+  }
+
   moveSelection (delta :number) {
     const stores = this.openDefs.length
     this.seldefidx = (this.seldefidx+stores+delta)%stores
@@ -80,8 +87,7 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
   handleKey :(ev :KeyboardEvent) => boolean = ev => {
     const store = this.props.store
     if (store.creatingNew) {
-      const seldef = store.selectedDef, mod = seldef ? seldef.sym.mod :
-        store.projects[0].components[0].modules[0]
+      const mod = store.newDefMod
       let tree :T.DefTree|void = undefined
       switch (ev.code) {
       case "KeyF": tree = mod.addFunDef("") ; break
@@ -94,12 +100,6 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
       if (tree) {
         store.openDef(tree.sym as M.DefSym)
       }
-        // const seldef = store.selectedDef
-        // if (seldef) {
-        //   seldef.sym.mod.mkDefHole()
-        //   // store.insertDef(store.seldefidx, P.testMod.mkDefHole(), true)
-        //   ev.preventDefault()
-        // }
 
       store.creatingNew = false
       return true
@@ -138,8 +138,9 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
   }
 
   private createDefPopup () :JSX.Element {
+    const store = this.props.store
     return (<div className="createDef">
-              <div>Create new:</div>
+              <div>Create new definition in module '{store.newDefMod.name}':</div>
               <ul>
                 <li><span className="shortcut">f</span>unction</li>
                 <li><span className="shortcut">s</span>um type</li>

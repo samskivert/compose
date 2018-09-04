@@ -101,6 +101,11 @@ export abstract class Completion {
   edit (path :T.Path) :T.TreeEdit { return path.edit(te => this.apply(te)) }
   /** Returns the focus to use after applying this completion's edit, if any. */
   focus (path :T.Path) :T.Path|void { return undefined }
+  /** Applies this completion at `path` returning a full edit action. */
+  act (path :T.Path) :EditAction {
+    const focus = this.focus(path)
+    return focus ? {edit: this.edit(path), focus} : {edit: this.edit(path)} // meh
+  }
   toString () :string { return `${this.constructor.name}:${this.name}` }
   /** Applies this completion to the tree via `te`. */
   protected abstract apply (te :T.TreeEditor) :T.TreeEdit

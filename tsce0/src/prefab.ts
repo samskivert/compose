@@ -40,7 +40,7 @@ primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
 const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim", nullProjResolver)
 primLib.modules.push(primMod)
 
-export const primProject = new P.Project(primProjUUID, "prim", primProjSource)
+export const primProject = new P.Project(primProjUUID, primProjSource, "prim")
 primProject.components.push(primLib)
 
 // ----------

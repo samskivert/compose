@@ -494,9 +494,10 @@ const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name 
 
 const addAbs :Rule = {
   name: "addAbs",
-  key: ev => ev.key === " " && !ev.shiftKey,
+  key: ev => ev.key === " ",
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "abs", "sym") || path.endsWith(root, "fundef", "sym")) {
+    if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "letfun", "sym") ||
+        path.endsWith(root, "abs", "sym")) {
       const bodyPath = path.sib("body")
       return isEmptyAbs(bodyPath.selectedTree(root)) ? comp.edit(path) :
         T.merge(comp.edit(path), bodyPath.edit(te => te.spliceAbs()))
@@ -524,7 +525,8 @@ const addAll :Rule = {
   name: "addAll",
   key: ev => ev.key === " " && ev.shiftKey,
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "all", "sym")) {
+    if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "letfun", "sym") ||
+        path.endsWith(root, "all", "sym")) {
       const cedit = comp.edit(path), bodyPath = path.sib("body")
       return isEmptyAll(bodyPath.selectedTree(root)) ? cedit :
         T.merge(cedit, bodyPath.edit(te => te.spliceAll()))
@@ -666,7 +668,7 @@ abstract class RuleSpan extends SymTreeSpan {
     case "Enter":
     case "Tab":
       console.log(`Commiting edit: ${comp}`)
-      return {edit: comp.edit(path)}
+      return comp.act(path)
     }
   }
 
@@ -675,9 +677,9 @@ abstract class RuleSpan extends SymTreeSpan {
 
 const typeRules :Rule[] = [
   addArgType,
+  addAll,
   addAbs,
   addTAbs,
-  addAll,
   eqToBody,
 ]
 
@@ -771,16 +773,12 @@ class TypeExprSpan extends SymTreeSpan {
     let compKind = comp.type.kind
 
     // if we're setting a non-constructor, then no funny business
-    if (!(compKind instanceof TP.KArrow)) {
-      // TODO: do we eventually want to handle inapp ctors?
-      return {edit: comp.edit(path)}
-    }
+    // TODO: do we eventually want to handle inapp ctors?
+    if (!(compKind instanceof TP.KArrow)) return comp.act(path)
 
     // if we're replacing the ctor in an existing app, then don't fool with the args
     // (TODO: if it takes more args, we could insert holes? what about fewer? seems fiddly)
-    if (!path.selectsHole(root)) {
-      return {edit: comp.edit(path)}
-    }
+    if (!path.selectsHole(root)) return comp.act(path)
 
     // otherwise we're sticking a type ctor somewhere new, so add holes for all args
     const edits = [comp.edit(path)]
@@ -788,7 +786,7 @@ class TypeExprSpan extends SymTreeSpan {
       edits.push(path.edit(te => te.spliceTApp()))
       compKind = compKind.res
     }
-    return {edit: T.merge(...edits)}
+    return {edit: T.merge(...edits), focus: path.x("arg")}
   }
 }
 
@@ -806,6 +804,7 @@ class TmplCompletion extends M.Completion {
 }
 
 const letCompletion = new TmplCompletion("let ? = ? in ?", te => te.setLet(""), ["sym"])
+const funCompletion = new TmplCompletion("fun ? ? = ? in ?", te => te.setLetFun(""), ["sym"])
 const caseCompletion = new TmplCompletion("case ? of ?", te => te.setMatch(), ["scrut"])
 const ifCompletion = new TmplCompletion("if ? then ? else ?", te => te.setIf(), ["test"])
 
@@ -825,7 +824,7 @@ class TermExprSpan extends SymTreeSpan {
     const selType = sel instanceof T.Tree ? sel.prototype : TP.hole
     console.log(`getCompletions '${text}' :: ${selType} (via ${sel})`)
     const pred = (sym :S.Symbol) => {
-      if (sym.kind === "term") console.log(` check comp ${sym} :: ${sym.type} :: ${sym.type.constructor.name} :: ${sym.type.join(selType)}`)
+      // if (sym.kind === "term") console.log(` check comp ${sym} :: ${sym.type} :: ${sym.type.constructor.name} :: ${sym.type.join(selType)}`)
       return (sym.kind === "term") && !sym.type.join(selType).isError
     }
     const comps :M.Completion[] = this.scope.getCompletions(pred, text).
@@ -833,6 +832,7 @@ class TermExprSpan extends SymTreeSpan {
 
     // if the text starts with a tree-stub generator, include that option as well
     if (text.length > 1 && "let".startsWith(text)) comps.unshift(letCompletion)
+    if (text.length > 1 && "fun".startsWith(text)) comps.unshift(funCompletion)
     if (text.length > 1 && "case".startsWith(text)) comps.unshift(caseCompletion)
     if (text === "if") comps.unshift(ifCompletion)
     return comps
@@ -857,7 +857,7 @@ class TermExprSpan extends SymTreeSpan {
 
     // if we're setting a non-function, use our setValue helper
     if (!(compType instanceof TP.Arrow)) {
-      if (!viaSpace || comp.isTemplate) return {edit: comp.edit(path)}
+      if (!viaSpace || comp.isTemplate) return comp.act(path)
       // if a non-fun is entered and then space is pressed, we want to create an inapp with this
       // value as the arg, and move the focus to the fun
       else return {
@@ -878,7 +878,7 @@ class TermExprSpan extends SymTreeSpan {
 
     // if we're replacing the fun in an existing app, then don't fool with the args
     // (TODO: if it takes more args, we could insert holes? what about fewer? seems fiddly)
-    if (!path.selectsHole(root)) return {edit: comp.edit(path)}
+    if (!path.selectsHole(root)) return comp.act(path)
 
     // otherwise we're sticking a fun somewhere new, so add holes for all args
     const edits = [comp.edit(path)]
@@ -902,9 +902,9 @@ class PatBindCompletion extends M.Completion {
 
 const patRules :Rule[] = [
   addArgType,
+  addAll,
   addAbs,
   addTAbs,
-  addAll,
   eqToBody, // TODO: change arrow to =, eqToBody moves to expr?
 ]
 

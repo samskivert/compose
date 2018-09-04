@@ -386,7 +386,10 @@ export class LetTree extends DefTree {
   type :Tree = emptyTree
   body :Tree = emptyTree
   expr :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new TreeSym(this, "term", "none", id, name) }
+  constructor (id :number, name :Name) {
+    super()
+    this.sym = new TreeSym(this, "term", "none", id, name)
+  }
   get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
   get sig () :TP.Type { return TP.hole } // TODO
   setHoles () :this {
@@ -402,9 +405,16 @@ export class LetFunTree extends DefTree {
   readonly sym :TreeSym
   body :Tree = emptyTree
   expr :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new TreeSym(this, "term", "func", id, name) }
+  constructor (id :number, name :Name) {
+    super()
+    this.sym = new TreeSym(this, "term", "func", id, name)
+  }
   get branchIds () :string[] { return ["sym", "body", "expr"] }
   get sig () :TP.Type { return this.body.sig } // TODO
+  setHoles () :this {
+    return this.setBranch("body", new HoleTree())
+               .setBranch("expr", new HoleTree())
+  }
 }
 
 export class AllTree extends DefTree {
@@ -923,7 +933,8 @@ export class TreeEditor {
 
   // Abstraction terms
   setLet (name :Name) :TreeEdit { return this.setBranchFn(id => new LetTree(id, name).setHoles()) }
-  setLetFun (name :Name) :TreeEdit { return this.setBranchFn(id => new LetFunTree(id, name)) }
+  setLetFun (name :Name) :TreeEdit {return this.setBranchFn(
+    id => new LetFunTree(id, name).setHoles()) }
   setAll (name :Name) :TreeEdit { return this.setBranchFn(id => new AllTree(id, name)) }
   setAbs (name :Name) :TreeEdit { return this.setBranchFn(id => new AbsTree(id, name)) }
   spliceAll () :TreeEdit { return this.spliceBranchFn(id => new AllTree(id, ""), "body") }
