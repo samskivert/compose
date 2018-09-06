@@ -80,11 +80,17 @@ export abstract class Tree {
       if (branch instanceof Tree) branch.link(this, id)
     }
   }
+  // TODO: relink? for changing id of vararity trees?
   protected didLink (parent :Tree, parentId :string) {
     this._parent = parent
     this._parentId = parentId
     this._owner = parent.childOwner(parentId)
     this._scope = parent.childScope(parentId)
+  }
+
+  // used when a child "moves" under its parent; only for var-arity trees
+  relink (parentId :string) {
+    this._parentId = parentId
   }
 
   unlink () {
@@ -230,8 +236,7 @@ export class ArrowTree extends Tree {
 export class TAbsTree extends DefTree {
   readonly sym :TypeVarTreeSym
   body :Tree = emptyTree
-  constructor (id :number, name :Name) {
-    super() ; this.sym = new TypeVarTreeSym(this, id, name) }
+  constructor (id :number, name :Name) { super() ; this.sym = new TypeVarTreeSym(this, id, name) }
   get branchIds () :string[] { return ["sym", "body"] }
   get sig () :TP.Type { return new TP.Abs(this.sym, this.body.sig) }
   protected _sigQuants (acc :TypeVarTreeSym[]) { acc.unshift(this.sym) }
@@ -248,13 +253,39 @@ export class ProdTree extends Tree {
   fields :Tree[] = []
   get branchIds () :string[] { return this.fields.map((f, ii) => `${ii}`) }
   branch (id :string) :Branch { return this.fields[parseInt(id)] }
+  get sig () :TP.Type { return new TP.Prod(this.fields.map(f => (f as Tree).sig as TP.Def)) }
+
+  /** Inserts a new field tree (with holes) at `idx`, giving it symbol id `id`.
+    * Trailing fields are shifted down. */
+  insertField (idx :number, id :number) {
+    const fields = this.fields
+    // shift all the fields from idx and above 'up' one element
+    for (let ii = fields.length; ii > idx; ii -= 1) {
+      fields[ii] = fields[ii-1]
+      // TODO: need to unlink
+      fields[ii].relink(`${ii}`) // tell field about new id
+    }
+    this.setBranch(`${idx}`, new FieldTree(id, ""))
+  }
+  /** Deletes field tree at `idx`. Trailig fields are shifted back up. */
+  deleteField (idx :number) {
+    const fields = this.fields
+    fields[idx].unlink()
+    // shift all the fields from idx and above 'down' one element
+    for (let ii = idx; ii < fields.length-1; ii += 1) {
+      fields[ii] = fields[ii+1]
+      fields[ii].relink(`${ii}`) // tell field about new id
+    }
+    // trim the last empty field slot out of the array
+    fields.splice(fields.length-1, 1)
+  }
+
   protected storeBranch (id :string, branch :Branch) {
     this.fields[parseInt(id)] = branch as Tree }
   protected isValidBranch (id :string) :boolean {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.fields.length // allow one past last field
   }
-  get sig () :TP.Type { return new TP.Prod(this.fields.map(f => (f as Tree).sig as TP.Def)) }
 }
 
 export class SumTree extends Tree {
@@ -322,7 +353,7 @@ export class CtorTree extends DefTree {
 
 // TEMP: used internally to define primitive types and functions
 export class PrimTree extends Tree {
-  constructor (readonly sig :TP.Type) { super () }
+  constructor (readonly sig :TP.Type) { super() }
 }
 
 // -------------
@@ -347,7 +378,8 @@ export class PLitTree extends PatTree {
 
 export class PBindTree extends PatTree implements SymTree {
   readonly sym :TreeSym
-  constructor (id :number, name :Name) { super() ; this.sym = new TreeSym(this, "term", "none", id, name) }
+  constructor (id :number, name :Name) {
+    super() ; this.sym = new TreeSym(this, "term", "none", id, name) }
   get branchIds () :string[] { return ["sym"] }
   get sig () :TP.Type { return this.prototype }
   addSymbols (syms :S.Symbol[]) { syms.push(this.sym) }
@@ -387,9 +419,7 @@ export class LetTree extends DefTree {
   body :Tree = emptyTree
   expr :Tree = emptyTree
   constructor (id :number, name :Name) {
-    super()
-    this.sym = new TreeSym(this, "term", "none", id, name)
-  }
+    super() ; this.sym = new TreeSym(this, "term", "none", id, name) }
   get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
   get sig () :TP.Type { return TP.hole } // TODO
   setHoles () :this {
@@ -406,9 +436,7 @@ export class LetFunTree extends DefTree {
   body :Tree = emptyTree
   expr :Tree = emptyTree
   constructor (id :number, name :Name) {
-    super()
-    this.sym = new TreeSym(this, "term", "func", id, name)
-  }
+    super() ; this.sym = new TreeSym(this, "term", "func", id, name) }
   get branchIds () :string[] { return ["sym", "body", "expr"] }
   get sig () :TP.Type { return this.body.sig } // TODO
   setHoles () :this {
@@ -525,7 +553,8 @@ export class MatchTree extends Tree {
     // shift all the cases from idx and above 'up' one element
     for (let ii = cases.length; ii > idx; ii -= 1) {
       cases[ii] = cases[ii-1]
-      cases[ii].link(this, `${ii}`) // tell case about new id
+      // TODO: need to unlink
+      cases[ii].relink(`${ii}`) // tell case about new id
     }
     this.setBranch(`${idx}`, new CaseTree().setHoles())
   }
@@ -536,7 +565,7 @@ export class MatchTree extends Tree {
     // shift all the cases from idx and above 'down' one element
     for (let ii = idx; ii < cases.length-1; ii += 1) {
       cases[ii] = cases[ii+1]
-      cases[ii].link(this, `${ii}`) // tell case about new id
+      cases[ii].relink(`${ii}`) // tell case about new id
     }
     // trim the last empty case slot out of the array
     cases.splice(cases.length-1, 1)
@@ -708,11 +737,12 @@ export class Path {
   endsWith (root :DefTree, ...comps :string[]) :boolean {
     let cii = comps.length-1, pii = this.ids.length-1, checkId = true
     while (cii >= 0) {
+      const comp = comps[cii]
       if (checkId) {
-        if (this.ids[pii] !== comps[cii]) return false
+        if (comp !== '*' && this.ids[pii] !== comp) return false
         pii -= 1
       } else {
-        if (this.kindAt(root, pii) !== comps[cii]) return false
+        if (comp !== '*' && this.kindAt(root, pii) !== comp) return false
       }
       checkId = !checkId
       cii -= 1
@@ -912,6 +942,22 @@ export class TreeEditor {
   spliceTAbs () :TreeEdit { return this.spliceBranchFn(id => new TAbsTree(id, ""), "body") }
   spliceTApp () :TreeEdit { return this.spliceBranch(
     new TAppTree().setBranch("arg", new THoleTree()), "ctor") }
+
+  insertField (fieldIdx :number) :TreeEdit {
+    const path = this.path
+    const edit :TreeEdit = root => {
+      const prodTree = path.selected(root) as ProdTree
+      const fieldId = root.owner.index.nextSymId()
+      prodTree.insertField(fieldIdx, fieldId)
+      const undo :TreeEdit = root => {
+        const prodTree = path.selected(root) as ProdTree
+        prodTree.deleteField(fieldIdx)
+        return {root, undo: edit}
+      }
+      return {root, undo}
+    }
+    return edit
+  }
 
   // TODO
   // Array Type

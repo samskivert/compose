@@ -151,16 +151,28 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   handleKey (ev :KeyboardEvent) :boolean {
     const {curs} = this.props.store
     if (curs.editing) return false
+
     const keySig = mkKeySig(ev)
     const action = this.keymap[keySig]
     if (action) {
       ev.preventDefault()
       action()
       return true
-    } else {
-      console.log(`TODO: handleKey ${keySig} // ${ev.key}`)
-      return false
     }
+
+    const span = this.props.store.selectedSpan
+    if (span) {
+      const action = span.handleKey(ev)
+      if (action) {
+        ev.preventDefault()
+        const focus = this.props.store.applyAction(action)
+        if (ev.key == "Tab" && !focus) this._moveCursor(
+          M.moveHoriz(ev.shiftKey ? M.HDir.Left : M.HDir.Right))
+      }
+    }
+
+    console.log(`TODO: handleKey ${keySig} // ${ev.key}`)
+    return false
   }
 
   _moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
@@ -360,7 +372,7 @@ export class SpanEditor  extends React.Component<{
       keyEv.preventDefault()
       this.props.moveCursor(keyEv.shiftKey ? M.HDir.Left : M.HDir.Right)
     } else {
-      const action = this.props.span.handleKey(keyEv, store.text, store.selectedCompletion)
+      const action = this.props.span.handleEdit(keyEv, store.text, store.selectedCompletion)
       if (action) {
         keyEv.preventDefault()
         const focus = this.props.defStore.applyAction(action)

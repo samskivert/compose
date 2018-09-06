@@ -61,13 +61,20 @@ export abstract class Span {
   /** Returns the completions to show given the current `text`. */
   getCompletions (text :string) :Completion[] { return [] }
 
+  /** Handles a key press from an inactive span editor which is under the cursor.
+    * @param ev the key event.
+    * @return the action to take based on the key press, if any.
+    */
+  handleKey (ev :KeyEvent) :EditAction|void {
+    return undefined }
+
   /** Handles a key press from an active span editor.
     * @param ev the key event.
     * @param text the current text of the span (prior to the key press).
     * @param comp the current completion (if one exists).
-    * @return the action to take based on the key press.
+    * @return the action to take based on the key press, if any.
     */
-  handleKey (ev :KeyEvent, text :string, comp :Completion|void) :EditAction|void {
+  handleEdit (ev :KeyEvent, text :string, comp :Completion|void) :EditAction|void {
     return undefined }
 
   /** Inserts a hole relative to this span. If the span cannot insert a hole in the requested

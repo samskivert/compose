@@ -466,18 +466,25 @@ class PatConstCompletion extends ConstCompletion {
   protected apply (te :T.TreeEditor) { return te.setPLit(this.cnst) }
 }
 
-type Rule = {
+type KeyRule = {
+  name: string
+  key: (ev :M.KeyEvent) => boolean
+  apply: (root :T.DefTree, path :T.Path) => T.TreeEdit|void
+  focusOp? :(root :T.DefTree, path :T.Path) => T.Path
+}
+
+type EditRule = {
   name: string
   key: (ev :M.KeyEvent) => boolean
   apply: (root :T.DefTree, path :T.Path, comp :M.Completion) => T.TreeEdit|void
   focusOp? :(root :T.DefTree, path :T.Path) => T.Path
 }
 
-const addArgType :Rule = {
+const addArgType :EditRule = {
   name: "addArgType",
   key: ev => ev.key === ":",
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "abs", "sym")) {
+    if (path.endsWith(root, "abs", "sym") || path.endsWith(root, "field", "sym")) {
       const cedit = comp.edit(path)
       const typePath = path.sib("type")
       return typePath.selected(root) instanceof T.EmptyTree ?
@@ -492,7 +499,7 @@ const isEmptyAbs = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name 
 const isEmptyTAbs = (tree :T.Tree) => tree instanceof T.TAbsTree && tree.sym.name === ""
 const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name === ""
 
-const addAbs :Rule = {
+const addAbs :EditRule = {
   name: "addAbs",
   key: ev => ev.key === " ",
   apply: (root, path, comp) => {
@@ -507,7 +514,7 @@ const addAbs :Rule = {
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
-const addTAbs :Rule = {
+const addTAbs :EditRule = {
   name: "addTAbs",
   key: ev => ev.key === " ",
   apply: (root, path, comp) => {
@@ -521,7 +528,7 @@ const addTAbs :Rule = {
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
-const addAll :Rule = {
+const addAll :EditRule = {
   name: "addAll",
   key: ev => ev.key === " " && ev.shiftKey,
   apply: (root, path, comp) => {
@@ -536,6 +543,19 @@ const addAll :Rule = {
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
+const insertField :KeyRule = {
+  name: "insertField",
+  key: ev => ev.key === " ",
+  apply: (root, path) => {
+    if (path.endsWith(root, "prod", "*", "field", "sym")) {
+      const fieldIdx = parseInt(path.id(path.length-2))
+      return path.pop().pop().edit(te => te.insertField(fieldIdx))
+    }
+    return undefined
+  },
+  focusOp: (root, path) => path
+}
+
 function findBody (tree :T.Tree, path :T.Path) :T.Path {
   // TODO: maybe aggregate these into some shared abstract base class...
   if (tree instanceof T.TypeDefTree ||
@@ -546,7 +566,7 @@ function findBody (tree :T.Tree, path :T.Path) :T.Path {
   else return path
 }
 
-const eqToBody :Rule = {
+const eqToBody :EditRule = {
   name: "eqToBody",
   key: ev => ev.key === "=",
   apply: (root, path, comp) => {
@@ -648,12 +668,29 @@ abstract class SymTreeSpan extends TreeSpan {
 
 abstract class RuleSpan extends SymTreeSpan {
 
-  abstract get rules () :Rule[]
+  abstract get keyRules () :KeyRule[]
+  abstract get editRules () :EditRule[]
 
-  handleKey (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
-    const {root, path, rules} = this, comp = compM || this.createDefaultComp(text)
+  handleKey (ev :M.KeyEvent) :M.EditAction|void {
+    const {root, path, keyRules} = this
 
-    for (let rule of rules) {
+    for (let rule of keyRules) {
+      if (rule.key(ev)) {
+        const edit = rule.apply(root, path)
+        if (edit) {
+          console.log(`FIRED ${rule.name}`)
+          const focus = rule.focusOp && rule.focusOp(root, path)
+          return {edit, focus}
+        }
+      }
+    }
+    console.log(`TODO: ${this.constructor.name}.handleKey ${this.path.mkString(root)} @ ${ev}`)
+  }
+
+  handleEdit (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
+    const {root, path, editRules} = this, comp = compM || this.createDefaultComp(text)
+
+    for (let rule of editRules) {
       if (rule.key(ev)) {
         const edit = rule.apply(root, path, comp)
         if (edit) {
@@ -675,7 +712,9 @@ abstract class RuleSpan extends SymTreeSpan {
   protected abstract createDefaultComp (text :string) :M.Completion
 }
 
-const typeRules :Rule[] = [
+const typeKeyRules :KeyRule[] = []
+
+const typeEditRules :EditRule[] = [
   addArgType,
   addAll,
   addAbs,
@@ -688,14 +727,19 @@ class TypeDefSpan extends RuleSpan {
                readonly tree :T.DefTree) { super() }
 
   get sym () :S.Symbol { return this.tree.sym }
-  get rules () { return typeRules }
+  get keyRules () { return typeKeyRules }
+  get editRules () { return typeEditRules }
   get editPlaceHolder () { return "<name>" }
 
   getCompletions (text :string) :M.Completion[] { return [] } // TODO
   protected createDefaultComp (text :string) { return new NameCompletion(text) }
 }
 
-const termRules :Rule[] = [
+const termDefKeyRules :KeyRule[] = [
+  insertField,
+]
+
+const termDefEditRules :EditRule[] = [
   addArgType,
   addAll,
   addAbs,
@@ -708,7 +752,8 @@ class TermDefSpan extends RuleSpan {
                readonly tree :T.DefTree) { super() }
 
   get sym () :S.Symbol { return this.tree.sym }
-  get rules () { return termRules }
+  get keyRules () { return termDefKeyRules }
+  get editRules () { return termDefEditRules }
   get editPlaceHolder () { return "<name>" }
 
   getCompletions (text :string) :M.Completion[] { return [] } // TODO
@@ -726,7 +771,7 @@ class TypeExprSpan extends SymTreeSpan {
       map(sym => new TypeSymbolCompletion(sym))
   }
 
-  handleKey (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
+  handleEdit (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
     switch (ev.key) {
     case "Enter":
     case "Tab":
@@ -838,7 +883,7 @@ class TermExprSpan extends SymTreeSpan {
     return comps
   }
 
-  handleKey (ev :M.KeyEvent, text :string, comp :M.Completion|void) :M.EditAction|void {
+  handleEdit (ev :M.KeyEvent, text :string, comp :M.Completion|void) :M.EditAction|void {
     console.log(`termExprEdit ${ev} @ ${text}`)
     switch (ev.key) {
     case "Enter":
@@ -900,7 +945,10 @@ class PatBindCompletion extends M.Completion {
   protected apply (te :T.TreeEditor) { return te.setPBind(this.text) }
 }
 
-const patRules :Rule[] = [
+const patKeyRules :KeyRule[] = [
+]
+
+const patEditRules :EditRule[] = [
   addArgType,
   addAll,
   addAbs,
@@ -925,7 +973,8 @@ class PatSpan extends RuleSpan {
   constructor (readonly root :T.DefTree, readonly path :T.Path,
                readonly tree :T.Tree, readonly sym :S.Symbol) { super() }
 
-  get rules () { return patRules }
+  get keyRules () { return patKeyRules }
+  get editRules () { return patEditRules }
   get editPlaceHolder () { return "<pat>" }
 
   getCompletions (text :string) :M.Completion[] {
