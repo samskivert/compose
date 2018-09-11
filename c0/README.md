@@ -1,6 +1,6 @@
 # Compose Compiler Mark Zero
 
-This is the (wildly incomplete) bootstrap compiler: `C0`.
+This is the (abandoned) bootstrap compiler: `C0`.
 
 Compose has a substantial chicken and egg problem in that it is not compiled from text files nor
 edited via a normal text editor, but we don't yet have an editor that can create Compose ASTs
@@ -17,8 +17,9 @@ is necessary to take the next step on my path to nirvana.
 
 ## Roadmap
 
-This is a somewhat high level TODO list for C0. Normally I keep this sort of thing in an
-uncommitted file in the top-level directory of a project, but this time I'll share with the class.
+This was a high level TODO list for C0. Normally I keep this sort of thing in an uncommitted file
+in the top-level directory of a project, but this time I shared with the class. Since this is
+abandoned, none of these things will get done, but I'll leave them here for the curious.
 
 ### Typing
 

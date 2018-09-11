@@ -30,8 +30,7 @@ of the Ocaml standard library with more web-focused APIs like Reason React.
 
 Presently, I am working on an editor/compiler combo written in [TypeScript]: [TSCE0](tsce0). The
 goals here are the same as for PC0: start making progress on the major editor challenges and build
-the compiler slowly along the way. Hopefully Reason and I will get along better than I did with
-PureScript.
+the compiler slowly along the way.
 
 ## Contact
 
