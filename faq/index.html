@@ -15,7 +15,7 @@
       
       <li><a href="/compose/">Overview</a></li>
       
-      <li><a href="/compose/posts/manifesto/">Manifesto</a></li>
+      <li><a href="/compose/goals/">Goals</a></li>
       
       <li><a href="/compose/faq/">FAQ</a></li>
       
@@ -38,22 +38,9 @@
 <p>Wherein questions which have in fact not been asked with any degree of frequency are misclassified
 as frequently asked, and then answered.</p>
 
-<h2 id="what-s-the-programming-model">What&rsquo;s the programming model?</h2>
-
-<p>Compose is at its core a strict, pure functional programming language, with ADTs and pattern
-matching. It is not total. We like big bottoms and we can not lie. It will have a carefully
-specified (stolen?) semantics. It is in the spirit of <a href="https://en.wikipedia.org/wiki/Standard_ML">SML</a>/<a href="https://en.wikipedia.org/wiki/OCaml">OCaml</a>, but with an eye toward more
-modern syntax, like <a href="https://facebook.github.io/reason/">Reason</a>.</p>
-
-<p>Compose does not handle state with monads, it uses an isolated, mutable, reactive state repository
-(think more &lsquo;fast database inside my program&rsquo; than &lsquo;mutable heap&rsquo;) and a separate class of
-computations that transform that state. <em>Functions</em> are pure computations that take inputs and
-compute outputs, just like God and Leonhard Euler intended. <em>Reactions</em> (name may change) are
-computations that are triggered by a change in reactive state, which may make use of any number of
-functions to compute new values, which are then used to update reactive state.</p>
-
-<p>This description is sketchy because I have not ironed out all the details, but the iron is coming. I
-have more detailed early notes on reactive state in a blog post on <a href="http://samskivert.com/blog/2013/11/thinking-aloud-rsp/">reactive state programming</a>.</p>
+<p>If you haven&rsquo;t already, read the <a href="../goals/">goals</a> of the language, as that has the most detailed
+information. If you still have questions, then check here, or <a href="mailto:mdb@samskivert.com">email me</a>
+and I&rsquo;ll add an answer to this FAQ.</p>
 
 <h2 id="does-it-orient-objects">Does it orient objects?</h2>
 
