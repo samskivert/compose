@@ -14,6 +14,8 @@ straightforward and "merely" require a lot of engineering work. In the fullness 
 address them all, as my overarching goal is for Compose to be used (at least by me) to build real
 software that improves the world, not just a research prototype.
 
+> Note: this list is in-progress and incomplete.
+
 ## Programming model
 
 ### Functional core
