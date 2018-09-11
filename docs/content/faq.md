@@ -1,27 +1,13 @@
 ---
 title: "FAQ"
-draft: true
 ---
 
 Wherein questions which have in fact not been asked with any degree of frequency are misclassified
 as frequently asked, and then answered.
 
-## What's the programming model?
-
-Compose is at its core a strict, pure functional programming language, with ADTs and pattern
-matching. It is not total. We like big bottoms and we can not lie. It will have a carefully
-specified (stolen?) semantics. It is in the spirit of [SML]/[OCaml], but with an eye toward more
-modern syntax, like [Reason].
-
-Compose does not handle state with monads, it uses an isolated, mutable, reactive state repository
-(think more 'fast database inside my program' than 'mutable heap') and a separate class of
-computations that transform that state. _Functions_ are pure computations that take inputs and
-compute outputs, just like God and Leonhard Euler intended. _Reactions_ (name may change) are
-computations that are triggered by a change in reactive state, which may make use of any number of
-functions to compute new values, which are then used to update reactive state.
-
-This description is sketchy because I have not ironed out all the details, but the iron is coming. I
-have more detailed early notes on reactive state in a blog post on [reactive state programming].
+If you haven't already, read the [goals](../goals/) of the language, as that has the most detailed
+information. If you still have questions, then check here, or [email me](mailto:mdb@samskivert.com)
+and I'll add an answer to this FAQ.
 
 ## Does it orient objects?
 

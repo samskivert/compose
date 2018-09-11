@@ -1,7 +1,6 @@
 ---
 title: "Manifesto"
 date: 2017-07-02
-draft: true
 ---
 
 When possible, I like to start my projects with a good manifesto. Decry the moral bankruptcy of my

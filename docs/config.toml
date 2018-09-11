@@ -9,8 +9,8 @@ features = ["blog"]
     url = "/"
     weight = 1
 [[menu.main]]
-    name = "Manifesto"
-    url = "/posts/manifesto/"
+    name = "Goals"
+    url = "/goals/"
     weight = 2
 [[menu.main]]
     name = "FAQ"
