@@ -467,30 +467,31 @@ class PatConstCompletion extends ConstCompletion {
 }
 
 type KeyRule = {
-  name: string
-  key: (ev :M.KeyEvent) => boolean
-  apply: (root :T.DefTree, path :T.Path) => T.TreeEdit|void
+  name :string
+  chord :string
+  pathPred :(root :T.DefTree, path :T.Path) => boolean
+  apply :(root :T.DefTree, path :T.Path) => T.TreeEdit
   focusOp? :(root :T.DefTree, path :T.Path) => T.Path
 }
 
 type EditRule = {
-  name: string
-  key: (ev :M.KeyEvent) => boolean
-  apply: (root :T.DefTree, path :T.Path, comp :M.Completion) => T.TreeEdit|void
+  name :string
+  chord :string
+  pathPred :(root :T.DefTree, path :T.Path) => boolean
+  apply :(root :T.DefTree, path :T.Path, comp :M.Completion) => T.TreeEdit
   focusOp? :(root :T.DefTree, path :T.Path) => T.Path
 }
 
 const addArgType :EditRule = {
   name: "addArgType",
-  key: ev => ev.key === ":",
+  chord: "S-Semicolon",
+  pathPred: (root, path) => (path.endsWith(root, "abs", "sym") ||
+                             path.endsWith(root, "field", "sym")),
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "abs", "sym") || path.endsWith(root, "field", "sym")) {
-      const cedit = comp.edit(path)
-      const typePath = path.sib("type")
-      return typePath.selected(root) instanceof T.EmptyTree ?
-        T.merge(cedit, typePath.edit(te => te.setTHole())) : cedit
-    }
-    return undefined
+    const cedit = comp.edit(path)
+    const typePath = path.sib("type")
+    return typePath.selected(root) instanceof T.EmptyTree ?
+      T.merge(cedit, typePath.edit(te => te.setTHole())) : cedit
   },
   focusOp: (root, path) => path.sib("type")
 }
@@ -501,57 +502,52 @@ const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name 
 
 const addAbs :EditRule = {
   name: "addAbs",
-  key: ev => ev.key === " ",
+  chord: "Space",
+  pathPred: (root, path) => (path.endsWith(root, "fundef", "sym") ||
+                             path.endsWith(root, "letfun", "sym") ||
+                             path.endsWith(root, "abs", "sym")),
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "letfun", "sym") ||
-        path.endsWith(root, "abs", "sym")) {
-      const bodyPath = path.sib("body")
-      return isEmptyAbs(bodyPath.selectedTree(root)) ? comp.edit(path) :
-        T.merge(comp.edit(path), bodyPath.edit(te => te.spliceAbs()))
-    }
-    return undefined
+    const bodyPath = path.sib("body")
+    return isEmptyAbs(bodyPath.selectedTree(root)) ? comp.edit(path) :
+      T.merge(comp.edit(path), bodyPath.edit(te => te.spliceAbs()))
   },
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
 const addTAbs :EditRule = {
   name: "addTAbs",
-  key: ev => ev.key === " ",
+  chord: "Space",
+  pathPred: (root, path) => (path.endsWith(root, "typedef", "sym") ||
+                             path.endsWith(root, "tabs", "sym")),
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "typedef", "sym") || path.endsWith(root, "tabs", "sym")) {
-      const cedit = comp.edit(path), bodyPath = path.sib("body")
-      return isEmptyTAbs(bodyPath.selectedTree(root)) ? cedit :
-        T.merge(cedit, bodyPath.edit(te => te.spliceTAbs()))
-    }
-    return undefined
+    const cedit = comp.edit(path), bodyPath = path.sib("body")
+    return isEmptyTAbs(bodyPath.selectedTree(root)) ? cedit :
+      T.merge(cedit, bodyPath.edit(te => te.spliceTAbs()))
   },
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
 const addAll :EditRule = {
   name: "addAll",
-  key: ev => ev.key === " " && ev.shiftKey,
+  chord: "S-Space",
+  pathPred: (root, path) => (path.endsWith(root, "fundef", "sym") ||
+                             path.endsWith(root, "letfun", "sym") ||
+                             path.endsWith(root, "all", "sym")),
   apply: (root, path, comp) => {
-    if (path.endsWith(root, "fundef", "sym") || path.endsWith(root, "letfun", "sym") ||
-        path.endsWith(root, "all", "sym")) {
-      const cedit = comp.edit(path), bodyPath = path.sib("body")
-      return isEmptyAll(bodyPath.selectedTree(root)) ? cedit :
-        T.merge(cedit, bodyPath.edit(te => te.spliceAll()))
-    }
-    return undefined
+    const cedit = comp.edit(path), bodyPath = path.sib("body")
+    return isEmptyAll(bodyPath.selectedTree(root)) ? cedit :
+      T.merge(cedit, bodyPath.edit(te => te.spliceAll()))
   },
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
 const insertField :KeyRule = {
   name: "insertField",
-  key: ev => ev.key === " ",
+  chord: "Space",
+  pathPred: (root, path) => path.endsWith(root, "prod", "*", "field", "sym"),
   apply: (root, path) => {
-    if (path.endsWith(root, "prod", "*", "field", "sym")) {
-      const fieldIdx = parseInt(path.id(path.length-2))
-      return path.pop().pop().edit(te => te.insertField(fieldIdx))
-    }
-    return undefined
+    const fieldIdx = parseInt(path.id(path.length-2))
+    return path.pop().pop().edit(te => te.insertField(fieldIdx))
   },
   focusOp: (root, path) => path
 }
@@ -568,17 +564,13 @@ function findBody (tree :T.Tree, path :T.Path) :T.Path {
 
 const eqToBody :EditRule = {
   name: "eqToBody",
-  key: ev => ev.key === "=",
-  apply: (root, path, comp) => {
-    if (path.endsWith(root, "typedef", "sym") ||
-        path.endsWith(root, "tabs", "sym") ||
-        path.endsWith(root, "fundef", "sym") ||
-        path.endsWith(root, "all", "sym") ||
-        path.endsWith(root, "abs", "sym")) {
-      return comp.edit(path)
-    }
-    return undefined
-  },
+  chord: "Equal",
+  pathPred: (root, path) => (path.endsWith(root, "typedef", "sym") ||
+                             path.endsWith(root, "tabs", "sym") ||
+                             path.endsWith(root, "fundef", "sym") ||
+                             path.endsWith(root, "all", "sym") ||
+                             path.endsWith(root, "abs", "sym")),
+  apply: (root, path, comp) => comp.edit(path),
   focusOp: (root, path) => findBody(path.selectionParent(root), path.pop()).firstEditable(root)
 }
 
@@ -671,11 +663,11 @@ abstract class RuleSpan extends SymTreeSpan {
   abstract get keyRules () :KeyRule[]
   abstract get editRules () :EditRule[]
 
-  handleKey (ev :M.KeyEvent) :M.EditAction|void {
+  handleKey (kp :M.KeyPress) :M.EditAction|void {
     const {root, path, keyRules} = this
 
     for (let rule of keyRules) {
-      if (rule.key(ev)) {
+      if (rule.chord === kp.chord && rule.pathPred(root, path)) {
         const edit = rule.apply(root, path)
         if (edit) {
           console.log(`FIRED ${rule.name}`)
@@ -684,14 +676,14 @@ abstract class RuleSpan extends SymTreeSpan {
         }
       }
     }
-    console.log(`TODO: ${this.constructor.name}.handleKey ${this.path.mkString(root)} @ ${ev}`)
+    console.log(`TODO: ${this.constructor.name}.handleKey ${this.path.mkString(root)} @ ${kp}`)
   }
 
-  handleEdit (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
+  handleEdit (kp :M.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
     const {root, path, editRules} = this, comp = compM || this.createDefaultComp(text)
 
     for (let rule of editRules) {
-      if (rule.key(ev)) {
+      if (rule.chord === kp.chord && rule.pathPred(root, path)) {
         const edit = rule.apply(root, path, comp)
         if (edit) {
           console.log(`FIRED ${rule.name}`)
@@ -701,7 +693,7 @@ abstract class RuleSpan extends SymTreeSpan {
       }
     }
 
-    switch (ev.key) {
+    switch (kp.chord) {
     case "Enter":
     case "Tab":
       console.log(`Commiting edit: ${comp}`)
@@ -771,12 +763,12 @@ class TypeExprSpan extends SymTreeSpan {
       map(sym => new TypeSymbolCompletion(sym))
   }
 
-  handleEdit (ev :M.KeyEvent, text :string, compM :M.Completion|void) :M.EditAction|void {
-    switch (ev.key) {
+  handleEdit (kp :M.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
+    switch (kp.chord) {
     case "Enter":
     case "Tab":
-    case " ":
-      return this.commitEdit(text, compM, ev.key === " ")
+    case "Space":
+      return this.commitEdit(text, compM, kp.chord === "Space")
     // case "=":
     //   // TODO: do we want to allow = in type names?
     //   if (termBodyPath) {
@@ -883,13 +875,13 @@ class TermExprSpan extends SymTreeSpan {
     return comps
   }
 
-  handleEdit (ev :M.KeyEvent, text :string, comp :M.Completion|void) :M.EditAction|void {
+  handleEdit (ev :M.KeyPress, text :string, comp :M.Completion|void) :M.EditAction|void {
     console.log(`termExprEdit ${ev} @ ${text}`)
-    switch (ev.key) {
+    switch (ev.chord) {
     case "Enter":
     case "Tab":
-    case " ":
-      return this.commitEdit(text, comp, ev.key === " ")
+    case "Space":
+      return this.commitEdit(text, comp, ev.chord === "Space")
     }
   }
 

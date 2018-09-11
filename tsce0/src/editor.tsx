@@ -115,15 +115,6 @@ export class DefStore {
   }
 }
 
-function mkKeySig (ev :KeyboardEvent) :string {
-  let sig = ev.code
-  if (ev.metaKey) sig = 'M-' + sig
-  if (ev.altKey) sig = 'A-' + sig
-  if (ev.ctrlKey) sig = 'C-' + sig
-  if (ev.shiftKey) sig = 'S-' + sig
-  return sig
-}
-
 @observer
 export class DefEditor extends React.Component<{store :DefStore}> {
 
@@ -145,33 +136,31 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   }
 
   componentWillMount() {
-    this.props.store.keyHandler = this.handleKey.bind(this)
+    this.props.store.keyHandler =
+      // if we're editing, the span editor will handle the key
+      ev => this.props.store.curs.editing ? false : this.handleKey(M.mkKeyPress(ev))
   }
 
-  handleKey (ev :KeyboardEvent) :boolean {
-    const {curs} = this.props.store
-    if (curs.editing) return false
-
-    const keySig = mkKeySig(ev)
-    const action = this.keymap[keySig]
+  handleKey (kp :M.KeyPress) :boolean {
+    const action = this.keymap[kp.chord]
     if (action) {
-      ev.preventDefault()
+      kp.preventDefault()
       action()
       return true
     }
 
     const span = this.props.store.selectedSpan
     if (span) {
-      const action = span.handleKey(ev)
+      const action = span.handleKey(kp)
       if (action) {
-        ev.preventDefault()
+        kp.preventDefault()
         const focus = this.props.store.applyAction(action)
-        if (ev.key == "Tab" && !focus) this._moveCursor(
-          M.moveHoriz(ev.shiftKey ? M.HDir.Left : M.HDir.Right))
+        if (!focus && (kp.chord === "Tab" || kp.chord === "S-Tab")) this._moveCursor(
+          M.moveHoriz(kp.chord === "Tab" ? M.HDir.Right : M.HDir.Left))
       }
     }
 
-    console.log(`TODO: handleKey ${keySig} // ${ev.key}`)
+    console.log(`TODO: handleKey ${kp.chord} // ${kp.key}`)
     return false
   }
 
@@ -249,8 +238,8 @@ export class DefEditor extends React.Component<{store :DefStore}> {
   renderSpan (ppre :number[], idx :number, mode :Mode, span :M.Span) :JSX.Element {
     if (mode == Mode.Edited && span.isEditable) {
       console.log(`Edit span ${span} :: ${span.constructor.name}`)
-      return <SpanEditor store={new SpanStore(span)} defStore={this.props.store}
-                         key={idx} span={span}
+      return <SpanEditor key={idx} defStore={this.props.store} defEditor={this}
+                         store={new SpanStore(span)} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
                          moveCursor={(dir) => { this._moveCursor(M.moveHoriz(dir)) }} />
     } else {
@@ -298,20 +287,36 @@ export class SpanStore {
   }
 }
 
-const blurEvent :M.KeyEvent = {
-  key: "Blur",
-  code: "0",
-  ctrlKey :false,
-  shiftKey: false,
-  altKey: false,
-  metaKey: false,
-  preventDefault: () => {},
+const blurPress :M.KeyPress = {
+  chord: "Blur",
+  key: "",
+  isModifier: false,
+  isModified: false,
+  preventDefault: () => {}
+}
+
+const editCodes = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Backspace",
+  "Delete",
+  "Space",
+])
+
+// TODO: this is messy, we're trying to figure out if a particular key press is editing the text in
+// an HTML input field, or moving the cursor in the field; really we should just totally control the
+// text editing process so we can know for sure rather than using these fragile heuristics
+function isNameEdit (ev :M.KeyPress) :boolean {
+  return !ev.isModified && (ev.key.length == 1 || editCodes.has(ev.chord))
 }
 
 @observer
 export class SpanEditor  extends React.Component<{
-  store :SpanStore,
   defStore :DefStore,
+  defEditor :DefEditor,
+  store :SpanStore,
   span :M.Span,
   stopEditing :() => void,
   moveCursor :(dir :M.HDir) => void
@@ -333,8 +338,8 @@ export class SpanEditor  extends React.Component<{
                placeholder={this.props.span.editPlaceHolder}
                value={store.text}
                onChange={this.onChange.bind(this)}
-               onBlur={ev => this.handleKey(blurEvent)}
-               onKeyDown={ev => this.handleKey(ev.nativeEvent)} />
+               onBlur={ev => this.handleKey(blurPress)}
+               onKeyDown={ev => this.handleKey(M.mkKeyPress(ev.nativeEvent))} />
         {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
       </div>
     )
@@ -356,29 +361,34 @@ export class SpanEditor  extends React.Component<{
     })
   }
 
-  handleKey (keyEv :M.KeyEvent) {
-    const store = this.props.store, key = keyEv.key
+  handleKey (kp :M.KeyPress) {
+    const store = this.props.store, chord = kp.chord
     // if this is just a modifier keypress, ignore it (don't set actionTaken)
-    if (key === "Shift" || key === "Control" || key === "Meta" || key === "Alt") return
+    if (kp.isModifier) return
     // if key is up/down arrow, change selected completion
-    else if (key === "ArrowUp") {
-      store.selCompIdx = Math.max(store.selCompIdx-1, 0)
-    } else if (key === "ArrowDown") {
-      store.selCompIdx = Math.min(store.selCompIdx+1, store.completions.length-1)
-    } else if (key === "Escape") {
-      keyEv.preventDefault()
+    else if (chord === "ArrowUp") store.selCompIdx = Math.max(store.selCompIdx-1, 0)
+    else if (chord === "ArrowDown") store.selCompIdx =
+      Math.min(store.selCompIdx+1, store.completions.length-1)
+    else if (chord === "Escape") {
+      kp.preventDefault()
       this.props.stopEditing()
-    } else if (key == "Tab" && !store.actionTaken) {
-      keyEv.preventDefault()
-      this.props.moveCursor(keyEv.shiftKey ? M.HDir.Left : M.HDir.Right)
-    } else {
-      const action = this.props.span.handleEdit(keyEv, store.text, store.selectedCompletion)
+    }
+    else if ((chord == "Tab" || chord == "S-Tab") && !store.actionTaken) {
+      kp.preventDefault()
+      this.props.moveCursor(chord === "Tab" ? M.HDir.Right : M.HDir.Left)
+    }
+    else {
+      const action = this.props.span.handleEdit(kp, store.text, store.selectedCompletion)
       if (action) {
-        keyEv.preventDefault()
+        kp.preventDefault()
         const focus = this.props.defStore.applyAction(action)
-        if (key == "Tab" && !focus) this.props.moveCursor(
-          keyEv.shiftKey ? M.HDir.Left : M.HDir.Right)
-      } // otherwise just let the key be added to the text
+        if ((chord == "Tab" || chord == "S-Tab") && !focus) this.props.moveCursor(
+          (chord == "Tab") ? M.HDir.Right : M.HDir.Left)
+      }
+      // if the keypress is not editing the text inside the span, forward it back up to the def
+      // editor to potentially be handled
+      else if (!isNameEdit(kp)) this.props.defEditor.handleKey(kp)
+      // otherwise just let the edit affect the text of the span (a name or a completion)
     }
     store.actionTaken = true
   }

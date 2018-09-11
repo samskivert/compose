@@ -13,16 +13,45 @@ import { Name } from "./names"
 
 export type Modifiers = {shift? :boolean, meta? :boolean, alt? :boolean, ctrl? :boolean}
 
-/** A slight contraction of the full KeyboardEvent API to make it easier for us to
-  * fake keyboard events when needed. */
-export type KeyEvent = {
+/** Information on a key press (with possible modifiers). */
+export type KeyPress = {
+  /** The 'chord' identifying this key press: the name of the key, possibly prefixed by a modifier
+    * tag. Examples: `S-Space`, `C-Return`, `Backspace`, `M`, `Shift-1`. */
+  readonly chord :string
+  /** The printable representation of the pressed key, if one exists. Otherwise one of a set of
+    * pre-defined key values. See:
+    * https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values */
   readonly key :string
-  readonly code :string
-  readonly ctrlKey :boolean
-  readonly shiftKey :boolean
-  readonly altKey :boolean
-  readonly metaKey :boolean
-  preventDefault :() => void
+  /** True if this key press is itself a modifier key (shift, ctrl, alt, meta). */
+  readonly isModifier :boolean
+  /** True if this key press happened while one or more modifier keys was pressed. */
+  readonly isModified :boolean
+  /** Prevents the default (web browser) handling of the event that generated this press. */
+  readonly preventDefault :() => void
+}
+
+// TODO: for printable characters, I'd like the printable character to be the chord so that we need
+// not rely on special keymap knowledge (like that `:` is `S-Semicolon`)
+function mkChord (ev :KeyboardEvent) :string {
+  let chord = ev.code
+  if (ev.metaKey) chord = `M-${chord}`
+  if (ev.altKey) chord = `A-${chord}`
+  if (ev.ctrlKey) chord = `C-${chord}`
+  if (ev.shiftKey) chord = `S-${chord}`
+  return chord
+}
+
+const modCodes = new Set(["Shift", "Control", "Meta", "Alt"])
+
+/** Creates a `KeyPress` from a browser `KeyboardEvent`. */
+export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
+  return {
+    chord: mkChord(ev),
+    key: ev.key,
+    isModifier: modCodes.has(ev.code),
+    isModified: ev.metaKey || ev.altKey || ev.ctrlKey || ev.shiftKey,
+    preventDefault: () => ev.preventDefault()
+  }
 }
 
 /** Used to insert holes relative to a selected span. See `Span.insertHole`. */
@@ -62,19 +91,19 @@ export abstract class Span {
   getCompletions (text :string) :Completion[] { return [] }
 
   /** Handles a key press from an inactive span editor which is under the cursor.
-    * @param ev the key event.
+    * @param kp the key press info.
     * @return the action to take based on the key press, if any.
     */
-  handleKey (ev :KeyEvent) :EditAction|void {
+  handleKey (kp :KeyPress) :EditAction|void {
     return undefined }
 
   /** Handles a key press from an active span editor.
-    * @param ev the key event.
+    * @param kp the key press info.
     * @param text the current text of the span (prior to the key press).
     * @param comp the current completion (if one exists).
     * @return the action to take based on the key press, if any.
     */
-  handleEdit (ev :KeyEvent, text :string, comp :Completion|void) :EditAction|void {
+  handleEdit (kp :KeyPress, text :string, comp :Completion|void) :EditAction|void {
     return undefined }
 
   /** Inserts a hole relative to this span. If the span cannot insert a hole in the requested
