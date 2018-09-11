@@ -141,7 +141,9 @@ software that improves the world, not just a research prototype.
 
 ## Building
 
-* Patching of library dependencies. ...
+* TODO: Patching of library dependencies.
+
+* TODO: Build specification & extension mechanism built-in.
 
 ## Debugging
 
@@ -153,7 +155,7 @@ software that improves the world, not just a research prototype.
   (and after, for state that can persist across executions). But I would like to also visualize
   state dependencies, and changes as they propagate through the data flow graph.
 
-* ...
+* ... TODO ...
 
 ## Editing and Tooling
 
@@ -163,15 +165,15 @@ software that improves the world, not just a research prototype.
   in arranging your workspace based on your problem at hand and not based on the incidental
   structure of characters, text files and directories.
 
-* ...
+* ... TODO ...
 
 ## Version control
 
-* ...
+* ... TODO ...
 
 ## Code visualization
 
-* ...
+* ... TODO ...
 
 ## Learning
 
@@ -182,6 +184,8 @@ software that improves the world, not just a research prototype.
   level of its user. This may manifest as preference toggles for myriad help mechanisms (e.g. show
   types on locals, show key bindings, verbose type error hints), also controllable via
   coarse-grained "beginner, intermediate, advanced" presets, or perhaps something fancier.
+
+* TODO: learnable key bindings
 
 ### Microworlds
 

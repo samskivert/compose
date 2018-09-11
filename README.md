@@ -9,7 +9,7 @@
 * precise: sane semantics are king, minimize concessions to legacy
 
 Compose also prioritizes a lot of things other programming languages don't even address as
-problems. For more details, read the [manifesto] and [FAQ].
+problems. For more details, read the [goals] and [FAQ].
 
 ## Status
 
@@ -24,9 +24,13 @@ gotten so far down the road on the type system and compiler. But PureScript turn
 annoying to work with (for reasons detailed on the PC0 page). So I took off and nuked everything
 from orbit again.
 
-Presently, I am working on an editor/compiler combo written in [Reason]: [RCE0](rce0). The goals
-here are the same as for PC0: start making progress on the major editor challenges and build the
-compiler slowly along the way. Hopefully Reason and I will get along better than I did with
+I briefly detoured into an editor/compiler combo written in [Reason], but abandoned before even
+making a single commit due to limitations of the tooling and a distaste for the incoherent mishmash
+of the Ocaml standard library with more web-focused APIs like Reason React.
+
+Presently, I am working on an editor/compiler combo written in [TypeScript]: [TSCE0](tsce0). The
+goals here are the same as for PC0: start making progress on the major editor challenges and build
+the compiler slowly along the way. Hopefully Reason and I will get along better than I did with
 PureScript.
 
 ## Contact
@@ -34,8 +38,9 @@ PureScript.
 Compose is being created by Michael Bayne <mdb@samskivert.com>. Feel free to contact me if you like
 to talk about the utter insanity of trying to foist another programming language on the world.
 
+[goals]: https://samskivert.github.io/compose/goals/
 [FAQ]: https://samskivert.github.io/compose/faq/
 [PureScript]: http://www.purescript.org/
 [Reason]: https://reasonml.github.io/
 [Scala]: https://www.scala-lang.org/
-[manifesto]: https://samskivert.github.io/compose/posts/manifesto/
+[TypeScript]: http://www.typescriptlang.org/
