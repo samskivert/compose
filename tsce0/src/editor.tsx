@@ -1,12 +1,13 @@
-import * as React from 'react';
-import { computed, observable, transaction, IComputedValue } from 'mobx'
-import { observer } from 'mobx-react'
+import * as React from "react";
+import { computed, observable, transaction, IComputedValue } from "mobx"
+import { observer } from "mobx-react"
 
-import * as F from './format'
-import * as M from './markup'
-import * as MD from './module'
-import * as N from './names'
-import * as T from './trees'
+import * as F from "./format"
+import * as M from "./markup"
+import * as MD from "./module"
+import * as N from "./names"
+import * as T from "./trees"
+import * as K from "./keymap"
 
 // Cursor and selection model
 
@@ -135,13 +136,15 @@ export class DefEditor extends React.Component<{store :DefStore}> {
     "C-Backslash":  () => this.props.store.redoAction(),
   }
 
-  componentWillMount() {
+  componentWillMount () {
     this.props.store.keyHandler =
       // if we're editing, the span editor will handle the key
-      ev => this.props.store.curs.editing ? false : this.handleKey(M.mkKeyPress(ev))
+      ev => this.props.store.curs.editing ? false : this.handleKey(K.mkKeyPress(ev))
+  }
+  componentWillUnmount() {
   }
 
-  handleKey (kp :M.KeyPress) :boolean {
+  handleKey (kp :K.KeyPress) :boolean {
     const action = this.keymap[kp.chord]
     if (action) {
       kp.preventDefault()
@@ -287,7 +290,7 @@ export class SpanStore {
   }
 }
 
-const blurPress :M.KeyPress = {
+const blurPress :K.KeyPress = {
   chord: "Blur",
   key: "",
   isModifier: false,
@@ -308,7 +311,7 @@ const editCodes = new Set([
 // TODO: this is messy, we're trying to figure out if a particular key press is editing the text in
 // an HTML input field, or moving the cursor in the field; really we should just totally control the
 // text editing process so we can know for sure rather than using these fragile heuristics
-function isNameEdit (ev :M.KeyPress) :boolean {
+function isNameEdit (ev :K.KeyPress) :boolean {
   return !ev.isModified && (ev.key.length == 1 || editCodes.has(ev.chord))
 }
 
@@ -339,7 +342,7 @@ export class SpanEditor  extends React.Component<{
                value={store.text}
                onChange={this.onChange.bind(this)}
                onBlur={ev => this.handleKey(blurPress)}
-               onKeyDown={ev => this.handleKey(M.mkKeyPress(ev.nativeEvent))} />
+               onKeyDown={ev => this.handleKey(K.mkKeyPress(ev.nativeEvent))} />
         {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
       </div>
     )
@@ -361,7 +364,7 @@ export class SpanEditor  extends React.Component<{
     })
   }
 
-  handleKey (kp :M.KeyPress) {
+  handleKey (kp :K.KeyPress) {
     const store = this.props.store, chord = kp.chord
     // if this is just a modifier keypress, ignore it (don't set actionTaken)
     if (kp.isModifier) return

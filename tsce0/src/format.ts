@@ -5,6 +5,7 @@ import * as MD from "./module"
 import * as S from "./symbols"
 import * as T from "./trees"
 import * as TP from "./types"
+import * as K from "./keymap"
 
 export function format (
   mod :MD.Module, tree :T.DefTree, focus? :T.Path, showSigs :boolean = false
@@ -663,7 +664,7 @@ abstract class RuleSpan extends SymTreeSpan {
   abstract get keyRules () :KeyRule[]
   abstract get editRules () :EditRule[]
 
-  handleKey (kp :M.KeyPress) :M.EditAction|void {
+  handleKey (kp :K.KeyPress) :M.EditAction|void {
     const {root, path, keyRules} = this
 
     for (let rule of keyRules) {
@@ -679,7 +680,7 @@ abstract class RuleSpan extends SymTreeSpan {
     console.log(`TODO: ${this.constructor.name}.handleKey ${this.path.mkString(root)} @ ${kp}`)
   }
 
-  handleEdit (kp :M.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
+  handleEdit (kp :K.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
     const {root, path, editRules} = this, comp = compM || this.createDefaultComp(text)
 
     for (let rule of editRules) {
@@ -763,7 +764,7 @@ class TypeExprSpan extends SymTreeSpan {
       map(sym => new TypeSymbolCompletion(sym))
   }
 
-  handleEdit (kp :M.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
+  handleEdit (kp :K.KeyPress, text :string, compM :M.Completion|void) :M.EditAction|void {
     switch (kp.chord) {
     case "Enter":
     case "Tab":
@@ -875,7 +876,7 @@ class TermExprSpan extends SymTreeSpan {
     return comps
   }
 
-  handleEdit (ev :M.KeyPress, text :string, comp :M.Completion|void) :M.EditAction|void {
+  handleEdit (ev :K.KeyPress, text :string, comp :M.Completion|void) :M.EditAction|void {
     console.log(`termExprEdit ${ev} @ ${text}`)
     switch (ev.chord) {
     case "Enter":

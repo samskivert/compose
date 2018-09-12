@@ -3,12 +3,14 @@ import { observable, computed } from "mobx"
 import { observer } from "mobx-react"
 
 import { UUID } from "./names"
+import * as C from "./keychart"
 import * as E from "./editor"
-import * as O from "./outline"
-import * as S from "./stack"
+import * as K from "./keymap"
 import * as M from "./module"
-import * as T from "./trees"
+import * as O from "./outline"
 import * as P from "./project"
+import * as S from "./stack"
+import * as T from "./trees"
 
 export class WorkspaceStore implements P.Resolver, M.Resolver {
   @observable projects :P.Project[] = []
@@ -20,6 +22,8 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
 
   // TODO: have a mode or dialog abstraction if we grow to include more of these...
   @observable creatingNew :boolean = false
+
+  keymap = new K.Keymap()
 
   @computed get selectedProject () :P.Project|void {
     const selidx = this.selprojidx, projs = this.projects
@@ -84,6 +88,20 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
 @observer
 export class Workspace extends React.Component<{store :WorkspaceStore}> {
 
+  keysource :K.Source = {name: "Workspace", mappings: [{
+    descrip: "Select previous def",
+    chord: "M-ArrowUp",
+    action: kp => this.props.store.moveSelection(-1)
+  }, {
+    descrip: "Select next def",
+    chord: "M-ArrowDown",
+    action: kp => this.props.store.moveSelection(1)
+  }, {
+    descrip: "Create new def",
+    chord: "C-KeyN",
+    action: kp => { this.props.store.creatingNew = true }
+  }]}
+
   handleKey :(ev :KeyboardEvent) => boolean = ev => {
     const store = this.props.store
     if (store.creatingNew) {
@@ -103,29 +121,22 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
 
       store.creatingNew = false
       return true
-
-    } else if (ev.metaKey) {
-      switch (ev.code) {
-      case "ArrowUp": this.props.store.moveSelection(-1) ; return true
-      case "ArrowDown": this.props.store.moveSelection(1) ; return true
-      }
-
-    } else if (ev.ctrlKey) {
-      switch (ev.code) {
-      case "KeyN":
-        store.creatingNew = true
-        return true
-      }
     }
-    const selDef = store.selectedDef
-    return selDef ? selDef.keyHandler(ev) : false
+    else if (this.props.store.keymap.handleKey(ev)) return true
+    else {
+      // TEMP: route to selected def until we keymap-ify it too
+      const selDef = store.selectedDef
+      return selDef ? selDef.keyHandler(ev) : false
+    }
   }
 
   componentWillMount() {
     document.addEventListener("keydown", this.handleKey, false)
+    this.props.store.keymap.addSource(this.keysource)
   }
   componentWillUnmount() {
     document.removeEventListener("keydown", this.handleKey, false)
+    this.props.store.keymap.removeSource(this.keysource)
   }
 
   render () {
@@ -134,6 +145,7 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
               {store.creatingNew ? this.createDefPopup() : undefined}
               <O.Outline store={store} />
               <S.Stack store={store} />
+              <C.KeyChart keymap={store.keymap} />
             </div>)
   }
 
