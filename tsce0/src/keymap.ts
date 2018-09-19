@@ -54,9 +54,9 @@ export type Mapping = {
 
 /** A source of key mappings. This corresponds to some user interface element: the editor for the
   * selected def, the editor for the span under the cursor, the workspace itself. */
-export type Source = {
-  name :string
-  mappings :Mapping[]
+export interface Source {
+  readonly name :string
+  readonly mappings :Mapping[]
 }
 
 /** Manages the active set of key mappings and their sources. */

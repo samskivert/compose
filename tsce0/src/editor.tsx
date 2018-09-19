@@ -40,7 +40,7 @@ function mkUndoEntry (edit :T.TreeEdit, {path, editing} :Cursor) :UndoEntry {
   return {edit, curs: {path, editing}}
 }
 
-export class DefStore {
+export class DefStore implements K.Source {
   @observable def!  :T.DefTree
   @observable elem! :M.Elem
   @observable curs  :Cursor = {path: M.emptyPath, editing: false}
@@ -57,7 +57,64 @@ export class DefStore {
   get mod () :MD.Module { return this.sym.mod }
   get selectedSpan () :M.Span|void { return this.elem.spanAt(this.curs.path) }
 
-  keyHandler :(ev :KeyboardEvent) => boolean = ev => true
+  // from K.Source
+  readonly mappings :K.Mapping[] = [{
+    descrip: "Move cursor left",
+    chord: "ArrowLeft",
+    action: kp => this.moveCursor(M.moveHoriz(M.HDir.Left)),
+  }, {
+    descrip: "Move cursor right",
+    chord: "ArrowRight",
+    action: kp => this.moveCursor(M.moveHoriz(M.HDir.Right)),
+  }, {
+    descrip: "Move cursor up",
+    chord: "ArrowUp",
+    action: kp => this.moveCursor(M.moveVert(M.VDir.Up)),
+  }, {
+    descrip: "Move cursor down",
+    chord: "ArrowDown",
+    action: kp => this.moveCursor(M.moveVert(M.VDir.Down)),
+  }, {
+    descrip: "Move to next element",
+    chord: "Tab",
+    action: kp => this.moveCursor(M.moveHoriz(M.HDir.Right)),
+  }, {
+    descrip: "Move to previous element",
+    chord: "S-Tab",
+    action: kp => this.moveCursor(M.moveHoriz(M.HDir.Left)),
+  }, {
+    descrip: "Edit current element",
+    chord: "Enter",
+    action: kp => this.startEdit()
+  }, {
+    descrip: "Insert hole to left",
+    chord: "C-ArrowLeft",
+    action: kp => this.insertHole(M.Dir.Left),
+  }, {
+    descrip: "Insert hole to right",
+    chord: "C-ArrowRight",
+    action: kp => this.insertHole(M.Dir.Right),
+  }, {
+    descrip: "Insert hole above",
+    chord: "C-ArrowUp",
+    action: kp => this.insertHole(M.Dir.Up),
+  }, {
+    descrip: "Insert hole below",
+    chord: "C-ArrowDown",
+    action: kp => this.insertHole(M.Dir.Down),
+  }, {
+    descrip: "Undo last edit",
+    chord: "S-C-Minus",
+    action: kp => this.undoAction(),
+  }, {
+    descrip: "Undo last edit",
+    chord: "M-Z",
+    action: kp => this.undoAction(),
+  }, {
+    descrip: "Redo last undone edit",
+    chord: "C-Backslash",
+    action: kp => this.redoAction(),
+  }]
 
   constructor (readonly sym :MD.DefSym, def :T.DefTree,
                readonly selStore :IComputedValue<DefStore|void>,
@@ -83,6 +140,30 @@ export class DefStore {
   }
   undoAction () { this.xdoAction(this.undoStack, this.redoStack) }
   redoAction () { this.xdoAction(this.redoStack, this.undoStack) }
+
+  moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
+    const oldPath = this.curs.path
+    const newPath = mover(this.elem, oldPath)
+    const selSpan = this.elem.spanAt(newPath)
+    const selIsHole = selSpan ? selSpan.isHole : false
+    // console.log(`moveCursor ${JSON.stringify(newPath)} (${selSpan} // ${selIsHole})`)
+    this.curs = {path: newPath, editing: selIsHole}
+  }
+
+  insertHole (dir :M.Dir) {
+    const span = this.selectedSpan
+    if (span) {
+      const action = span.insertHole(dir)
+      if (action) {
+        this.applyAction(action)
+      }
+    }
+    return true
+  }
+
+  startEdit () {
+    this.curs.editing = true
+  }
 
   private xdoAction (popStack :UndoEntry[], pushStack :UndoEntry[]) {
     const entry = popStack.pop()
@@ -119,38 +200,21 @@ export class DefStore {
 @observer
 export class DefEditor extends React.Component<{store :DefStore}> {
 
-  keymap = {
-    "ArrowLeft":  () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
-    "ArrowRight": () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
-    "ArrowUp":    () => this._moveCursor(M.moveVert(M.VDir.Up)),
-    "ArrowDown":  () => this._moveCursor(M.moveVert(M.VDir.Down)),
-    "Tab":        () => this._moveCursor(M.moveHoriz(M.HDir.Right)),
-    "S-Tab":      () => this._moveCursor(M.moveHoriz(M.HDir.Left)),
-    "Enter":      () => this._startEdit(),
-    "C-ArrowLeft":  () => this._insertHole(M.Dir.Left),
-    "C-ArrowRight": () => this._insertHole(M.Dir.Right),
-    "C-ArrowUp":    () => this._insertHole(M.Dir.Up),
-    "C-ArrowDown":  () => this._insertHole(M.Dir.Down),
-    "S-C-Minus":    () => this.props.store.undoAction(),
-    "M-Z":          () => this.props.store.undoAction(),
-    "C-Backslash":  () => this.props.store.redoAction(),
-  }
-
-  componentWillMount () {
-    this.props.store.keyHandler =
-      // if we're editing, the span editor will handle the key
-      ev => this.props.store.curs.editing ? false : this.handleKey(K.mkKeyPress(ev))
-  }
-  componentWillUnmount() {
-  }
+  // componentWillMount () {
+  //   this.props.store.keyHandler =
+  //     // if we're editing, the span editor will handle the key
+  //     ev => this.props.store.curs.editing ? false : this.handleKey(K.mkKeyPress(ev))
+  // }
+  // componentWillUnmount() {
+  // }
 
   handleKey (kp :K.KeyPress) :boolean {
-    const action = this.keymap[kp.chord]
-    if (action) {
-      kp.preventDefault()
-      action()
-      return true
-    }
+    // const action = this.keymap[kp.chord]
+    // if (action) {
+    //   kp.preventDefault()
+    //   action()
+    //   return true
+    // }
 
     const span = this.props.store.selectedSpan
     if (span) {
@@ -158,38 +222,13 @@ export class DefEditor extends React.Component<{store :DefStore}> {
       if (action) {
         kp.preventDefault()
         const focus = this.props.store.applyAction(action)
-        if (!focus && (kp.chord === "Tab" || kp.chord === "S-Tab")) this._moveCursor(
+        if (!focus && (kp.chord === "Tab" || kp.chord === "S-Tab")) this.props.store.moveCursor(
           M.moveHoriz(kp.chord === "Tab" ? M.HDir.Right : M.HDir.Left))
       }
     }
 
     console.log(`TODO: handleKey ${kp.chord} // ${kp.key}`)
     return false
-  }
-
-  _moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
-    const store = this.props.store
-    const oldPath = store.curs.path
-    const newPath = mover(store.elem, oldPath)
-    const selSpan = store.elem.spanAt(newPath)
-    const selIsHole = selSpan ? selSpan.isHole : false
-    // console.log(`moveCursor ${JSON.stringify(newPath)} (${selSpan} // ${selIsHole})`)
-    store.curs = {path: newPath, editing: selIsHole}
-  }
-
-  _insertHole (dir :M.Dir) {
-    const span = this.props.store.selectedSpan
-    if (span) {
-      const action = span.insertHole(dir)
-      if (action) {
-        this.props.store.applyAction(action)
-      }
-    }
-    return true
-  }
-
-  _startEdit () {
-    this.props.store.curs.editing = true
   }
 
   render () {
@@ -244,7 +283,7 @@ export class DefEditor extends React.Component<{store :DefStore}> {
       return <SpanEditor key={idx} defStore={this.props.store} defEditor={this}
                          store={new SpanStore(span)} span={span}
                          stopEditing={() => { this.props.store.curs.editing = false }}
-                         moveCursor={(dir) => { this._moveCursor(M.moveHoriz(dir)) }} />
+                         moveCursor={(dir) => { this.props.store.moveCursor(M.moveHoriz(dir)) }} />
     } else {
       const onPress = span.isEditable ? () => {
         this.props.store.curs = {path: M.mkPath(ppre, idx), editing: false}

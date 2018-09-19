@@ -1,5 +1,5 @@
 import * as React from "react"
-import { observable, computed } from "mobx"
+import { observable, observe, computed } from "mobx"
 import { observer } from "mobx-react"
 
 import { UUID } from "./names"
@@ -18,12 +18,22 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
   @observable selcompidx :number = 0
 
   @observable openDefs :E.DefStore[] = []
-  @observable seldefidx :number = 0
+  @observable seldefidx :number = -1
 
   // TODO: have a mode or dialog abstraction if we grow to include more of these...
   @observable creatingNew :boolean = false
 
   keymap = new K.Keymap()
+
+  constructor () {
+    observe(this, "seldefidx", change => {
+      const odef = change.oldValue && this.defAt(change.oldValue)
+      const ndef = this.defAt(change.newValue)
+      console.log(`Source change! ${odef} ${ndef}`)
+      if (odef) this.keymap.removeSource(odef)
+      if (ndef) this.keymap.addSource(ndef)
+    })
+  }
 
   @computed get selectedProject () :P.Project|void {
     const selidx = this.selprojidx, projs = this.projects
@@ -35,16 +45,18 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
     return comps.length > selidx ? comps[selidx] : undefined
   }
 
-  @computed get selectedDef () :E.DefStore|void {
-    const selidx = this.seldefidx, stores = this.openDefs
-    return stores.length > selidx ? stores[selidx] : undefined
-  }
+  @computed get selectedDef () :E.DefStore|void { return this.defAt(this.seldefidx) }
 
   // the module in which a new def will be created: the one that owns the selected def, if we have a
   // selected def, or the first module otherwise
   get newDefMod () :M.Module {
     const seldef = this.selectedDef
     return seldef ? seldef.sym.mod : this.projects[0].components[0].modules[0]
+  }
+
+  defAt (idx :number) :E.DefStore|void {
+    const stores = this.openDefs
+    return stores.length > idx ? stores[idx] : undefined
   }
 
   moveSelection (delta :number) {
@@ -86,9 +98,13 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
 }
 
 @observer
-export class Workspace extends React.Component<{store :WorkspaceStore}> {
+export class Workspace extends React.Component<{store :WorkspaceStore}> implements K.Source {
 
-  keysource :K.Source = {name: "Workspace", mappings: [{
+  // from K.Source
+  get name () :string { return "Workspace" }
+
+  // from K.Source
+  readonly mappings :K.Mapping[] = [{
     descrip: "Select previous def",
     chord: "M-ArrowUp",
     action: kp => this.props.store.moveSelection(-1)
@@ -100,43 +116,34 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
     descrip: "Create new def",
     chord: "C-KeyN",
     action: kp => { this.props.store.creatingNew = true }
-  }]}
+  }]
 
   handleKey :(ev :KeyboardEvent) => boolean = ev => {
     const store = this.props.store
-    if (store.creatingNew) {
-      const mod = store.newDefMod
-      let tree :T.DefTree|void = undefined
-      switch (ev.code) {
-      case "KeyF": tree = mod.addFunDef("") ; break
-      case "KeyS": tree = mod.addSumDef("") ; break
-      case "KeyP": tree = mod.addProdDef("") ; break
-      case "KeyT": tree = mod.addTypeDef("") ; break // TODO: add alias def?
-      case "Escape": break // fall through and clear dialog
-      default: return false
-      }
-      if (tree) {
-        store.openDef(tree.sym as M.DefSym)
-      }
+    if (!store.creatingNew) return this.props.store.keymap.handleKey(ev)
 
-      store.creatingNew = false
-      return true
+    const mod = store.newDefMod
+    let tree :T.DefTree|void = undefined
+    switch (ev.code) {
+    case "KeyF": tree = mod.addFunDef("") ; break
+    case "KeyS": tree = mod.addSumDef("") ; break
+    case "KeyP": tree = mod.addProdDef("") ; break
+    case "KeyT": tree = mod.addTypeDef("") ; break // TODO: add alias def?
+    case "Escape": break // fall through and clear dialog
+    default: return false
     }
-    else if (this.props.store.keymap.handleKey(ev)) return true
-    else {
-      // TEMP: route to selected def until we keymap-ify it too
-      const selDef = store.selectedDef
-      return selDef ? selDef.keyHandler(ev) : false
-    }
+    if (tree) store.openDef(tree.sym as M.DefSym)
+    store.creatingNew = false
+    return true
   }
 
   componentWillMount() {
     document.addEventListener("keydown", this.handleKey, false)
-    this.props.store.keymap.addSource(this.keysource)
+    this.props.store.keymap.addSource(this)
   }
   componentWillUnmount() {
     document.removeEventListener("keydown", this.handleKey, false)
-    this.props.store.keymap.removeSource(this.keysource)
+    this.props.store.keymap.removeSource(this)
   }
 
   render () {
