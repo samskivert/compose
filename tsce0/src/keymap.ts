@@ -33,7 +33,12 @@ function mkChord (ev :KeyboardEvent) :Chord {
   return chord
 }
 
-const modCodes = new Set(["Shift", "Control", "Meta", "Alt"])
+const modCodes = new Set([
+  "Shift", "ShiftLeft", "ShiftRight",
+  "Control", "ControlLeft", "ControlRight",
+  "Meta", "MetaLeft", "MetaRight",
+  "Alt", "AltLeft", "AltRight"
+])
 
 /** Creates a `KeyPress` from a browser `KeyboardEvent`. */
 export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
@@ -42,12 +47,11 @@ export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
     chord: mkChord(ev),
     key: ev.key,
     isPrintable: !isModified && ev.key.length == 1, // TODO: this is bullshit
-    isModifier: modCodes.has(ev.code),
+    isModifier: modCodes.has(ev.key),
     isModified: isModified,
     preventDefault: () => ev.preventDefault()
   }
 }
-
 
 /** A single key mapping: an action triggered by a key chord. */
 export type Mapping = {

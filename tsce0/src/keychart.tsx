@@ -32,7 +32,7 @@ function format (chord :string) :JSX.Element {
   }
   keys.push(codeToGlyph(chord))
   return <span className="keys">
-    {keys.map(k => <span className="key">{k}</span>)}
+    {keys.map((k, ii) => <span key={ii} className="key">{k}</span>)}
   </span>
 }
 

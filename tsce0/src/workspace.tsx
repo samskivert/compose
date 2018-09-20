@@ -27,11 +27,10 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
 
   constructor () {
     observe(this, "seldefidx", change => {
-      const odef = change.oldValue && this.defAt(change.oldValue)
+      const odef = change.oldValue !== undefined && this.defAt(change.oldValue)
       const ndef = this.defAt(change.newValue)
-      console.log(`Source change! ${odef} ${ndef}`)
-      if (odef) this.keymap.removeSource(odef)
-      if (ndef) this.keymap.addSource(ndef)
+      if (odef) odef.unbind(this.keymap)
+      if (ndef) ndef.bind(this.keymap)
     })
   }
 
