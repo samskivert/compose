@@ -14,7 +14,14 @@ import * as K from "./keymap"
 // | Models the editing cursor: indicates whether we're currently editing an editable leaf node
 // | (literal or name) and the path to that node. If we're not editing, the path identifies the node
 // | where editing will start if a "begin editing" operation is performed.
-type Cursor = {path :M.Path, editing :boolean}
+type Cursor = {path :M.Path, editing :boolean, offset :number}
+
+function navCursor (path :M.Path) {
+  return {path, editing: false, offset: 0}
+}
+function editCursor (path :M.Path, offset :number) {
+  return {path, editing: true, offset}
+}
 
 // | Models the editing selection: a range of nodes that are selected (and visually highlighted) so
 // | that they may act as the target of an editing operation (like cut, extract into binding, etc.).
@@ -28,7 +35,7 @@ type Cursor = {path :M.Path, editing :boolean}
 type Selection = {start :T.Path, end :T.Path}
 
 // | A span is either normal, selected or being edited.
-const enum Mode { Normal, Selected, Edited }
+const enum SpanMode { Normal, Selected, Edited }
 
 // -----------------
 // Definition editor
@@ -36,14 +43,14 @@ const enum Mode { Normal, Selected, Edited }
 
 type UndoEntry = {edit :T.TreeEdit, curs :Cursor}
 
-function mkUndoEntry (edit :T.TreeEdit, {path, editing} :Cursor) :UndoEntry {
-  return {edit, curs: {path, editing}}
+function mkUndoEntry (edit :T.TreeEdit, {path, editing, offset} :Cursor) :UndoEntry {
+  return {edit, curs: {path, editing, offset}}
 }
 
 export class DefStore implements K.Source {
   @observable def!  :T.DefTree
   @observable elem! :M.Elem
-  @observable curs  :Cursor = {path: M.emptyPath, editing: false}
+  @observable curs  :Cursor = navCursor(M.emptyPath)
   @observable sel   :Selection|void = undefined
   @observable showTypes :boolean = false
   @observable showTree :boolean = false
@@ -59,19 +66,19 @@ export class DefStore implements K.Source {
 
   // from K.Source
   readonly mappings :K.Mapping[] = [{
-    descrip: "Move cursor left",
+    descrip: "Move tree cursor left",
     chord: "ArrowLeft",
     action: kp => this.moveCursor(M.moveHoriz(M.HDir.Left)),
   }, {
-    descrip: "Move cursor right",
+    descrip: "Move tree cursor right",
     chord: "ArrowRight",
     action: kp => this.moveCursor(M.moveHoriz(M.HDir.Right)),
   }, {
-    descrip: "Move cursor up",
+    descrip: "Move tree cursor up",
     chord: "ArrowUp",
     action: kp => this.moveCursor(M.moveVert(M.VDir.Up)),
   }, {
-    descrip: "Move cursor down",
+    descrip: "Move tree cursor down",
     chord: "ArrowDown",
     action: kp => this.moveCursor(M.moveVert(M.VDir.Down)),
   }, {
@@ -116,11 +123,16 @@ export class DefStore implements K.Source {
     action: kp => this.redoAction(),
   }]
 
+  // from K.Source
+  handleKey (kp :K.KeyPress) :boolean {
+    return false
+  }
+
   constructor (readonly sym :MD.DefSym, def :T.DefTree,
+               readonly keymap :K.Keymap,
                readonly selStore :IComputedValue<DefStore|void>,
-               readonly mkActive :() => void, editing :boolean = false) {
+               readonly mkActive :() => void) {
     this.setDef(def, def.firstEditable())
-    this.curs.editing = editing
   }
 
   setShowTypes (showTypes :boolean) {
@@ -144,10 +156,8 @@ export class DefStore implements K.Source {
   moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
     const oldPath = this.curs.path
     const newPath = mover(this.elem, oldPath)
-    const selSpan = this.elem.spanAt(newPath)
-    const selIsHole = selSpan ? selSpan.isHole : false
-    // console.log(`moveCursor ${JSON.stringify(newPath)} (${selSpan} // ${selIsHole})`)
-    this.curs = {path: newPath, editing: selIsHole}
+    // console.log(`moveCursor ${JSON.stringify(newPath)}`)
+    this.curs = navCursor(newPath)
   }
 
   insertHole (dir :M.Dir) {
@@ -162,7 +172,10 @@ export class DefStore implements K.Source {
   }
 
   startEdit () {
-    this.curs.editing = true
+    this.curs = editCursor(this.curs.path, 0)
+  }
+  stopEdit () {
+    this.curs = navCursor(this.curs.path)
   }
 
   private xdoAction (popStack :UndoEntry[], pushStack :UndoEntry[]) {
@@ -182,13 +195,13 @@ export class DefStore implements K.Source {
     transaction(() => {
       this.def = def
       this.elem = elem
-      if (!focus) this.curs.editing = false
+      if (!focus) this.curs = navCursor(this.curs.path)
       else if (M.isEmptyPath(path)) {
         console.warn(`No path for focus: ${focus}`)
         console.warn(def.debugShow().join("\n"))
-        this.curs.editing = false
+        this.curs = navCursor(this.curs.path)
       }
-      else this.curs = {path, editing: true}
+      else this.curs = navCursor(path) // TODO: used to start editing...
     })
   }
 
@@ -272,24 +285,25 @@ export class DefEditor extends React.Component<{store :DefStore}> {
 
   renderSpans (ppre :number[], {path, editing} :Cursor, spans :M.Span[]) :JSX.Element[] {
     const prefixMatch = M.prefixMatch(ppre, path)
-    const mode = (idx :number) => ((!prefixMatch || (idx != path.span)) ? Mode.Normal :
-                                   (editing ? Mode.Edited : Mode.Selected))
-    return spans.map((span, idx) => this.renderSpan(ppre, idx, mode(idx), span))
+    const spanMode = (idx :number) =>
+      ((!prefixMatch || (idx != path.span)) ? SpanMode.Normal :
+       (editing ? SpanMode.Edited : SpanMode.Selected))
+    return spans.map((span, idx) => this.renderSpan(ppre, idx, spanMode(idx), span))
   }
 
-  renderSpan (ppre :number[], idx :number, mode :Mode, span :M.Span) :JSX.Element {
-    if (mode == Mode.Edited && span.isEditable) {
+  renderSpan (ppre :number[], idx :number, mode :SpanMode, span :M.Span) :JSX.Element {
+    const active = this.props.store.isActive
+    if (active && mode == SpanMode.Edited && span.isEditable) {
       console.log(`Edit span ${span} :: ${span.constructor.name}`)
-      return <SpanEditor key={idx} defStore={this.props.store} defEditor={this}
-                         store={new SpanStore(span)} span={span}
-                         stopEditing={() => { this.props.store.curs.editing = false }}
-                         moveCursor={(dir) => { this.props.store.moveCursor(M.moveHoriz(dir)) }} />
+      return <SpanEditor key={idx} store={new SpanStore(this.props.store, span)} span={span}
+                         stopEditing={() => this.props.store.stopEdit()}
+                         moveCursor={dir => this.props.store.moveCursor(M.moveHoriz(dir))} />
     } else {
       const onPress = span.isEditable ? () => {
-        this.props.store.curs = {path: M.mkPath(ppre, idx), editing: false}
+        this.props.store.curs = navCursor(M.mkPath(ppre, idx))
         this.props.store.mkActive()
       } : undefined
-      return spanSpan(span, idx, mode == Mode.Selected, this.props.store.isActive, onPress)
+      return spanSpan(span, idx, mode == SpanMode.Selected, active, onPress)
     }
   }
 }
@@ -304,11 +318,10 @@ function renderAnnots (annots :M.Annot[], idx :number) {
 
 function spanSpan (span :M.Span, idx :number, selected :Boolean = false, active :Boolean = true,
                    onPress? :() => void) :JSX.Element {
-  const sstyles = selected ?
-      span.styles.concat([active ? "selectedSpan" : "lowSelectedSpan"]) :
-      span.styles
-  return <span className={sstyles.join(" ")} title={span.tooltip || ""}
-               onMouseDown={onPress}>{span.displayText}</span>
+  const selstyle = active ? "selectedSpan" : "lowSelectedSpan"
+  const className = (selected ? span.styles.concat([selstyle]) : span.styles).join(" ")
+  const title = span.tooltip || ""
+  return <span className={className} title={title} onMouseDown={onPress}>{span.displayText}</span>
 }
 
 export class SpanStore {
@@ -319,7 +332,7 @@ export class SpanStore {
   // to apply the currently selected completion
   actionTaken = false
 
-  constructor (span :M.Span) {
+  constructor (readonly defStore :DefStore, readonly span :M.Span) {
     const text = this.text = span.sourceText
     this.completions = span.getCompletions(text)
   }
@@ -327,94 +340,110 @@ export class SpanStore {
   get selectedCompletion () :M.Completion|void {
     return this.completions.length > 0 ? this.completions[this.selCompIdx] : undefined
   }
-}
 
-const blurPress :K.KeyPress = {
-  chord: "Blur",
-  key: "",
-  isModifier: false,
-  isModified: false,
-  preventDefault: () => {}
-}
+  moveCompletion (delta :number) {
+    // TODO: stop at ends rather than wrap?
+    this.selCompIdx = (this.selCompIdx+delta) % this.completions.length;
+  }
 
-const editCodes = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Backspace",
-  "Delete",
-  "Space",
-])
+  moveCursor (delta :number) {
+    this._setOffset(this.defStore.curs.offset+delta)
+  }
 
-// TODO: this is messy, we're trying to figure out if a particular key press is editing the text in
-// an HTML input field, or moving the cursor in the field; really we should just totally control the
-// text editing process so we can know for sure rather than using these fragile heuristics
-function isNameEdit (ev :K.KeyPress) :boolean {
-  return !ev.isModified && (ev.key.length == 1 || editCodes.has(ev.chord))
+  jumpCursor (start :boolean) {
+    this.defStore.curs.offset = start ? 0 : this.text.length
+  }
+
+  insertChar (char :string) {
+    const text = this.text
+    const offset = this.defStore.curs.offset
+    const ntext = text.substring(0, offset) + char + text.substring(offset)
+    transaction(() => {
+      this.text = ntext
+      this.defStore.curs.offset += 1
+      const oldComp = this.selectedCompletion
+      const comps = this.span.getCompletions(ntext)
+      this.completions = comps
+      if (oldComp) {
+        const oldIdx = comps.findIndex(comp => comp.equals(oldComp))
+        if (oldIdx >= 0) this.selCompIdx = oldIdx
+        else this.selCompIdx = 0
+      } else this.selCompIdx = 0
+    })
+  }
+
+  deleteChar (count :number) {
+    const text = this.text
+    const offset = this.defStore.curs.offset
+    this.text = text.substring(0, offset) + text.substring(offset+count)
+    if (offset > this.text.length) this._setOffset(this.text.length)
+  }
+
+  _setOffset (pos :number) {
+    this.defStore.curs.offset = Math.min(Math.max(pos, 0), this.text.length)
+  }
 }
 
 @observer
 export class SpanEditor  extends React.Component<{
-  defStore :DefStore,
-  defEditor :DefEditor,
   store :SpanStore,
   span :M.Span,
   stopEditing :() => void,
   moveCursor :(dir :M.HDir) => void
-}> {
+}> implements K.Source {
 
-  render () {
-    // console.log(`SpanEditor render ${this.props.span}`)
-    const store = this.props.store
-    const comps = store.completions.map((comp, ii) => {
-      const line = comp.display()
-      const isSelected = ii == store.selCompIdx
-      const styles = isSelected ? ["selected"] : []
-      return <div key={ii} className={styles.join(" ")}>{
-        line.spans.map((ss, ii) => spanSpan(ss, ii))}</div>
-    })
-    return (
-      <div className={"spanEditor"}>
-        <input type="text" autoFocus={true}
-               placeholder={this.props.span.editPlaceHolder}
-               value={store.text}
-               onChange={this.onChange.bind(this)}
-               onBlur={ev => this.handleKey(blurPress)}
-               onKeyDown={ev => this.handleKey(K.mkKeyPress(ev.nativeEvent))} />
-        {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
-      </div>
-    )
-  }
+  // from K.Source
+  get name () :N.Name { return "Tree node" }
 
-  onChange (ev :React.FormEvent<HTMLInputElement>) {
-    const text = ev.currentTarget.value
-    const store = this.props.store
-    transaction(() => {
-      store.text = text
-      const oldComp = store.selectedCompletion
-      const comps = this.props.span.getCompletions(text)
-      store.completions = comps
-      if (oldComp) {
-        const oldIdx = comps.findIndex(comp => comp.equals(oldComp))
-        if (oldIdx >= 0) store.selCompIdx = oldIdx
-        else store.selCompIdx = 0
-      } else store.selCompIdx = 0
-    })
-  }
+  // from K.Source
+  readonly mappings :K.Mapping[] = [{
+    descrip: "Move text cursor left",
+    chord: "ArrowLeft",
+    action: kp => this.props.store.moveCursor(-1),
+  }, {
+    descrip: "Move text cursor right",
+    chord: "ArrowRight",
+    action: kp => this.props.store.moveCursor(1),
+  }, {
+    descrip: "Choose previous completion",
+    chord: "ArrowUp",
+    action: kp => this.props.store.moveCompletion(-1),
+  }, {
+    descrip: "Choose next completion",
+    chord: "ArrowDown",
+    action: kp => this.props.store.moveCompletion(1),
+  }, {
+    descrip: "Jump to start of text",
+    chord: "C-KeyA",
+    action: kp => this.props.store.jumpCursor(true),
+  }, {
+    descrip: "Jump to end of text",
+    chord: "C-KeyE",
+    action: kp => this.props.store.jumpCursor(false),
+  }, {
+    descrip: "Delete char under the cursor",
+    chord: "Delete",
+    action: kp => this.props.store.deleteChar(1),
+  }, {
+    descrip: "Delete char before the cursor",
+    chord: "Backspace",
+    action: kp => {
+      if (this.props.store.defStore.curs.offset > 0) {
+        this.props.store.moveCursor(-1)
+        this.props.store.deleteChar(1)
+      }
+    },
+  }, {
+    descrip: "Exit edit mode",
+    chord: "Enter",
+    action: kp => this.props.stopEditing(),
+  }]
 
-  handleKey (kp :K.KeyPress) {
+  // from K.Source
+  handleKey (kp :K.KeyPress) :boolean {
     const store = this.props.store, chord = kp.chord
     // if this is just a modifier keypress, ignore it (don't set actionTaken)
-    if (kp.isModifier) return
-    // if key is up/down arrow, change selected completion
-    else if (chord === "ArrowUp") store.selCompIdx = Math.max(store.selCompIdx-1, 0)
-    else if (chord === "ArrowDown") store.selCompIdx =
-      Math.min(store.selCompIdx+1, store.completions.length-1)
-    else if (chord === "Escape") {
-      kp.preventDefault()
-      this.props.stopEditing()
-    }
+    if (kp.isModifier) return false
     else if ((chord == "Tab" || chord == "S-Tab") && !store.actionTaken) {
       kp.preventDefault()
       this.props.moveCursor(chord === "Tab" ? M.HDir.Right : M.HDir.Left)
@@ -423,15 +452,52 @@ export class SpanEditor  extends React.Component<{
       const action = this.props.span.handleEdit(kp, store.text, store.selectedCompletion)
       if (action) {
         kp.preventDefault()
-        const focus = this.props.defStore.applyAction(action)
+        const focus = this.props.store.defStore.applyAction(action)
         if ((chord == "Tab" || chord == "S-Tab") && !focus) this.props.moveCursor(
           (chord == "Tab") ? M.HDir.Right : M.HDir.Left)
+      } else if (kp.isPrintable) {
+        store.insertChar(kp.key)
+      } else {
+        console.log(`TODO: handle press ${JSON.stringify(kp)}`)
       }
-      // if the keypress is not editing the text inside the span, forward it back up to the def
-      // editor to potentially be handled
-      else if (!isNameEdit(kp)) this.props.defEditor.handleKey(kp)
-      // otherwise just let the edit affect the text of the span (a name or a completion)
     }
     store.actionTaken = true
+    return true
+  }
+
+  componentWillMount () {
+    this.props.store.defStore.keymap.addSource(this)
+  }
+  componentWillUnmount() {
+    this.props.store.defStore.keymap.removeSource(this)
+  }
+
+  render () {
+    // console.log(`SpanEditor render ${this.props.span}`)
+    const {span, store} = this.props
+    const comps = store.completions.map((comp, ii) => {
+      const line = comp.display()
+      const isSelected = ii == store.selCompIdx
+      const styles = isSelected ? ["selected"] : []
+      return <div key={ii} className={styles.join(" ")}>{
+        line.spans.map((ss, ii) => spanSpan(ss, ii))}</div>
+    })
+
+    const lowName = span.styles.join(" ")
+    const highName = span.styles.concat(["selectedSpan"]).join(" ")
+    const title = span.tooltip || ""
+    const offset = store.defStore.curs.offset
+    // add a blank space at the end of the text for appending
+    const text = store.text ? `${store.text} ` : "?"
+    const pre = (offset > 0) ? text.substring(0, offset) : ""
+    const post = (offset < text.length-1) ? text.substring(offset+1) : ""
+    return (
+      <div className={"spanEditor"}>
+        {pre.length > 0 ? <span className={lowName} title={title}>{pre}</span> : undefined}
+        <span className={highName} title={title}>{text[offset]}</span>
+        {post.length > 0 ? <span className={lowName} title={title}>{post}</span> : undefined}
+        {(comps.length > 0) && <div className={"completions"}>{comps}</div>}
+      </div>
+    )
   }
 }

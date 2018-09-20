@@ -72,7 +72,8 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
         return
       }
     }
-    const ds = new E.DefStore(sym, sym.mod.tree(sym), computed(() => this.selectedDef), () => {
+    const ds = new E.DefStore(sym, sym.mod.tree(sym), this.keymap,
+                              computed(() => this.selectedDef), () => {
       const idx = this.openDefs.indexOf(ds)
       if (idx >= 0) this.seldefidx = idx
     })
@@ -118,9 +119,18 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> implemen
     action: kp => { this.props.store.creatingNew = true }
   }]
 
-  handleKey :(ev :KeyboardEvent) => boolean = ev => {
+  // from K.Source
+  handleKey (kp :K.KeyPress) :boolean {
+    return false
+  }
+
+  dispatchKey :(ev :KeyboardEvent) => boolean = ev => {
     const store = this.props.store
-    if (!store.creatingNew) return this.props.store.keymap.handleKey(ev)
+    if (!store.creatingNew) {
+      const handled = this.props.store.keymap.handleKey(ev)
+      if (handled) ev.preventDefault()
+      return handled
+    }
 
     const mod = store.newDefMod
     let tree :T.DefTree|void = undefined
@@ -138,11 +148,11 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> implemen
   }
 
   componentWillMount() {
-    document.addEventListener("keydown", this.handleKey, false)
+    document.addEventListener("keydown", this.dispatchKey, false)
     this.props.store.keymap.addSource(this)
   }
   componentWillUnmount() {
-    document.removeEventListener("keydown", this.handleKey, false)
+    document.removeEventListener("keydown", this.dispatchKey, false)
     this.props.store.keymap.removeSource(this)
   }
 

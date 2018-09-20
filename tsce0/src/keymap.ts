@@ -12,6 +12,8 @@ export type KeyPress = {
     * pre-defined key values. See:
     * https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key/Key_Values */
   readonly key :string
+  /** Whether or not the keypress yields a printable character. */
+  readonly isPrintable :boolean
   /** True if this key press is itself a modifier key (shift, ctrl, alt, meta). */
   readonly isModifier :boolean
   /** True if this key press happened while one or more modifier keys was pressed. */
@@ -35,11 +37,13 @@ const modCodes = new Set(["Shift", "Control", "Meta", "Alt"])
 
 /** Creates a `KeyPress` from a browser `KeyboardEvent`. */
 export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
+  const isModified = ev.metaKey || ev.altKey || ev.ctrlKey || ev.shiftKey
   return {
     chord: mkChord(ev),
     key: ev.key,
+    isPrintable: !isModified && ev.key.length == 1, // TODO: this is bullshit
     isModifier: modCodes.has(ev.code),
-    isModified: ev.metaKey || ev.altKey || ev.ctrlKey || ev.shiftKey,
+    isModified: isModified,
     preventDefault: () => ev.preventDefault()
   }
 }
@@ -57,6 +61,7 @@ export type Mapping = {
 export interface Source {
   readonly name :string
   readonly mappings :Mapping[]
+  handleKey (kp :KeyPress) :boolean
 }
 
 /** Manages the active set of key mappings and their sources. */
@@ -94,9 +99,8 @@ export class Keymap {
   handleKey (ev :KeyboardEvent) :boolean {
     const kp = mkKeyPress(ev)
     const mapping = this.chordToMapping.get(kp.chord)
-    if (!mapping) return false
-    mapping.action(kp)
-    return true
-    // TODO: default handler...
+    if (mapping) { mapping.action(kp) ; return true }
+    for (let source of this.sources) if (source.handleKey(kp)) return true
+    return false
   }
 }

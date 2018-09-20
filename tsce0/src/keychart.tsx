@@ -40,9 +40,16 @@ function format (chord :string) :JSX.Element {
 export class KeyChart extends React.Component<{keymap :K.Keymap}> {
 
   render () {
-    return <div className="keychart">
-      {this.props.keymap.mappings.map(
-        m => <div className="binding">{format(m.chord)} - {m.descrip}</div>)}
-    </div>
+    const keymap = this.props.keymap
+    const mappings :JSX.Element[] = []
+    for (let source of keymap.sources) {
+      for (let m of source.mappings) {
+        if (keymap.chordToMapping.get(m.chord) === m) {
+          mappings.push(<div key={m.chord} className="binding">
+                        {format(m.chord)} - {m.descrip}</div>)
+        }
+      }
+    }
+    return <div className="keychart">{mappings}</div>
   }
 }
