@@ -15,10 +15,20 @@ import { Name } from "./names"
 /** Used to insert holes relative to a selected span. See `Span.insertHole`. */
 export const enum  Dir { Up = 0, Down = 1, Left = 2, Right = 3 }
 
+export interface Editor {
+  readonly spanText :string
+  readonly selectedComp :Completion|void
+  textWithInsert (char :string) :string
+  applyAction (action :EditAction) :T.Path|void
+}
+
 /** A sequence of characters that are displayed in a single style (typeface, weight, color, etc.).
   * Spans that represent components of an AST node will be editable, spans that display contextual
   * punctuation or keywords will not. */
 export abstract class Span {
+
+  /** A name that describes the underlying tree element (if any). */
+  abstract get name () :string
 
   /** The source text of this span. If this is empty, `displayPlaceHolder` will be shown when
     * displaying this span in code and `editPlaceHolder` will be shown when editing the span. */
@@ -48,25 +58,19 @@ export abstract class Span {
   /** Returns the completions to show given the current `text`. */
   getCompletions (text :string) :Completion[] { return [] }
 
-  /** Handles a key press from an inactive span editor which is under the cursor.
-    * @param kp the key press info.
-    * @return the action to take based on the key press, if any.
-    */
-  handleKey (kp :K.KeyPress) :EditAction|void {
-    return undefined }
-
-  /** Handles a key press from an active span editor.
-    * @param kp the key press info.
-    * @param text the current text of the span (prior to the key press).
-    * @param comp the current completion (if one exists).
-    * @return the action to take based on the key press, if any.
-    */
-  handleEdit (kp :K.KeyPress, text :string, comp :Completion|void) :EditAction|void {
-    return undefined }
-
   /** Inserts a hole relative to this span. If the span cannot insert a hole in the requested
     * direction, `undefined` is returned. */
   insertHole (dir :Dir) :EditAction|void { return undefined }
+
+  /** Commits an edit to this span.
+    * @param text the current text of the span.
+    * @param comp the current completion (if one exists).
+    * @return the action to take, if any.
+    */
+  commitEdit (text :string, comp :Completion|void) :EditAction|void { return undefined }
+
+  /** Creates key mappings for this span given the supplied editor. */
+  getMappings (editor :Editor) :K.Mapping[] { return [] }
 
   toString () :string { return this.displayText }
 }
@@ -78,6 +82,7 @@ export abstract class EditableSpan extends Span {
 /** A span containing uneditable `text` with `styles`. */
 export class TextSpan extends Span {
   constructor (readonly sourceText :string, readonly styles :string[] = []) { super() }
+  get name () :string { return this.sourceText }
 }
 
 export abstract class Completion {

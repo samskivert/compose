@@ -46,7 +46,7 @@ export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
   return {
     chord: mkChord(ev),
     key: ev.key,
-    isPrintable: !isModified && ev.key.length == 1, // TODO: this is bullshit
+    isPrintable: /*!isModified &&*/ ev.key.length === 1, // TODO: this is bullshit
     isModifier: modCodes.has(ev.key),
     isModified: isModified,
     preventDefault: () => ev.preventDefault()
@@ -55,8 +55,10 @@ export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
 
 /** A single key mapping: an action triggered by a key chord. */
 export type Mapping = {
+  id :string
   descrip :string
   chord :Chord
+  isEdit :() => boolean
   action :(kp :KeyPress) => void
 }
 
@@ -65,6 +67,7 @@ export type Mapping = {
 export interface Source {
   readonly name :string
   readonly mappings :Mapping[]
+  willDispatch (kp :KeyPress, mp :Mapping) :boolean
   handleKey (kp :KeyPress) :boolean
 }
 
@@ -97,13 +100,18 @@ export class Keymap {
   removeSource (source :Source) {
     const idx = this.sources.indexOf(source)
     if (idx >= 0) this.sources.splice(idx, 1)
-    else console.warn(`removeSource unknown source: '${source.name}'`)
+    else console.warn(`removeSource unknown source: '${source.name}' ` +
+                      `(have ${this.sources.map(s => s.name)})`)
   }
 
   handleKey (ev :KeyboardEvent) :boolean {
     const kp = mkKeyPress(ev)
     const mapping = this.chordToMapping.get(kp.chord)
-    if (mapping) { mapping.action(kp) ; return true }
+    if (mapping) {
+      for (let source of this.sources) if (source.willDispatch(kp, mapping)) return true
+      mapping.action(kp)
+      return true
+    }
     for (let source of this.sources) if (source.handleKey(kp)) return true
     return false
   }

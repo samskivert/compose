@@ -43,6 +43,7 @@ export class KeyChart extends React.Component<{keymap :K.Keymap}> {
     const keymap = this.props.keymap
     const mappings :JSX.Element[] = []
     for (let source of keymap.sources) {
+      mappings.push(<div key={source.name} className="source">{source.name}</div>)
       for (let m of source.mappings) {
         if (keymap.chordToMapping.get(m.chord) === m) {
           mappings.push(<div key={m.chord} className="binding">

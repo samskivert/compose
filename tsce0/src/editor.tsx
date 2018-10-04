@@ -30,6 +30,18 @@ function mkUndoEntry (edit :T.TreeEdit, curs :M.Path) :UndoEntry {
   return {edit, curs}
 }
 
+// this has to be a class to avoid insane mobx bullshit
+class SpanSource implements K.Source {
+  mappings :K.Mapping[]
+  constructor (store :DefStore, readonly span :M.Span) {
+    this.mappings = span.getMappings(store)
+  }
+  get name () :string { return this.span.name }
+  willDispatch (kp :K.KeyPress) :boolean { return false }
+  handleKey (kp :K.KeyPress) :boolean { return false }
+  toString () { return this.name }
+}
+
 export class DefStore implements K.Source {
   @observable def!  :T.DefTree
   @observable elem! :M.Elem
@@ -53,10 +65,20 @@ export class DefStore implements K.Source {
     throw new Error(`No selected span for ${this.def}: invalid cursor ${this.curs}`)
   }
 
+  @computed get spanSource () :K.Source {
+    return new SpanSource(this, this.selectedSpan)
+  }
+
+  bound = false
+
   bind (keymap :K.Keymap) {
     keymap.addSource(this)
+    keymap.addSource(this.spanSource)
+    this.bound = true // TODO: this is an ugly hack
   }
   unbind (keymap :K.Keymap) {
+    this.bound = false
+    keymap.removeSource(this.spanSource)
     keymap.removeSource(this)
   }
 
@@ -70,6 +92,13 @@ export class DefStore implements K.Source {
       // subsequently get edited if we enter edit mode and start changing it
       this.spanText = this.selectedSpan.sourceText
     })
+    this.spanText = this.selectedSpan.sourceText
+    observe(this, "spanSource", change => { // TODO: this is an ugly hack
+      if (this.bound) {
+        change.oldValue && this.keymap.removeSource(change.oldValue)
+        this.keymap.addSource(change.newValue)
+      }
+    })
   }
 
   toString () {
@@ -80,105 +109,139 @@ export class DefStore implements K.Source {
   // K.Source functionality
 
   readonly mappings :K.Mapping[] = [{
+    id: "move-left",
     descrip: "Move cursor left",
     chord: "ArrowLeft",
+    isEdit :() => false,
     action: kp => {
       if (this.isEditing) this.moveTextCursor(-1)
       else this.moveCursor(M.moveHoriz(M.HDir.Left))
     },
   }, {
+    id: "move-right",
     descrip: "Move cursor right",
     chord: "ArrowRight",
+    isEdit :() => false,
     action: kp => {
       if (this.isEditing) this.moveTextCursor(1)
       else this.moveCursor(M.moveHoriz(M.HDir.Right))
     },
   }, {
+    id: "move-up",
     descrip: "Move cursor up",
     // descrip: "Choose previous completion",
     chord: "ArrowUp",
+    isEdit :() => this.isEditing,
     action: kp => {
       if (this.isEditing) this.moveCompletion(-1)
       else this.moveCursor(M.moveVert(M.VDir.Up))
     },
   }, {
+    id: "move-down",
     descrip: "Move cursor down",
     // descrip: "Choose next completion",
+    isEdit :() => this.isEditing,
     chord: "ArrowDown",
     action: kp => {
       if (this.isEditing) this.moveCompletion(1)
       else this.moveCursor(M.moveVert(M.VDir.Down))
     },
   }, {
+    id: "move-next",
     descrip: "Move to next element",
     chord: "Tab",
+    isEdit :() => false,
     action: kp => {
-      if (this.isEditing) this.handleKey(kp)
-      else this.moveCursor(M.moveHoriz(M.HDir.Right))
+      this.moveCursor(M.moveHoriz(M.HDir.Right))
     },
   }, {
+    id: "move-prev",
     descrip: "Move to previous element",
     chord: "S-Tab",
+    isEdit :() => false,
     action: kp => {
-      if (this.isEditing) this.handleKey(kp)
-      else this.moveCursor(M.moveHoriz(M.HDir.Left))
+      this.moveCursor(M.moveHoriz(M.HDir.Left))
     },
   }, {
-    descrip: "Jump to start of text",
+    id: "move-start",
+    descrip: "Jump to start",
     chord: "C-KeyA",
+    isEdit :() => this.isEditing,
     action: kp => {
       if (this.isEditing) this.jumpTextCursor(true)
       // else: TODO: jump to start of line?
     },
   }, {
-    descrip: "Jump to end of text",
+    id: "move-end",
+    descrip: "Jump to end",
     chord: "C-KeyE",
+    isEdit :() => this.isEditing,
     action: kp => {
       if (this.isEditing) this.jumpTextCursor(false)
       // else: TODO: jump to start of line
     },
   }, {
+    id: "insert-hole-left",
     descrip: "Insert hole to left",
     chord: "C-ArrowLeft",
+    isEdit :() => false,
     action: kp => this.insertHole(M.Dir.Left),
   }, {
+    id: "insert-hole-right",
     descrip: "Insert hole to right",
     chord: "C-ArrowRight",
+    isEdit :() => false,
     action: kp => this.insertHole(M.Dir.Right),
   }, {
+    id: "insert-hole-above",
     descrip: "Insert hole above",
     chord: "C-ArrowUp",
+    isEdit :() => false,
     action: kp => this.insertHole(M.Dir.Up),
   }, {
+    id: "insert-hole-below",
     descrip: "Insert hole below",
     chord: "C-ArrowDown",
+    isEdit :() => false,
     action: kp => this.insertHole(M.Dir.Down),
   }, {
+    id: "undo",
     descrip: "Undo last edit",
     chord: "S-C-Minus",
+    isEdit :() => false,
     action: kp => this.undoAction(),
   }, {
+    id: "undo",
     descrip: "Undo last edit",
     chord: "M-Z",
+    isEdit :() => false,
     action: kp => this.undoAction(),
   }, {
+    id: "redo",
     descrip: "Redo last undone edit",
     chord: "C-Backslash",
+    isEdit :() => false,
     action: kp => this.redoAction(),
   }, {
+    id: "start-edit",
     descrip: "Edit current element",
     chord: "Enter",
+    isEdit :() => false,
     action: kp => {
-      if (this.isEditing) this.handleKey(kp) // TODO: right thing to do?
+      if (this.isEditing) this.commitEdit() // TODO: right thing to do?
       else this.startEdit()
     }
   }, {
+    id: "cancel-edit",
     descrip: "Cancel current edit",
     chord: "Escape",
+    isEdit :() => true,
     action: kp => this.stopEdit(),
   }, {
+    id: "backspace-char",
     descrip: "Delete char before the cursor",
     chord: "Backspace",
+    isEdit :() => true,
     action: kp => {
       if (!this.isEditing) {
         // TODO: delete all text, show hole?
@@ -188,13 +251,20 @@ export class DefStore implements K.Source {
       }
     },
   }, {
+    id: "delete-char",
     descrip: "Delete char under the cursor",
     chord: "Delete",
+    isEdit :() => true,
     action: kp => {
       if (!this.isEditing) {} // TODO: delete all text, show hole?
       else this.deleteChar(1)
     },
   }]
+
+  willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean {
+    if (!mp.isEdit()) this.commitEdit()
+    return false
+  }
 
   handleKey (kp :K.KeyPress) :boolean {
     console.log(`handleKey ${kp.chord} ${kp.isModifier}`)
@@ -209,14 +279,15 @@ export class DefStore implements K.Source {
       return true
     }
 
-    const newText = kp.isPrintable ? this.textWithInsert(kp.key) : this.spanText
-    const action = this.selectedSpan.handleEdit(kp, newText, this.selectedComp)
-    if (action) {
-      kp.preventDefault()
-      const focus = this.applyAction(action)
-      if ((chord == "Tab" || chord == "S-Tab") && !focus) this.moveCursor(
-        M.moveHoriz(chord == "Tab" ? M.HDir.Right : M.HDir.Left))
-    } else if (kp.isPrintable) {
+    // const newText = kp.isPrintable ? this.textWithInsert(kp.key) : this.spanText
+    // const action = this.selectedSpan.handleEdit(kp, newText, this.selectedComp)
+    // if (action) {
+    //   kp.preventDefault()
+    //   const focus = this.applyAction(action)
+    //   if ((chord == "Tab" || chord == "S-Tab") && !focus) this.moveCursor(
+    //     M.moveHoriz(chord == "Tab" ? M.HDir.Right : M.HDir.Left))
+    // } else
+    if (kp.isPrintable) {
       this.insertChar(kp.key)
     } else {
       console.log(`TODO: handle press ${JSON.stringify(kp)}`)
@@ -270,6 +341,15 @@ export class DefStore implements K.Source {
 
   startEdit () {
     this.offset = this.selectedSpan.sourceText.length
+  }
+  commitEdit () {
+    // console.log(`commitEdit? '${this.spanText}' '${this.selectedSpan.sourceText}'`)
+    if (this.spanText !== this.selectedSpan.sourceText) {
+      console.log(`Committing edit '${this.spanText}'`)
+      const action = this.selectedSpan.commitEdit(this.spanText, this.selectedComp)
+      if (action) this.applyAction(action)
+      this.stopEdit()
+    } // else console.log(`No pending edit to commit.`)
   }
   stopEdit () {
     this.offset = undefined

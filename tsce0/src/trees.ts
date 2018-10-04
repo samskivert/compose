@@ -844,6 +844,9 @@ export class Path {
   * its undo operation in that case. */
 export type TreeEdit = (root :DefTree) => {root :DefTree, undo :TreeEdit}
 
+/** A no-op tree edit. */
+export const noopEdit :TreeEdit = (root :DefTree) => ({root, undo: noopEdit})
+
 export type EditFn = (te :TreeEditor) => TreeEdit
 
 /** Merges multiple edits into a single edit which applies (and undos) them all. */

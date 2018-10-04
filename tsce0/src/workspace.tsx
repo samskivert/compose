@@ -12,7 +12,7 @@ import * as P from "./project"
 import * as S from "./stack"
 import * as T from "./trees"
 
-export class WorkspaceStore implements P.Resolver, M.Resolver {
+export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
   @observable projects :P.Project[] = []
   @observable selprojidx :number = 0
   @observable selcompidx :number = 0
@@ -26,6 +26,7 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
   keymap = new K.Keymap()
 
   constructor () {
+    this.keymap.addSource(this)
     observe(this, "seldefidx", change => {
       const odef = change.oldValue !== undefined && this.defAt(change.oldValue)
       const ndef = this.defAt(change.newValue)
@@ -95,33 +96,38 @@ export class WorkspaceStore implements P.Resolver, M.Resolver {
       for (let mod of comp.modules) if (mod.uuid === uuid) return mod
     }
   }
-}
-
-@observer
-export class Workspace extends React.Component<{store :WorkspaceStore}> implements K.Source {
-
-  // from K.Source
-  get name () :string { return "Workspace" }
-
-  // from K.Source
-  readonly mappings :K.Mapping[] = [{
-    descrip: "Select previous def",
-    chord: "M-ArrowUp",
-    action: kp => this.props.store.moveSelection(-1)
+ 
+   // from K.Source
+   get name () :string { return "Workspace" }
+ 
+   // from K.Source
+   readonly mappings :K.Mapping[] = [{
+     id: "select-prev-def",
+     descrip: "Select previous def",
+     chord: "M-ArrowUp",
+     isEdit: () => false,
+     action: kp => this.moveSelection(-1)
   }, {
+    id: "select-next-def",
     descrip: "Select next def",
     chord: "M-ArrowDown",
-    action: kp => this.props.store.moveSelection(1)
+    isEdit: () => false,
+    action: kp => this.moveSelection(1)
   }, {
+    id: "create-def",
     descrip: "Create new def",
     chord: "C-KeyN",
-    action: kp => { this.props.store.creatingNew = true }
+    isEdit: () => false,
+    action: kp => { this.creatingNew = true }
   }]
 
   // from K.Source
-  handleKey (kp :K.KeyPress) :boolean {
-    return false
-  }
+  willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean { return false }
+  handleKey (kp :K.KeyPress) :boolean { return false }
+}
+
+@observer
+export class Workspace extends React.Component<{store :WorkspaceStore}> {
 
   dispatchKey :(ev :KeyboardEvent) => boolean = ev => {
     const store = this.props.store
@@ -146,13 +152,11 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> implemen
     return true
   }
 
-  componentWillMount() {
+  componentWillMount () {
     document.addEventListener("keydown", this.dispatchKey, false)
-    this.props.store.keymap.addSource(this)
   }
-  componentWillUnmount() {
+  componentWillUnmount () {
     document.removeEventListener("keydown", this.dispatchKey, false)
-    this.props.store.keymap.removeSource(this)
   }
 
   render () {
