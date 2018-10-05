@@ -16,8 +16,6 @@ export type KeyPress = {
   readonly isPrintable :boolean
   /** True if this key press is itself a modifier key (shift, ctrl, alt, meta). */
   readonly isModifier :boolean
-  /** True if this key press happened while one or more modifier keys was pressed. */
-  readonly isModified :boolean
   /** Prevents the default (web browser) handling of the event that generated this press. */
   readonly preventDefault :() => void
 }
@@ -42,13 +40,12 @@ const modCodes = new Set([
 
 /** Creates a `KeyPress` from a browser `KeyboardEvent`. */
 export function mkKeyPress (ev :KeyboardEvent) :KeyPress {
-  const isModified = ev.metaKey || ev.altKey || ev.ctrlKey || ev.shiftKey
+  const isNonShiftModified = ev.metaKey || ev.altKey || ev.ctrlKey
   return {
     chord: mkChord(ev),
     key: ev.key,
-    isPrintable: /*!isModified &&*/ ev.key.length === 1, // TODO: this is bullshit
+    isPrintable: !isNonShiftModified && ev.key.length === 1, // TODO: this is bullshit
     isModifier: modCodes.has(ev.key),
-    isModified: isModified,
     preventDefault: () => ev.preventDefault()
   }
 }
