@@ -64,14 +64,14 @@ const boxJson = mkSymTree(
     "tabs", 1, "A", "body", mkSymTree(
       "ctor", 20, "Box", "prod", {
         kind: "prod",
-        branches: [mkSymTree("field", 21, "contents", "type", {kind: "tref", symId: "l1"})]
+        fields: [mkSymTree("field", 21, "contents", "type", {kind: "tref", symId: "l1"})]
       })))
 
 // type Person name:String age:Nat
 const recordJson = mkSymTree("typedef", 11, "Person", "body", {
   kind: "prod",
-  branches: [mkSymTree("field", 22, "name", "type", {kind: "tref", symId: "x2"}),
-             mkSymTree("field", 23, "age", "type", {kind: "tref", symId: "x1"})]
+  fields: [mkSymTree("field", 22, "name", "type", {kind: "tref", symId: "x2"}),
+           mkSymTree("field", 23, "age", "type", {kind: "tref", symId: "x1"})]
 })
 
 // type List ∀A =
@@ -81,11 +81,11 @@ const listJson = mkSymTree(
   "typedef", 12, "List", "body", mkSymTree(
     "tabs", 1, "T", "body", {
       kind: "sum",
-      cases: [mkSymTree("ctor", 24, "Nil", "prod", {kind: "prod", branches: []}),
+      cases: [mkSymTree("ctor", 24, "Nil", "prod", {kind: "prod", fields: []}),
               mkSymTree("ctor", 25, "Cons", "prod", {
         kind: "prod",
-        branches: [mkSymTree("field", 26, "head", "type", {kind: "tref", symId: "l1"}),
-                   mkSymTree("field", 27, "tail", "type", {
+        fields: [mkSymTree("field", 26, "head", "type", {kind: "tref", symId: "l1"}),
+                 mkSymTree("field", 27, "tail", "type", {
           kind: "tapp", ctor: {kind: "tref", symId: "m12"}, arg: {kind: "tref", symId: "l1"}})]
       })]
     }))

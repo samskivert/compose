@@ -1107,7 +1107,7 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
   case  "arrow": return inflateBranches(new ArrowTree())
   case   "tabs": return inflateBranches(setsym(new TAbsTree(json.sym.id, json.sym.name)))
   case   "tapp": return inflateBranches(new TAppTree())
-  case   "prod": return inflateNBranches(new ProdTree(), json.branches)
+  case   "prod": return inflateNBranches(new ProdTree(), json.fields)
   case    "sum": return inflateNBranches(new SumTree(), json.cases)
   case  "field": return inflateBranches(setsym(new FieldTree(json.sym.id, json.sym.name)))
   case   "ctor": return inflateBranches(setsym(new CtorTree(json.sym.id, json.sym.name)))

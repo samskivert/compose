@@ -248,7 +248,13 @@ export class Module implements S.Index {
       },
     }
 
-    return tree.setBranch("body", T.inflateTree(index, json.body))
+    try {
+      return tree.setBranch("body", T.inflateTree(index, json.body))
+    } catch (error) {
+      console.warn(`Failed to inflate tree for def: ${sym}`)
+      console.warn(JSON.stringify(json.body, undefined, " "))
+      throw error
+    }
   }
 }
 

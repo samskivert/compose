@@ -24,11 +24,6 @@ it("formats things", () => {
   }
 })
 
-it("deflates things", () => {
-  console.log(JSON.stringify(testMod.deflate(), undefined, " "))
-  console.log(JSON.stringify(testProj.deflate(), undefined, " "))
-})
-
 // it("edit expr: app", () => {
 //   const pants = new T.Ref("pants")
 //   const legs = new T.Ref("legs")
