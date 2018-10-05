@@ -121,19 +121,21 @@ software that improves the world, not just a research prototype.
 
 * Detailed documentation and executable code examples can appear "next to" the code in question.
   Because we're not limited to static text files, a library author can simply denote code as being
-  example code and the editor/environment can surface appropriate example code on demand for any
-  function or data structure on demand.
+  example code and the editor/environment can surface appropriate example code for any function or
+  data structure on demand.
 
-* A project should be able to include _all_ of its documentation. Overview documentation,
-  tutorials, examples, everything should be able to live inside the project and benefit from the
-  structure, checking and liveness that "API" documentation benefits from.
+* A project should be able to include _all_ of its documentation. Documentation should not be split
+  across an overview/examples website, generated API documentation and the code itself. Overview
+  documentation, tutorials, examples, everything should be able to live inside the project and
+  benefit from the structure, checking and liveness that one has when reading code in an IDE.
 
 ## Testing
 
 * Unit testing will be "built-in" and will benefit from the ability to easily expose dynamic views
-  of the codebase, and because the compiler infrastructure will be readily available to the unit
+  of the codebase. Because the compiler infrastructure will be readily available to the unit
   testing infrastructure, automatically running "affected" unit tests on changes should be
-  straightforward.
+  straightforward. Test feedback should be as automatic and "ambient" as type feedback is in a good
+  IDE.
 
 * Integration testing will likely manifest as additional application/executable project components.
   An integration test is a built artifact, just like an application. It may prove more challenging
