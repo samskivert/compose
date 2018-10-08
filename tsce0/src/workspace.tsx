@@ -3,6 +3,7 @@ import { observable, observe, computed } from "mobx"
 import { observer } from "mobx-react"
 
 import { UUID } from "./names"
+import { Store } from "./store"
 import * as C from "./keychart"
 import * as E from "./editor"
 import * as K from "./keymap"
@@ -12,7 +13,8 @@ import * as P from "./project"
 import * as S from "./stack"
 import * as T from "./trees"
 
-export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
+export class WorkspaceStore implements K.Source {
+
   @observable projects :P.Project[] = []
   @observable selprojidx :number = 0
   @observable selcompidx :number = 0
@@ -25,7 +27,9 @@ export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
 
   keymap = new K.Keymap()
 
-  constructor () {
+  resolver = new WorkspaceResolver(this)
+
+  constructor (readonly store :Store) {
     this.keymap.addSource(this)
     observe(this, "seldefidx", change => {
       const odef = change.oldValue !== undefined && this.defAt(change.oldValue)
@@ -39,6 +43,7 @@ export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
     const selidx = this.selprojidx, projs = this.projects
     return projs.length > selidx ? projs[selidx] : undefined
   }
+
   @computed get selectedComponent () :P.Component|void {
     const selidx = this.selcompidx, selproj = this.selectedProject
     const comps = selproj ? selproj.components : []
@@ -83,30 +88,42 @@ export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
     this.seldefidx = idx
   }
 
-  // from P.Project
-  resolveProject (uuid :UUID) :P.Project|void {
-    // TEMP: linear search!
-    for (let proj of this.projects) if (proj.uuid === uuid) return proj
+  openProject (uuid :UUID) :P.Project|void {
+    for (let proj of this.projects) {
+      if (proj.uuid === uuid) {
+        console.log(`Project ${uuid} already open.`)
+        return proj
+      }
+    }
+    const pdata = this.store.load(uuid)
+    if (pdata) {
+      console.dir(pdata)
+      const proj = P.inflateProject(pdata as P.ProjectJson, this.resolver)
+      this.projects.push(proj)
+      return proj
+    }
+
+    // TODO: proper feedback/error reporting mechanism
+    console.warn(`Unable to find project ${uuid}.`)
   }
 
-  // from M.Resolver
-  resolveModule (uuid :UUID) :M.Module|void {
-    // TEMP: linear search!
-    for (let proj of this.projects) for (let comp of proj.components) {
-      for (let mod of comp.modules) if (mod.uuid === uuid) return mod
-    }
+  // TEMP: saves selected project to local storage
+  saveProject () {
+    const proj = this.selectedProject
+    // disallow saving the "prim" project, hacks piled on hacks!
+    proj && proj.name !== "prim" && proj.store(this.store)
   }
- 
-   // from K.Source
-   get name () :string { return "Workspace" }
- 
-   // from K.Source
-   readonly mappings :K.Mapping[] = [{
-     id: "select-prev-def",
-     descrip: "Select previous def",
-     chord: "M-ArrowUp",
-     isEdit: () => false,
-     action: kp => this.moveSelection(-1)
+
+  // from K.Source
+  get name () :string { return "Workspace" }
+
+  // from K.Source
+  readonly mappings :K.Mapping[] = [{
+    id: "select-prev-def",
+    descrip: "Select previous def",
+    chord: "M-ArrowUp",
+    isEdit: () => false,
+    action: kp => this.moveSelection(-1)
   }, {
     id: "select-next-def",
     descrip: "Select next def",
@@ -119,11 +136,40 @@ export class WorkspaceStore implements P.Resolver, M.Resolver, K.Source {
     chord: "C-KeyN",
     isEdit: () => false,
     action: kp => { this.creatingNew = true }
+  }, {
+    id: "save-project",
+    descrip: "Save project",
+    chord: "M-KeyS",
+    isEdit: () => false,
+    action: kp => { this.saveProject() }
   }]
 
   // from K.Source
   willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean { return false }
   handleKey (kp :K.KeyPress) :boolean { return false }
+}
+
+class WorkspaceResolver implements P.Resolver, M.Resolver, M.Loader {
+
+  constructor (readonly workspace :WorkspaceStore) {}
+
+  // from P.Project
+  resolveProject (uuid :UUID) :P.Project|void {
+    // TEMP: linear search!
+    for (let proj of this.workspace.projects) if (proj.uuid === uuid) return proj
+  }
+
+  // from M.Resolver
+  resolveModule (uuid :UUID) :M.Module|void {
+    // TEMP: linear search!
+    for (let proj of this.workspace.projects) for (let comp of proj.components) {
+      for (let mod of comp.modules) if (mod.uuid === uuid) return mod
+    }
+  }
+
+  loadModule (uuid :UUID) :M.ModuleJson|void {
+    return this.workspace.store.load(uuid) as M.ModuleJson|void
+  }
 }
 
 @observer

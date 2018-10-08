@@ -1,4 +1,5 @@
 import { UUID } from  "./names"
+import { Store } from "./store"
 import * as C from "./constants"
 import * as T from "./trees"
 import * as TP from "./types"
@@ -53,9 +54,9 @@ function mkSymTree (kind :string, id :number, name :string, branchId :string, br
   return tree
 }
 
-const testModUUID :UUID  = "fa722f12-a571-11e8-98d0-529269fb1459"
-const testLibUUID :UUID  = "fa722f12-a571-11e8-98d0-529269fb1459"
-const testProjUUID :UUID = "fa722f12-a571-11e8-98d0-529269fb1459"
+const testModUUID :UUID         = "92dadb28-cb38-11e8-a8d5-f2801f1b9fd1"
+const testLibUUID :UUID         = "92dae00a-cb38-11e8-a8d5-f2801f1b9fd1"
+export const testProjUUID :UUID = "fa722f12-a571-11e8-98d0-529269fb1459"
 const testProjSource = "internal://test"
 
 // type Box ∀A contents:A
@@ -90,13 +91,14 @@ const listJson = mkSymTree(
       })]
     }))
 
-export function mkTestProject (projResolver :P.Resolver, modResolver :M.Resolver) :P.Project {
+export function seedTestProject (store :Store) {
   const testModJson = {
     uuid: testModUUID,
     name: "test",
     xrefs: {[primModUUID]: [NatID, 1, StringID, 2]},
     defs: [boxJson, recordJson, listJson]
   }
+  store.contains(testModUUID) || store.store(testModUUID, testModJson)
 
   const testProjJson = {
     uuid: testProjUUID,
@@ -110,7 +112,7 @@ export function mkTestProject (projResolver :P.Resolver, modResolver :M.Resolver
       modules: [testModUUID]
     }]
   }
-  return P.inflateProject(projResolver, testProjJson, modResolver, [testModJson])
+  store.contains(testProjUUID) || store.store(testProjUUID, testProjJson)
 }
 
 // function mkListA (tb :TreeEditor) :Tree {

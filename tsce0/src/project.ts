@@ -1,5 +1,6 @@
-import { observable, computed } from "mobx"
+import { observable, computed, toJS } from "mobx"
 import { Name, UUID } from "./names"
+import { Store } from "./store"
 import * as M from "./module"
 import * as S from "./symbols"
 
@@ -23,7 +24,7 @@ type ComponentJson = {
 }
 
 /** The serialized form of a project. */
-type ProjectJson = {
+export type ProjectJson = {
   uuid :UUID,
   source :string,
   name :string,
@@ -61,7 +62,7 @@ export class Component {
 
   deflate () :ComponentJson {
     const {uuid, type, name, depends} = this
-    return {uuid, type, name, depends, modules: this.modules.map(m => m.uuid)}
+    return {uuid, type, name, depends: toJS(depends), modules: this.modules.map(m => m.uuid)}
   }
 }
 
@@ -91,6 +92,13 @@ export class Project {
     return {uuid, source, name, components: this.components.map(c => c.deflate())}
   }
 
+  store (store :Store) {
+    store.store(this.uuid, this.deflate())
+    for (let comp of this.components) {
+      for (let mod of comp.modules) store.store(mod.uuid, mod.deflate())
+    }
+  }
+
   toString () :string { return this.name }
 }
 
@@ -111,7 +119,6 @@ class ModuleRootScope extends S.Scope {
       pred, prefix, syms)
     for (let dcomp of this.cscope.deps) dcomp.scope.addCompletions(pred, prefix, syms)
   }
-
 }
 
 class ComponentScope extends S.Scope {
@@ -160,18 +167,16 @@ class ComponentScope extends S.Scope {
   }
 }
 
-export function inflateProject (resolver :Resolver, json :ProjectJson,
-                                modResolver :M.Resolver, modJsons :any[]) :Project {
-  const modJsonMap = new Map()
-  for (let modJson of modJsons) modJsonMap.set(modJson.uuid, modJson)
+export function inflateProject (json :ProjectJson,
+                                resolver :Resolver & M.Loader & M.Resolver) :Project {
   const proj = new Project(json.uuid, json.source, json.name)
   for (let cjson of json.components) {
     const comp = new Component(cjson.uuid, cjson.type, cjson.name, resolver)
     for (let djson of cjson.depends) comp.depends.push(djson)
     for (let muuid of cjson.modules) {
-      const mjson = modJsonMap.get(muuid)
+      const mjson = resolver.loadModule(muuid)
       if (mjson) comp.modules.push(
-        M.inflateMod(new ModuleRootScope(comp.scope, mjson.uuid), modResolver, mjson))
+        M.inflateMod(new ModuleRootScope(comp.scope, mjson.uuid), resolver, mjson))
       else console.warn(`Component references unknown module [comp=${JSON.stringify(cjson)}, ` +
                         `muuid=${muuid}]`)
     }

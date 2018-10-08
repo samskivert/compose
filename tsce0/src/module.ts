@@ -76,6 +76,13 @@ export interface Resolver {
   resolveModule (uuid :UUID) :Module|void
 }
 
+/** Used to load serialized module data. */
+export interface Loader {
+  /** Loads the serialized data for the module identified by `uuid`.
+    * `undefined` is returend if the module does not exist. */
+  loadModule (uuid :UUID) :ModuleJson|void
+}
+
 type DefJson = any
 export type ModuleJson = {uuid :UUID, name :string, xrefs :XRefsJson, defs :DefJson[]}
 

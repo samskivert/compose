@@ -1,14 +1,17 @@
-import { UUID } from "./names"
 import * as T from "./trees"
 import * as M from "./module"
 import * as P from "./prefab"
 import * as F from "./format"
+import * as S from "./store"
+import * as W from "./workspace"
 
-const testProj = P.mkTestProject({
-  resolveProject: (uuid :UUID) => P.primProject
-}, {
-  resolveModule :(uuid :UUID) => P.primProject.components[0].modules[0]
-})
+const store = new S.MemoryStore(new Map())
+P.seedTestProject(store)
+const wspace = new W.WorkspaceStore(store)
+wspace.projects.push(P.primProject)
+const testProj = wspace.openProject(P.testProjUUID)
+if (!testProj) throw new Error(`Test project failed to load`)
+
 const testMod = testProj.components[0].modules[0]
 const testSym = testMod.symById(10)
 const testTree = testSym && testMod.tree(testSym as M.DefSym)
