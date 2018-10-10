@@ -104,6 +104,7 @@ export class Module implements S.Index {
   private readonly trees :Map<number, T.DefTree> = new Map()
   private readonly jsons :Map<number, DefJson> = new Map()
   private readonly xrefs :XRefs
+  private maxSymId :number = 0
 
   constructor (json :ModuleJson, cscope :S.Scope, private readonly resolver :Resolver) {
     this.uuid = json.uuid
@@ -201,9 +202,10 @@ export class Module implements S.Index {
 
   // from S.Index
   nextSymId () :number {
-    return 0 // TODO
+    return ++this.maxSymId
   }
   insert (sym :S.Symbol) {
+    this.maxSymId = Math.max(sym.id, this.maxSymId)
     this.index.set(sym.id, sym)
     this.scope.onInsert(sym)
   }
