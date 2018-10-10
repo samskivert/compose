@@ -1127,7 +1127,7 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
   case   "ref": return new RefTree(reqsym(json.symId))
   case   "asc": return inflateBranches(new AscTree())
   case   "app": return inflateBranches(new AppTree())
-  case "inapp": return inflateBranches(new AppTree())
+  case "inapp": return inflateBranches(new InAppTree())
   case    "if": return inflateBranches(new IfTree())
   case "match": return inflateNBranches(inflateBranches(new MatchTree()), json.cases)
   case  "case": return inflateBranches(new CaseTree())
