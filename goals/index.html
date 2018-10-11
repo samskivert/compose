@@ -180,21 +180,23 @@ examples (real checked and compiled code running on real data).</p></li>
 
 <li><p>Detailed documentation and executable code examples can appear &ldquo;next to&rdquo; the code in question.
 Because we&rsquo;re not limited to static text files, a library author can simply denote code as being
-example code and the editor/environment can surface appropriate example code on demand for any
-function or data structure on demand.</p></li>
+example code and the editor/environment can surface appropriate example code for any function or
+data structure on demand.</p></li>
 
-<li><p>A project should be able to include <em>all</em> of its documentation. Overview documentation,
-tutorials, examples, everything should be able to live inside the project and benefit from the
-structure, checking and liveness that &ldquo;API&rdquo; documentation benefits from.</p></li>
+<li><p>A project should be able to include <em>all</em> of its documentation. Documentation should not be split
+across an overview/examples website, generated API documentation and the code itself. Overview
+documentation, tutorials, examples, everything should be able to live inside the project and
+benefit from the structure, checking and liveness that one has when reading code in an IDE.</p></li>
 </ul>
 
 <h2 id="testing">Testing</h2>
 
 <ul>
 <li><p>Unit testing will be &ldquo;built-in&rdquo; and will benefit from the ability to easily expose dynamic views
-of the codebase, and because the compiler infrastructure will be readily available to the unit
+of the codebase. Because the compiler infrastructure will be readily available to the unit
 testing infrastructure, automatically running &ldquo;affected&rdquo; unit tests on changes should be
-straightforward.</p></li>
+straightforward. Test feedback should be as automatic and &ldquo;ambient&rdquo; as type feedback is in a good
+IDE.</p></li>
 
 <li><p>Integration testing will likely manifest as additional application/executable project components.
 An integration test is a built artifact, just like an application. It may prove more challenging

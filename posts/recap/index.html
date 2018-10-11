@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>State of the (Tagged) Union | Compose</title>
+    <link rel="stylesheet" href="/compose/css/style.css" />
+    <link rel="stylesheet" href="/compose/css/fonts.css" />
+    
+  </head>
+
+  <body>
+    <nav>
+    <ul class="menu">
+      
+      <li><a href="/compose/">Overview</a></li>
+      
+      <li><a href="/compose/goals/">Goals</a></li>
+      
+      <li><a href="/compose/faq/">FAQ</a></li>
+      
+      <li><a href="https://github.com/samskivert/compose">Github</a></li>
+      
+    </ul>
+    </nav>
+    <div class="title">Compose</div>
+    <hr/>
+
+<div class="article-meta">
+
+<div class="date">2018/10/11</div>
+<h1><span class="title">State of the (Tagged) Union</span></h1>
+</div>
+
+<main>
+
+
+<p>It&rsquo;s been about ten months since I started work in earnest on Compose. Though I am not presently at
+a particularly noteworthy milestone, I would like to take this opportunity to catch up on the
+progress so far, so that I can attempt to do a better job of documenting progress going forward.</p>
+
+<h2 id="c0">C0</h2>
+
+<p>My initial plan was to create a bootstrap language and compiler, which I called Compose Mark Zero
+(C0 for short). I eventually want the Compose compiler and editor to be written in Compose (chiefly
+because I would like to minimize the amount of code I have to write in programming languages that
+do not adhere to my principles, but also because it&rsquo;s good to eat ones own dog food). However, given
+that Compose will not be a textual language, that either meant that I needed to create an entire
+compiler <em>and</em> editor in some other language and then use that to write the real Compose compiler,
+or I could make a pseudo-Compose that was as Compose-y as possible but which still constructed the
+AST by parsing source files.</p>
+
+<p>This latter bootstrap plan seemed to be the path of least resistance, so I embarked upon the
+creation of <a href="https://github.com/samskivert/compose/tree/master/c0">C0</a>. I wrote it in Scala, which is the least horrible of the languages in which I have
+a substantial amount of experience. Undoubtedly partly due to this choice, the provisional syntax
+of C0 ended up looking somewhat Scala-like. (Let&rsquo;s call it the bastard child of Scala and Haskell.)</p>
+
+<p>The design plan for the initial language was a semi-pure, strict, functional language, which would
+use parametric polymorphism and type classes for abstraction. It would have sum types, products
+with named components (records), and support pattern matching on both.</p>
+
+<p>Just to give the flavor of the concrete syntax, here&rsquo;s the definition for <code>List</code>:</p>
+
+<pre><code class="language-scala">/// Inductively defined linked list (a cons list for the lispers)
+data List[A] = Nil | Cons (head :A, tail :List[A])
+</code></pre>
+
+<p>And the definition of the <code>Eq</code> interface (typeclass):</p>
+
+<pre><code class="language-scala">/// The `Eq` interface enables equality comparisons for types for which support it.
+interface Eq[A] {
+  fun eq (a1 :A, a2 :A) :Bool
+  fun notEq (a1 :A, a2 :A) :Bool
+}
+
+fun defNotEq[A:Eq](a1 :A, a2 :A) :Bool = !eq(a1, a2)
+
+fun boolEq (a :Bool, b :Bool) :Bool = foreign(&quot;a === b&quot;)
+fun boolNotEq (a :Bool, b :Bool) :Bool = foreign(&quot;a !== b&quot;)
+impl eqBool = Eq[Bool](eq=boolEq, notEq=boolNotEq)
+
+fun stringEq (a :String, b :String) :Bool = foreign(&quot;a === b&quot;)
+fun stringNotEq (a :String, b :String) :Bool = foreign(&quot;a !== b&quot;)
+impl eqString = Eq[String](eq=stringEq, notEq=stringNotEq)
+
+fun arrayEq[A:Eq] (a1 :Array[A], a2 :Array[A]) :Bool = {
+  fun loop (ii :I32) :Bool =
+    if (ii == a1.length) true
+    else if (a1@ii != a2@ii) false
+    else loop(ii+1)
+  if (a1.length == a2.length) loop(0) else false
+}
+impl eqArray[A:Eq] = Eq[Array[A]](eq=arrayEq, notEq=defNotEq)
+</code></pre>
+
+<p>At the time I didn&rsquo;t support inline definition of interface method defaults, and I intentionally
+opted for an implementation (instance) definition syntax that highlighted the &ldquo;dictionary of
+functions&rdquo; nature of an implementation, so no inline definition of functions in implementations
+either. Such choices will eventually be irrelevant when the textual representation of my language
+is simply a visualization of the actual source of truth: the AST, so even remembering that I was
+wasting time thinking about this bothers me.</p>
+
+<p>I got pretty far down the road with C0, implementing most of a bidirectional type checker with
+local type inference, and very hacky, half-baked support for typeclass elaboration. The
+name-resolved and type-checked AST is lowered to a simpler core language AST and from that
+JavaScript is generated.</p>
+
+<p>However, after pushing through to this point and then circling back around to start tightening
+things up and fixing many of the terrible hacks in the type checker, I began to regret many of the
+syntax and parser-driven decisions I&rsquo;d made with the AST. Though I translated unary and binary
+operations into function application during the parsing process (<code>a == b</code> becomes <code>eq(a, b)</code>, it&rsquo;s
+functions all the way down), I didn&rsquo;t want to have to add support for custom operators and
+precedence, nor did I want to write a bunch of Lisp but with the parenthesis in a slightly
+different place.</p>
+
+<p>I was also running into difficulties cleaning up the type checker and converting things to a more
+rigorous approach, partly because I had opted to leave functions uncurried in the AST. I was
+investigating using the bidirectional type checking algorithm described by Dunfield and
+Krishnaswami (which I <a href="https://github.com/samskivert/bidir-scala">prototyped</a> separately), but adapting that to uncurried functions was going
+to be messy.</p>
+
+<p>I also had in the back of my mind the idea that my type checker would be radically different in the
+final language because it would run incrementally as the AST was constructed. The jury is still out
+on that front, but I still harbor those suspicions and am finally close to being able to find out
+(more on that later).</p>
+
+<p>The upshot of all this was that I decided that the path of least resistance I had chosen earlier,
+to create a &ldquo;traditional&rdquo; compiler before creating a compiler/editor hybrid was skewing my work so
+badly that I should stop, bite the bullet, and take the pain of creating a combination compiler and
+editor directly, using an existing cave language. Which brings us to the next chapter of the tale.</p>
+
+<h2 id="pce0">PCE0</h2>
+
+<p>Two considerations led me to choose <a href="http://www.purescript.org/">PureScript</a> as the implementation language for the
+compiler/editor combo. The first was that writing in Scala was dragging my aesthetics in a
+direction I didn&rsquo;t like. I knew that the final form of Compose would end up looking more like
+Haskell than Scala (based on the Tufte principle of not putting marks on the page unless they
+communicate meaningful information to the viewer/reader), so I felt that PureScript would provide
+better aesthetic influences. The second was that, even though the final editor will likely be built
+on a completely custom graphics and user interface foundation, the prototype editor would come
+together most quickly by building atop HTML+CSS (a deal with the devil if there ever was one). This
+was why C0 was emitting JavaScript: even had E0 been written in C0, per the original plan, it would
+have started as a browser-based UI application.</p>
+
+<p>So I embarked upon the creation of <a href="https://github.com/samskivert/compose/tree/master/pce0">PCE0</a>. I put together a basic AST for terms and types, and then
+started working immediately on the display and editing of the AST. I figured that I should start to
+tackle those challenges immediately rather than distract myself with reimplementing symbols and the
+type checker and the other compiler plumbing. Those could wait until I had an idea of how the
+editing process would work.</p>
+
+<p>I got as far as formatting an AST into a simple markup model which was then rendered in HTML, and
+supported the hacky beginnings of editing. Here&rsquo;s a screenshot of the editor displaying a function,
+with the function argument <code>as</code> currently being edited:</p>
+
+<p><center><img src="../../psce0.png" width="500" /></center></p>
+
+<p>Unfortunately, my frustration with PureScript and its tool and library ecosystem had been building
+during this time, and I eventually realized that I should restart again using a language with
+better tooling. I recorded more details on what was baking my noodle on the <a href="https://github.com/samskivert/compose/tree/master/pce0">PCE0</a> page for the
+curious.</p>
+
+<p>Even though the &ldquo;language&rdquo; part of Compose will probably closely resemble PureScript (as a
+Haskell-inspired, but strict, functional language), I believe that the vertically integrated
+approach to constructing programs (type checking the AST as it is constructed, and directing
+program construction based on partial type information) will make the use of a powerful but terse
+language vastly more accessible.</p>
+
+<h2 id="rce0">RCE0</h2>
+
+<p>Long before I started on CE0 in Scala, I had been interested in <a href="https://reasonml.github.io/">Reason</a> (a reskinning of ML with a
+more C-like syntax, and geared toward generating JavaScript and integrating with the web
+ecosystem). My original investigations left me with the opinion that it was too early to try to use
+the language, they were still knee deep in making basic things work. But many months had passed
+since then, and they had recently released a React integration for Reason, which seemed worth
+investigating.</p>
+
+<p>I was quickly disabused of the notion that using Reason would be a good idea. Within the span of a
+day&rsquo;s work, I had a basic project set up and had accumulated so many paper cuts that I knew this
+approach was dead on arrival. Moving right along&hellip;</p>
+
+<h2 id="tsce0">TSCE0</h2>
+
+<p>We finally arrive to at our current (and hopefully final) stop on the tour. Because I use my <a href="https://github.com/scaled/scaled">own
+IDE</a>, these various language explorations had all involved leveraging the <a href="https://langserver.org/">Language Server
+Protocol</a> support (to what extent it existed) for the languages in question.</p>
+
+<p>For unrelated reasons, I had recently had cause to wire up <a href="https://www.typescriptlang.org/">TypeScript</a> language server support and
+was deeply impressed by how much better it was than the nearly dozen other languages whose language
+server projects I had tried. This was all the more impressive given that the TypeScript team didn&rsquo;t
+even maintain their language server, like many languages, they had started on an &ldquo;interactive
+compiler daemon&rdquo; before LSP existed, so some third party just bolted together their existing
+interactive compiler with the LSP protocol. But unlike many languages, their&rsquo;s was somehow robust,
+full featured and very fast.</p>
+
+<p>This uncommonly good interactive compiler support, combined with reasonable UI construction using
+React, and the tight edit/compile/debug cycle that is perhaps the only good thing about the
+JavaScript ecosystem, convinced me to hold my nose and give TypeScript a go. I foolishly tried to
+use TypeScript in a functional programming style for a while before giving up in frustration and
+doing as the Romans do. I remind myself regularly that all of this code is just a means to an end
+and will not have to be maintained beyond the point where I escape Earth&rsquo;s orbit and can rewrite
+Compose in Compose.</p>
+
+<p>I got myself back to the point of defining an AST for types and terms, and got started on the
+editor. Things moved much more quickly this time (partly due to having mostly designed the markup
+and editing model in PSCE0) and I was soon well beyond just displaying ASTs and could start doing
+the real research of how to comfortably create and edit ASTs in a structured editor.</p>
+
+<p>Along the way, it proved useful to create a proper symbol table, do some rudimentary type checking,
+define a first pass at a serialization format for the ASTs, define a workspace and project model,
+and even do some basic type-directed symbol completion. I have not yet recreated everything that I
+had in C0: there is no notion of interfaces (type classes) in either the AST nor the type checker,
+and I have not yet even started on lowering to an intermediate language nor generating code. My
+focus has mostly been on building plumbing only as needed to inform the work on the editor.</p>
+
+<p>Here&rsquo;s what TSCE0 looks like today:</p>
+
+<p><img src="../../tsce0.png" alt="TSCE0 screenshot" /></p>
+
+<p>On the left, we have the workspace overview. A workspace contains one or more open projects,
+projects are comprised of one or more components (which can be either libraries or
+apps/executables), components are comprised of one or more modules, and modules are comprised of
+definitions. Components can also have dependencies. I won&rsquo;t go into too many details here, but I
+have in progress documentation on the <a href="https://samskivert.github.io/compose/project-model/">project model</a> if you&rsquo;re curious.</p>
+
+<p>In this screenshot, we have the <code>prim</code> module in the <code>prim</code> component of the <code>prim</code> project which
+defines some (temporary, hacky) built-in primitives. Then we have the <code>test</code> module in the <code>test</code>
+component of the <code>test</code> project, which defines some random stuff I&rsquo;m using for testing.</p>
+
+<p>In the middle are some defs, open for viewing and editing. The <code>reverse</code> def (which I just typed in
+before making this screenshot) shows a function with type and term parameters, a nested function
+definition, a pattern match and an AST hole currently being filled in by symbol completion (not
+particularly constrained by type). That completion list should also show some AST fragments (for
+example, if you wanted to insert a <code>let</code> binding or a <code>case</code> for a nested pattern match), but
+they&rsquo;re not showing up for some reason. Bugs!</p>
+
+<p>On the right is a list of all active key bindings. More on that in the next section.</p>
+
+<h2 id="structured-editing">Structured Editing</h2>
+
+<p>Because we&rsquo;re not editing a 2D grid of ASCII characters, we&rsquo;re editing the AST, it&rsquo;s not going to
+be immediately obvious for someone used to editing programs by editing ASCII how to make the
+changes they want. As an experiment, I decided to structure things so that as the cursor moves
+around the AST, I always show all valid key bindings and a description of their effect.</p>
+
+<p>For example, here we are creating a new function definition, and the cursor is currently editing
+the name of the function definition:</p>
+
+<p><img src="../../tsce-keybinds.png" alt="TSCE0 key binding screenshot" /></p>
+
+<p>In the lower right, it shows that <code>Shift Space</code> will result in the insertion of a type parameter
+(excuse the lack of meaningful descriptions for the key bindings, this experiment is somewhat new
+and I haven&rsquo;t gone through and added sensible descriptions for all the actions one can take when
+editing the AST). Pressing just <code>Space</code> will add a term parameter. Presently, a new function
+definition is automatically provided with a single term parameter (which is the <code>?</code> to the right of
+the function name), and as an ergonomic optimization, if a <code>Space</code> press would result in the
+insertion of a term parameter &ldquo;hole&rdquo;, but a term parameter hole is already there, it just moves the
+cursor into that hole. So pressing space moves the cursor from naming the function to naming the
+first argument. You can also press <code>=</code> to jump directly to the body of the function.</p>
+
+<p>In this way, key presses that are vaguely reminiscent of entering in an AST via ASCII text result
+in direct edits to the AST instead. In Haskell, you could imagine typing <code>fib x =</code> and in Compose
+that precise series of keystrokes will mostly do what you expect, name the function <code>fib</code>, name the
+first argument <code>x</code> and jump to the body of the function where you can proceed to enter its
+definition. Note that the &ldquo;hole&rdquo; shown for the return type of the function will eventually be
+filled in automatically for you (if possible and desired) as you define the function body.</p>
+
+<p>There are still a number of situations that require more research and experimentation. I try to
+heuristically detect when you intend to enter an infix function (say you type <code>x + 3</code>) and I still
+have to figure out how to enable ergonomic entry of &ldquo;unprecedented&rdquo; subexpressions (cases where you
+would normally communicate to the parser via the use of parentheses). I will likely end up using
+parentheses as well because they are a familiar tool, though in a more ephemeral way. In any case,
+though there are many problems yet to be solved, I am optimistic that this approach can be made to
+work, and I can eventually create a fully keyboard based mechanism for entering and editing ASTs
+that feels enough like entering normal ASCII text that cave programmers can transition to it, and
+which is ultimately at least as fast and efficient, if not faster, than what is possible today with
+&ldquo;IDE-augmented&rdquo; ASCII entry.</p>
+
+<h2 id="type-feedback">Type feedback</h2>
+
+<p>Another small experiment that I&rsquo;ve made is in communicating the type of all sub-expressions in an
+AST. Especially in functional languages with complex types and dense expressions, it is woefully
+insufficient to know just the type of every named term. Say you have an expression <code>foo (bar 3)
+baz</code>. You can hover over <code>foo</code>, <code>bar</code>, <code>3</code> and <code>baz</code> to see their types, but what is the type of
+<code>(bar 3)</code>? What is the type of the partially applied function <code>foo (bar 3)</code>? What is the type of
+the entire expression? This is often critical information, especially when trying to learn and
+understand complex type directed idioms with phantom type parameters sliding silently around behind
+the scenes.</p>
+
+<p>There&rsquo;s nothing preventing IDEs from providing this information, the compiler knows it, but I have
+yet to encounter an IDE that makes such a thing possible. Moreover, things like the LSP have no
+provision for talking about ASTs at all so even posing the question in a meaningful way via that
+generic &ldquo;editor to compiler&rdquo; protocol is challenging. I&rsquo;m sure there are IDEs that do this
+properly, but regardless, it&rsquo;s very important to me that Compose do this properly.</p>
+
+<p>So my first experiment has been to create a visualization of the types of every node in the AST:</p>
+
+<p><center><img src="../../tsce-types.png" width="500" /></center></p>
+
+<p>(Ignore the weird prefix <code>+</code> application, that&rsquo;s due to limitations with entering subexpressions at
+the moment.)</p>
+
+<p>Terminal nodes in the AST are annotated with their type, then parent nodes are annotated below
+those terminal annotations and so forth until the types for every node have been shown. There are
+many limitations to this approach, and it will either evolve substantially or be replaced, but it&rsquo;s
+already interesting to see types percolate up through curried applications of functions, and the
+results of unification. It&rsquo;s also quite useful for debugging the type assignment code.</p>
+
+<p>Because everything is a live display right in the editor, you can actually edit the code and see
+the types evolve as you extend and change the AST.</p>
+
+<h2 id="next-steps">Next steps</h2>
+
+<p>I&rsquo;ve been toiling away in the salt mines of editing UX for quite a while, so I&rsquo;m going to take a
+break from that and work on some type checking plumbing. I want to investigate whether its possible
+to structure the type checker and inferencer as essentially a functional reactive program. This may
+end up being equivalent to other &ldquo;batch&rdquo; bidirectional type inference and checking algorithms, but I
+suspect it will look very different on the surface.</p>
+
+<p>After that I&rsquo;ll likely reinstate some rudimentary mechanism for declaring interfaces and
+implementations (type classes and instances) and handling elaboration. From there it should be easy
+to recreate lowering to a core language and then JavaScript code generation.</p>
+
+<p>Then I will hopefully be re-energized for another trip back to the salt mines for more work on the
+editing UX.</p>
+
+</main>
+
+  <footer>
+  
+  
+  <hr/>
+  &copy; 2018 <a href="http://samskivert.com">Michael Bayne</a>
+  
+  </footer>
+  </body>
+</html>
+

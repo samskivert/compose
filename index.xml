@@ -6,10 +6,20 @@
     <description>Recent content in Home on Compose</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Sun, 02 Jul 2017 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Thu, 11 Oct 2018 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://samskivert.github.io/compose/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>State of the (Tagged) Union</title>
+      <link>https://samskivert.github.io/compose/posts/recap/</link>
+      <pubDate>Thu, 11 Oct 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://samskivert.github.io/compose/posts/recap/</guid>
+      <description>It&amp;rsquo;s been about ten months since I started work in earnest on Compose. Though I am not presently at a particularly noteworthy milestone, I would like to take this opportunity to catch up on the progress so far, so that I can attempt to do a better job of documenting progress going forward.
+C0 My initial plan was to create a bootstrap language and compiler, which I called Compose Mark Zero (C0 for short).</description>
+    </item>
     
     <item>
       <title>Manifesto</title>

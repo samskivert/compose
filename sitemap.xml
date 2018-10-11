@@ -3,6 +3,11 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   
   <url>
+    <loc>https://samskivert.github.io/compose/posts/recap/</loc>
+    <lastmod>2018-10-11T00:00:00+00:00</lastmod>
+  </url>
+  
+  <url>
     <loc>https://samskivert.github.io/compose/posts/manifesto/</loc>
     <lastmod>2017-07-02T00:00:00+00:00</lastmod>
   </url>
@@ -22,12 +27,12 @@
   
   <url>
     <loc>https://samskivert.github.io/compose/</loc>
-    <lastmod>2017-07-02T00:00:00+00:00</lastmod>
+    <lastmod>2018-10-11T00:00:00+00:00</lastmod>
   </url>
   
   <url>
     <loc>https://samskivert.github.io/compose/posts/</loc>
-    <lastmod>2017-07-02T00:00:00+00:00</lastmod>
+    <lastmod>2018-10-11T00:00:00+00:00</lastmod>
     <priority>0</priority>
   </url>
   
