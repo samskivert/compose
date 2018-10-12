@@ -39,6 +39,9 @@
 a particularly noteworthy milestone, I would like to take this opportunity to catch up on the
 progress so far, so that I can attempt to do a better job of documenting progress going forward.</p>
 
+<p>(Note: if you&rsquo;re not familiar with this project, you can check the <a href="../../">main site</a> for an
+overview of what I&rsquo;m doing here. This is a status report which doesn&rsquo;t provide much background.)</p>
+
 <h2 id="c0">C0</h2>
 
 <p>My initial plan was to create a bootstrap language and compiler, which I called Compose Mark Zero
@@ -187,7 +190,7 @@ Protocol</a> support (to what extent it existed) for the languages in question.<
 <p>For unrelated reasons, I had recently had cause to wire up <a href="https://www.typescriptlang.org/">TypeScript</a> language server support and
 was deeply impressed by how much better it was than the nearly dozen other languages whose language
 server projects I had tried. This was all the more impressive given that the TypeScript team didn&rsquo;t
-even maintain their language server, like many languages, they had started on an &ldquo;interactive
+even maintain their language server. Like many languages, they had started on an &ldquo;interactive
 compiler daemon&rdquo; before LSP existed, so some third party just bolted together their existing
 interactive compiler with the LSP protocol. But unlike many languages, their&rsquo;s was somehow robust,
 full featured and very fast.</p>
@@ -237,10 +240,10 @@ they&rsquo;re not showing up for some reason. Bugs!</p>
 
 <h2 id="structured-editing">Structured Editing</h2>
 
-<p>Because we&rsquo;re not editing a 2D grid of ASCII characters, we&rsquo;re editing the AST, it&rsquo;s not going to
-be immediately obvious for someone used to editing programs by editing ASCII how to make the
-changes they want. As an experiment, I decided to structure things so that as the cursor moves
-around the AST, I always show all valid key bindings and a description of their effect.</p>
+<p>Because we&rsquo;re not editing a 2D grid of ASCII characters &ndash; we&rsquo;re editing the AST &ndash; it&rsquo;s not going
+to be immediately obvious how to make changes for someone used to editing programs by editing ASCII
+text. As an experiment, I decided to structure things so that as the cursor moves around the AST, I
+always show all valid key bindings and a description of their effect.</p>
 
 <p>For example, here we are creating a new function definition, and the cursor is currently editing
 the name of the function definition:</p>
@@ -289,8 +292,9 @@ the scenes.</p>
 <p>There&rsquo;s nothing preventing IDEs from providing this information, the compiler knows it, but I have
 yet to encounter an IDE that makes such a thing possible. Moreover, things like the LSP have no
 provision for talking about ASTs at all so even posing the question in a meaningful way via that
-generic &ldquo;editor to compiler&rdquo; protocol is challenging. I&rsquo;m sure there are IDEs that do this
-properly, but regardless, it&rsquo;s very important to me that Compose do this properly.</p>
+generic &ldquo;editor to compiler&rdquo; protocol is challenging. I&rsquo;m sure there <em>are</em> some IDEs that do this
+properly, I just haven&rsquo;t encountered them. Regardless, it&rsquo;s very important to me that Compose make
+it easy to see the type of anything you desire.</p>
 
 <p>So my first experiment has been to create a visualization of the types of every node in the AST:</p>
 
