@@ -7,6 +7,9 @@ It's been about ten months since I started work in earnest on Compose. Though I 
 a particularly noteworthy milestone, I would like to take this opportunity to catch up on the
 progress so far, so that I can attempt to do a better job of documenting progress going forward.
 
+(Note: if you're not familiar with this project, you can check the [main site](../../) for an
+overview of what I'm doing here. This is a status report which doesn't provide much background.)
+
 ## C0
 
 My initial plan was to create a bootstrap language and compiler, which I called Compose Mark Zero
@@ -157,7 +160,7 @@ Protocol] support (to what extent it existed) for the languages in question.
 For unrelated reasons, I had recently had cause to wire up [TypeScript] language server support and
 was deeply impressed by how much better it was than the nearly dozen other languages whose language
 server projects I had tried. This was all the more impressive given that the TypeScript team didn't
-even maintain their language server, like many languages, they had started on an "interactive
+even maintain their language server. Like many languages, they had started on an "interactive
 compiler daemon" before LSP existed, so some third party just bolted together their existing
 interactive compiler with the LSP protocol. But unlike many languages, their's was somehow robust,
 full featured and very fast.
@@ -207,10 +210,10 @@ On the right is a list of all active key bindings. More on that in the next sect
 
 ## Structured Editing
 
-Because we're not editing a 2D grid of ASCII characters, we're editing the AST, it's not going to
-be immediately obvious for someone used to editing programs by editing ASCII how to make the
-changes they want. As an experiment, I decided to structure things so that as the cursor moves
-around the AST, I always show all valid key bindings and a description of their effect.
+Because we're not editing a 2D grid of ASCII characters -- we're editing the AST -- it's not going
+to be immediately obvious how to make changes for someone used to editing programs by editing ASCII
+text. As an experiment, I decided to structure things so that as the cursor moves around the AST, I
+always show all valid key bindings and a description of their effect.
 
 For example, here we are creating a new function definition, and the cursor is currently editing
 the name of the function definition:
@@ -259,8 +262,9 @@ the scenes.
 There's nothing preventing IDEs from providing this information, the compiler knows it, but I have
 yet to encounter an IDE that makes such a thing possible. Moreover, things like the LSP have no
 provision for talking about ASTs at all so even posing the question in a meaningful way via that
-generic "editor to compiler" protocol is challenging. I'm sure there are IDEs that do this
-properly, but regardless, it's very important to me that Compose do this properly.
+generic "editor to compiler" protocol is challenging. I'm sure there _are_ some IDEs that do this
+properly, I just haven't encountered them. Regardless, it's very important to me that Compose make
+it easy to see the type of anything you desire.
 
 So my first experiment has been to create a visualization of the types of every node in the AST:
 
