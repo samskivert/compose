@@ -793,7 +793,7 @@ export class Path {
     return new Path(...ids)
   }
 
-  /** Returns the extension of this path that selects the first editable. */
+  /** Returns the extension of this path that selects the first editable terminal. */
   firstEditable (root :DefTree) :Path {
     let selected = this.selected(root)
     if (selected instanceof Tree) {

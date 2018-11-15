@@ -99,6 +99,11 @@ export class DefStore implements K.Source {
         this.keymap.addSource(change.newValue)
       }
     })
+    // reformat our def when we become active/inactive (TODO: this is messy, can we just make the
+    // formatting depend on isActive?)
+    observe(this, "isActive", change => {
+      this.setDef(this.def)
+    })
   }
 
   toString () {
@@ -369,7 +374,8 @@ export class DefStore implements K.Source {
 
   private setDef (def :T.DefTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
-    let {elem, path} = F.format(this.mod, def, focus, this.showTypes)
+    const opts = {showSigs: this.showTypes, editing: this.isActive}
+    let {elem, path} = F.format(this.mod, def, focus, opts)
     transaction(() => {
       this.def = def
       this.elem = elem

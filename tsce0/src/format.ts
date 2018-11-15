@@ -7,11 +7,16 @@ import * as T from "./trees"
 import * as TP from "./types"
 import * as K from "./keymap"
 
+export type FormatOpts = {
+  showSigs? :boolean
+  editing? :boolean
+}
+
 export function format (
-  mod :MD.Module, tree :T.DefTree, focus? :T.Path, showSigs :boolean = false
+  mod :MD.Module, tree :T.DefTree, focus? :T.Path, opts :FormatOpts = {}
 ) :{elem :M.Elem, path :M.Path} {
-  console.log(`format ${tree} / ${tree.sym} @ ${focus}`)
-  return new Acc(mod, tree, focus, showSigs).appendTree(new T.Path(), tree).finalize()
+  console.log(`format ${tree} / ${tree.sym} @ ${focus} (${JSON.stringify(opts)})`)
+  return new Acc(mod, tree, focus, opts).appendTree(new T.Path(), tree).finalize()
 }
 
 class SigAnnot {
@@ -37,11 +42,11 @@ class Acc {
     readonly mod :MD.Module,
     readonly root :T.DefTree,
     readonly focus :T.Path|void,
-    readonly showSigs :boolean) {}
+    readonly opts :FormatOpts) {}
 
   appendTree (path :T.Path, tree :T.Tree) :this {
     this.depth += 1
-    const start = this.lineWidth
+    const start = this.lineWidth, {editing} = this.opts
 
     if (tree instanceof T.FunDefTree) {
       this.appendKeySpan("fun ")
@@ -86,7 +91,7 @@ class Acc {
     //   this.appendTypeExprSpan(path, `${tpe.tag}${tpe.size}`)
 
     } else if (tree instanceof T.TRefTree) {
-      this.appendSymSpan(new TypeExprSpan(this.root, path, tree, tree.sym))
+      this.appendSymSpan(new TypeExprSpan(this.root, path.x("sym"), tree, tree.sym))
 
     } else if (tree instanceof T.TAbsTree) {
       this.appendTAbs(path, tree, 0)
@@ -122,7 +127,7 @@ class Acc {
       this.appendSymSpan(new TermExprSpan(this.root, path, tree, new S.TermConstSym(tree.cnst)))
 
     } else if (tree instanceof T.RefTree) {
-      this.appendSymSpan(new TermExprSpan(this.root, path, tree, tree.sym))
+      this.appendSymSpan(new TermExprSpan(this.root, path.x("sym"), tree, tree.sym))
 
     } else if (tree instanceof T.HoleTree) {
       this.appendSymSpan(new TermExprSpan(this.root, path, tree, new S.TermHoleSym()))
@@ -131,22 +136,27 @@ class Acc {
       this.appendPatTree(path, tree)
 
     } else if (tree instanceof T.AppTree) {
+      if (editing) this.appendSepSpan("(")
       this.appendTree(path.x("fun"), tree.fun)
       this.appendSepSpan(" ")
-      const wantParens = (tree.fun.kind !== "inapp" && tree.arg.kind === "app")
+      // const wantParens = (tree.fun.kind !== "inapp" && tree.arg.kind === "app")
+      const wantParens = !editing && (tree.fun.kind === "inapp" || tree.arg.kind === "app")
       if (wantParens) this.appendSepSpan("(")
       this.appendTree(path.x("arg"), tree.arg)
       if (wantParens) this.appendSepSpan(")")
       this.appendAnnot(start, tree.sig)
+      if (editing) this.appendSepSpan(")")
 
     } else if (tree instanceof T.InAppTree) {
-      const wantParens = (tree.arg instanceof T.AppTree && tree.arg.fun.kind === "inapp")
+      if (editing) this.appendSepSpan("(")
+      const wantParens = !editing && (tree.arg instanceof T.AppTree && tree.arg.fun.kind === "inapp")
       if (wantParens) this.appendSepSpan("(")
       this.appendTree(path.x("arg"), tree.arg)
       if (wantParens) this.appendSepSpan(")")
       this.appendSepSpan(" ")
       this.appendTree(path.x("fun"), tree.fun)
       this.appendAnnot(start, tree.sig)
+      if (editing) this.appendSepSpan(")")
 
     } else if (tree instanceof T.LetTree) {
       this.appendKeySpan("let ")
@@ -243,7 +253,7 @@ class Acc {
     if (this.line.length > 0) {
       this.newLine()
     }
-    let sub = new Acc(this.mod, this.root, this.focus, this.showSigs).
+    let sub = new Acc(this.mod, this.root, this.focus, this.opts).
       appendTree(path, tree).finalize()
     // if the target tree element was in the sub-expr, capture the markup path
     if (sub.path != M.emptyPath) {
@@ -339,7 +349,7 @@ class Acc {
   }
 
   appendAnnot (start :number, annot :TP.Type|TP.Kind) {
-    if (!this.showSigs) return
+    if (!this.opts.showSigs) return
     let length = this.lineWidth - start
     this.sigAnnots.push(new SigAnnot(start, length, this.depth, `${annot}`))
   }
