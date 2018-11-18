@@ -113,7 +113,7 @@ class ModuleRootScope extends S.Scope {
     return `<project:${this.cscope.comp.name}%${this.muuid}>`
   }
 
-  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  _addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) {
     // TODO: maintain some sort of more efficient index for all symbols in project?
     for (let mod of this.cscope.comp.modules) if (mod.uuid !== this.muuid) mod.scope.addCompletions(
       pred, prefix, syms)
@@ -156,12 +156,12 @@ class ComponentScope extends S.Scope {
     return `<project:${this.comp.name}>`
   }
 
-  addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) {
     // TODO: maintain some sort of more efficient index for all symbols in project?
     for (let mod of this.comp.modules) mod.scope.addCompletions(pred, prefix, syms)
   }
 
-  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  _addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) {
     this.addCompletions(pred, prefix, syms)
     for (let dcomp of this.deps) dcomp.scope.addCompletions(pred, prefix, syms)
   }

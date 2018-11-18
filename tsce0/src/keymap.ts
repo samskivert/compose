@@ -63,6 +63,7 @@ export type Mapping = {
   * selected def, the editor for the span under the cursor, the workspace itself. */
 export interface Source {
   readonly name :string
+  readonly enabled :boolean
   readonly mappings :Mapping[]
   willDispatch (kp :KeyPress, mp :Mapping) :boolean
   handleKey (kp :KeyPress) :boolean
@@ -85,7 +86,7 @@ export class Keymap {
   @computed get chordToMapping () :Map<Chord,Mapping> {
     const mappings :Map<Chord,Mapping> = new Map()
     for (let source of this.sources) {
-      for (let map of source.mappings) mappings.set(map.chord, map)
+      if (source.enabled) for (let map of source.mappings) mappings.set(map.chord, map)
     }
     return mappings
   }
@@ -101,8 +102,9 @@ export class Keymap {
                       `(have ${this.sources.map(s => s.name)})`)
   }
 
-  handleKey (ev :KeyboardEvent) :boolean {
-    const kp = mkKeyPress(ev)
+  handleKey (ev :KeyboardEvent) :boolean { return this.dispatchKey(mkKeyPress(ev)) }
+
+  dispatchKey (kp :KeyPress) :boolean {
     const mapping = this.chordToMapping.get(kp.chord)
     if (mapping) {
       for (let source of this.sources) if (source.willDispatch(kp, mapping)) return true

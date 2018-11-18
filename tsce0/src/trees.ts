@@ -61,6 +61,9 @@ export abstract class Tree {
     return this
   }
   protected storeBranch (id :string, branch :Branch) {
+    // type checking, it's what's for dinner
+    if (id === "sym" && !(branch instanceof S.Symbol)) throw new Error(
+      `Set 'sym' branch to non-symbol ${branch}!`)
     this[id] = branch
   }
 
@@ -471,7 +474,9 @@ export class AbsTree extends DefTree {
   constructor (id :number, name :Name) {
     super() ; this.sym = new VarTreeSym(this, id, name, t => this.type.sig) }
   get branchIds () :string[] { return ["sym", "type", "body"] }
-  protected computeSig () :TP.Type { return new TP.Arrow(this.type.sig, this.body.sig) }
+  protected computeSig () :TP.Type {
+    console.log(`${this} computeSig body ${this.body.sig}`)
+    return new TP.Arrow(this.type.sig, this.body.sig) }
 }
 
 // ----------------
@@ -596,7 +601,9 @@ export class MatchTree extends Tree {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.cases.length // allow one past last field
   }
-  protected computeSig () :TP.Type { return this.cases.map(c => c.sig).reduce((mt, ct) => mt.join(ct)) }
+  protected computeSig () :TP.Type {
+    return this.cases.map(c => c.sig).reduce((mt, ct) => mt.join(ct), TP.hole)
+  }
   protected childPrototype (id :string) :TP.Type|void {
     // prototype for cases is type of scrutinee expression
     if (id !== "scrut") return this.scrut.sig
@@ -639,7 +646,7 @@ class CaseBodyScope extends S.Scope {
     else return this.tree.scope.lookup(kind, name)
   }
 
-  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) :void {
+  _addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) :void {
     for (let sym of this.patSyms) {
       if (pred(sym) && this.isCompletion(prefix, sym)) syms.push(sym)
     }
@@ -707,7 +714,7 @@ export class Path {
   selectedTree (root :DefTree) :Tree {
     const branch = this.selected(root)
     if (branch instanceof Tree) return branch
-    else throw new Error(`Path does not select tree ${this}`)
+    else throw new Error(`Path does not select tree ${this}: (${branch})`)
   }
   /** Returns the `Tree` that contains the branch selected by this path.
     * @throws Error if this path is empty (i.e. selects the root tree). */
@@ -1089,7 +1096,7 @@ export interface DeflateIndex {
 }
 
 export function inflateTree (index :InflateIndex, json :any) :Tree {
-  console.log(`inflateTree ${JSON.stringify(json)}`)
+  // console.log(`inflateTree ${JSON.stringify(json)}`)
   function setsym<T extends SymTree> (tree :T) :T {
     index.add(tree.sym)
     return tree
@@ -1098,14 +1105,14 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
     return index.req(symId)
   }
   function inflateBranches<T extends Tree> (tree :T) :T {
-    console.log(`inflateBranches ${tree.branchIds}`)
+    // console.log(`inflateBranches ${tree.branchIds}`)
     for (let branch of tree.branchIds) {
       if (branch !== "sym") tree.setBranch(branch, inflateTree(index, json[branch]))
     }
     return tree
   }
   function inflateNBranches<T extends Tree> (tree :T, branchJsons :any[]) :T {
-    console.log(`inflateNBranches ${branchJsons.length}`)
+    // console.log(`inflateNBranches ${branchJsons.length}`)
     return branchJsons.reduce(
       (tree :T, bj :any, ii :number) => tree.setBranch(`${ii}`, inflateTree(index, bj)),
       tree)
@@ -1136,6 +1143,7 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
     case    "all": return inflateBranches(setsym(new AllTree(json.sym.id, json.sym.name)))
     case    "abs": return inflateBranches(setsym(new AbsTree(json.sym.id, json.sym.name)))
     // expression trees
+    case   "hole": return new HoleTree()
     case    "lit": return new LitTree(C.inflateConst(json.cnst))
     case    "ref": return new RefTree(reqsym(json.symId))
     case    "asc": return inflateBranches(new AscTree())

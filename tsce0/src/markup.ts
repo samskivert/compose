@@ -1,6 +1,7 @@
+import * as K from "./keymap"
+import * as S from "./symbols"
 import * as T from "./trees"
 import * as TP from "./types"
-import * as K from "./keymap"
 import { Name } from "./names"
 
 // ------------
@@ -38,7 +39,7 @@ export abstract class Span {
   abstract get styles () :string[]
 
   /** Whether or not this span is editable. */
-  get isEditable () :Boolean { return false }
+  get isEditable () :boolean { return false }
 
   /** Whether or not this span displays a hole. */
   get isHole () :boolean { return false }
@@ -76,13 +77,90 @@ export abstract class Span {
 }
 
 export abstract class EditableSpan extends Span {
-  get isEditable () :Boolean { return true }
+  get isEditable () :boolean { return true }
 }
 
 /** A span containing uneditable `text` with `styles`. */
 export class TextSpan extends Span {
   constructor (readonly sourceText :string, readonly styles :string[] = []) { super() }
   get name () :string { return this.sourceText }
+}
+
+/** A span representing an AST node. */
+export abstract class TreeSpan extends EditableSpan {
+
+  abstract get root () :T.DefTree
+  abstract get path () :T.Path
+  abstract get tree () :T.Tree
+
+  get name () :string { return this.path.selectedId }
+  get scope () :S.Scope { return this.tree.scope }
+
+  get isHole () :boolean {
+    const branch = this.path.selected(this.root)
+    if (branch instanceof T.Tree && branch.isHole) return true
+    if (branch instanceof S.Symbol && branch.name === "") return true
+    return false
+  }
+
+  get tooltip () :string { return this.tree.sig.toString() }
+
+  insertHole (dir :Dir) :EditAction|void {
+    const {root, path} = this
+    switch (dir) {
+    case Dir.Left:
+      if (path.endsWith(root, "match", "scrut")) {
+        // TODO: wrap the match in an app
+        return undefined
+      }
+      if (path.endsWith(root, "app", "arg")) {
+        // wrap the app fun in an app + hole
+        const funPath = path.sib("fun")
+        return {edit: funPath.edit(te => te.spliceApp()), focus: funPath.x("arg")}
+      }
+      break
+
+    case Dir.Right:
+      if (path.endsWith(root, "app", "arg")) {
+        // wrap the app in an app + hole
+        const appPath = path.pop()
+        return {edit: appPath.edit(te => te.spliceApp()), focus: appPath.x("arg")}
+      }
+      break
+
+    case Dir.Up:
+      // if we're in a match case, add a case above
+      const upCasePath = path.popTo(root, "case")
+      if (upCasePath) {
+        const caseTree = upCasePath.selected(root) as T.CaseTree
+        const matchTree = upCasePath.selectionParent(root) as T.MatchTree
+        const caseIdx = matchTree.cases.indexOf(caseTree)
+        return insertCase(upCasePath.pop(), caseIdx)
+      }
+      break
+
+    case Dir.Down:
+      // if we're in the scrut of a match, add a case at position 0
+      if (path.endsWith(root, "match", "scrut")) return insertCase(path.pop(), 0)
+      // if we're in a match case, add a case below
+      const dnCasePath = path.popTo(root, "case")
+      if (dnCasePath) {
+        const matchTree = dnCasePath.selectionParent(root) as T.MatchTree
+        const caseIdx = matchTree.cases.indexOf(dnCasePath.selected(root) as T.CaseTree)
+        return insertCase(dnCasePath.pop(), caseIdx+1)
+      }
+      break
+    }
+  }
+
+  toString () { return `${this.displayText} @ ${this.path}` }
+}
+
+function insertCase (matchPath :T.Path, caseIdx :number) :EditAction {
+  return {
+    edit: matchPath.edit(te => te.insertCase(caseIdx)),
+    focus: matchPath.x(`${caseIdx}`).x("pat")
+  }
 }
 
 export abstract class Completion {

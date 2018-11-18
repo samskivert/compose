@@ -310,7 +310,7 @@ export class ModuleScope extends S.Scope {
     return `<module:${this.mod.name}>`
   }
 
-  addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) {
     // TODO: such inefficient, so expense
     this.symbols.forEach((nsyms, name) => {
       for (let sym of nsyms) {
@@ -321,7 +321,7 @@ export class ModuleScope extends S.Scope {
     })
   }
 
-  _addCompletions (pred :(sym :S.Symbol) => Boolean, prefix :string, syms :S.Symbol[]) {
+  _addCompletions (pred :(sym :S.Symbol) => boolean, prefix :string, syms :S.Symbol[]) {
     this.addCompletions(pred, prefix, syms)
     this.cscope._addCompletions(pred, prefix, syms)
   }

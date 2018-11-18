@@ -116,8 +116,7 @@ export class WorkspaceStore implements K.Source {
 
   // from K.Source
   get name () :string { return "Workspace" }
-
-  // from K.Source
+  get enabled () :boolean { return true }
   readonly mappings :K.Mapping[] = [{
     id: "select-prev-def",
     descrip: "Select previous def",
@@ -144,7 +143,6 @@ export class WorkspaceStore implements K.Source {
     action: kp => { this.saveProject() }
   }]
 
-  // from K.Source
   willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean { return false }
   handleKey (kp :K.KeyPress) :boolean { return false }
 }

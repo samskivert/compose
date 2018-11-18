@@ -43,7 +43,9 @@ export class KError extends Kind {
 
 export abstract class Type {
   abstract get kind () :Kind
-  get isError () :Boolean { return false }
+  get isError () :boolean { return false }
+  get isArrow () :boolean { return false }
+  get arity () :number { return 0 }
   abstract subsumes (that :Type) :boolean
   abstract equals (that :Type) :boolean
   join (that :Type) :Type {
@@ -78,7 +80,7 @@ export const hole = new Hole()
 
 export class Error extends Type {
   constructor (readonly msg :string, readonly kind :Kind = star) { super() }
-  get isError () :Boolean { return true }
+  get isError () :boolean { return true }
   equals (that :Type) :boolean { return false }
   join (that :Type) :Type { return this }
   subsumes (that :Type) :boolean { return false }
@@ -138,8 +140,10 @@ export class Skolem extends Type {
 }
 
 export class Arrow extends Type {
-  get kind () { return star }
   constructor (readonly arg :Type, readonly res :Type) { super() }
+  get kind () { return star }
+  get isArrow () :boolean { return true }
+  get arity () :number { return 1 + this.res.arity }
   get finalResult () :Type {
     return (this.res instanceof Arrow) ? this.res.finalResult : this.res
   }
@@ -201,8 +205,10 @@ export class App extends Type {
 }
 
 export class Abs extends Type {
-  get kind () { return new KArrow(star, this.body.kind) }
   constructor (readonly sym :Symbol, readonly body :Type) { super() }
+  get kind () { return new KArrow(star, this.body.kind) }
+  get isArrow () :boolean { return this.body.isArrow }
+  get arity () :number { return this.body.arity }
   equals (that :Type) :boolean {
     // TODO: can the symbols be equal but the body not equal?
     return that instanceof Abs && this.sym === that.sym && this.body.equals(that.body)

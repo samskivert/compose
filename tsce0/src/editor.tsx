@@ -33,9 +33,10 @@ function mkUndoEntry (edit :T.TreeEdit, curs :M.Path) :UndoEntry {
 // this has to be a class to avoid insane mobx bullshit
 class SpanSource implements K.Source {
   mappings :K.Mapping[]
-  constructor (store :DefStore, readonly span :M.Span) {
+  constructor (readonly store :DefStore, readonly span :M.Span) {
     this.mappings = span.getMappings(store)
   }
+  get enabled () :boolean { return true /*!this.store.isEditing*/ }
   get name () :string { return this.span.name }
   willDispatch (kp :K.KeyPress) :boolean { return false }
   handleKey (kp :K.KeyPress) :boolean { return false }
@@ -54,7 +55,6 @@ export class DefStore implements K.Source {
   @observable curs :M.Path = M.emptyPath
   @observable sel  :Selection|void = undefined
 
-  @computed get name () :N.Name { return this.def.sym.name }
   @computed get isActive () :boolean { return this.selStore.get() === this }
 
   get mod () :MD.Module { return this.sym.mod }
@@ -70,17 +70,6 @@ export class DefStore implements K.Source {
   }
 
   bound = false
-
-  bind (keymap :K.Keymap) {
-    keymap.addSource(this)
-    keymap.addSource(this.spanSource)
-    this.bound = true // TODO: this is an ugly hack
-  }
-  unbind (keymap :K.Keymap) {
-    this.bound = false
-    keymap.removeSource(this.spanSource)
-    keymap.removeSource(this)
-  }
 
   constructor (readonly sym :MD.DefSym, def :T.DefTree,
                readonly keymap :K.Keymap,
@@ -106,12 +95,28 @@ export class DefStore implements K.Source {
     })
   }
 
+  bind (keymap :K.Keymap) {
+    if (this.bound) console.trace(`Bind but already bound!`)
+    keymap.addSource(this)
+    keymap.addSource(this.spanSource)
+    this.bound = true // TODO: this is an ugly hack
+  }
+  unbind (keymap :K.Keymap) {
+    if (!this.bound) console.trace(`Unbind but not bound!`)
+    this.bound = false
+    keymap.removeSource(this.spanSource)
+    keymap.removeSource(this)
+  }
+
   toString () {
     return `${this.name}/${this.def}`
   }
 
   //
   // K.Source functionality
+
+  @computed get name () :N.Name { return this.def.sym.name }
+  get enabled () :boolean { return true }
 
   readonly mappings :K.Mapping[] = [{
     id: "move-left",
@@ -231,9 +236,9 @@ export class DefStore implements K.Source {
     id: "start-edit",
     descrip: "Edit current element",
     chord: "Enter",
-    isEdit :() => false,
+    isEdit :() => this.isEditing,
     action: kp => {
-      if (this.isEditing) this.commitEdit() // TODO: right thing to do?
+      if (this.isEditing) this.commitEdit(true)
       else this.startEdit()
     }
   }, {
@@ -264,6 +269,19 @@ export class DefStore implements K.Source {
       if (!this.isEditing) {} // TODO: delete all text, show hole?
       else this.deleteChar(1)
     },
+  }, {
+    id: "show-path",
+    descrip: "Show the path to the node under the cursor",
+    chord: "S-M-KeyP",
+    isEdit :() => true,
+    action: kp => {
+      const span = this.selectedSpan
+      if (span instanceof M.TreeSpan) {
+        console.log(`Path: ${span.path.mkString(span.root)}`)
+      } else {
+        console.log(`No path associated with span.`)
+      }
+    },
   }]
 
   willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean {
@@ -278,7 +296,7 @@ export class DefStore implements K.Source {
     if (kp.isModifier) return false
 
     const chord = kp.chord
-    if ((chord == "Tab" || chord == "S-Tab") && !this.applyComp) {
+    if ((chord === "Tab" || chord === "S-Tab") && !this.applyComp) {
       kp.preventDefault()
       this.moveCursor(M.moveHoriz(chord === "Tab" ? M.HDir.Right : M.HDir.Left))
       return true
@@ -292,7 +310,12 @@ export class DefStore implements K.Source {
     //   if ((chord == "Tab" || chord == "S-Tab") && !focus) this.moveCursor(
     //     M.moveHoriz(chord == "Tab" ? M.HDir.Right : M.HDir.Left))
     // } else
-    if (kp.isPrintable) {
+    if (chord === "Space") {
+      if (this.commitEdit()) {
+        console.log(`redispatching space to active span...`)
+        this.keymap.dispatchKey(kp)
+      }
+    } else if (kp.isPrintable) {
       this.insertChar(kp.key)
     } else {
       console.log(`TODO: handle press ${JSON.stringify(kp)}`)
@@ -329,12 +352,21 @@ export class DefStore implements K.Source {
     })
   }
 
+  private autoEditTimerId :any = undefined
+
   moveCursor (mover :(elem :M.Elem, path :M.Path) => M.Path) {
     const oldPath = this.curs
     const newPath = mover(this.elem, oldPath)
     const selSpan = this.elem.spanAt(newPath)
     // console.log(`moveCursor ${JSON.stringify(newPath)}`)
-    this.selectSpan(newPath, selSpan && selSpan.isHole ? 0 : undefined)
+    if (this.autoEditTimerId) {
+      clearTimeout(this.autoEditTimerId)
+      this.autoEditTimerId = undefined
+    }
+    this.selectSpan(newPath)
+    if (selSpan && selSpan.isHole) {
+      this.autoEditTimerId = setTimeout(() => this.offset = 0, 500)
+    }
   }
 
   insertHole (dir :M.Dir) {
@@ -345,16 +377,19 @@ export class DefStore implements K.Source {
   }
 
   startEdit () {
+    console.trace(`startEdit...`)
     this.offset = this.selectedSpan.sourceText.length
   }
-  commitEdit () {
+  commitEdit (force :boolean = false) :boolean {
     // console.log(`commitEdit? '${this.spanText}' '${this.selectedSpan.sourceText}'`)
-    if (this.spanText !== this.selectedSpan.sourceText) {
-      console.log(`Committing edit '${this.spanText}'`)
+    if (force || this.spanText !== this.selectedSpan.sourceText) {
+      console.log(`Committing edit '${this.spanText} // ${this.selectedComp}'`)
       const action = this.selectedSpan.commitEdit(this.spanText, this.selectedComp)
       if (action) this.applyAction(action)
       this.stopEdit()
+      return true
     } // else console.log(`No pending edit to commit.`)
+    return false
   }
   stopEdit () {
     this.offset = undefined
@@ -398,7 +433,7 @@ export class DefStore implements K.Source {
   @observable offset :number|void = undefined
 
   /** Whether or not we're in text edit mode. */
-  get isEditing () :boolean { return this.offset !== undefined }
+  @computed get isEditing () :boolean { return this.offset !== undefined }
 
   @observable spanText :string = ""
   @observable selCompIdx = 0
@@ -562,7 +597,7 @@ function renderAnnots (annots :M.Annot[], idx :number) {
   return <div key={idx}>{annots.map(renderAnnot)}</div>
 }
 
-function spanSpan (span :M.Span, idx :number, selected :Boolean = false, active :Boolean = true,
+function spanSpan (span :M.Span, idx :number, selected :boolean = false, active :boolean = true,
                    onPress? :() => void) :JSX.Element {
   const selstyle = active ? "selectedSpan" : "lowSelectedSpan"
   const className = (selected ? span.styles.concat([selstyle]) : span.styles).join(" ")
