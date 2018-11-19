@@ -10,7 +10,7 @@ export interface Symbol {
 }
 
 export interface DefTree {
-  readonly body :{sig :Type}
+  readonly body :{sig (recursive: boolean) :Type}
 }
 
 export abstract class Kind {
@@ -255,7 +255,7 @@ export class Scalar extends Type {
 }
 
 export class Def extends Type {
-  get kind () :Kind { return this.tree.body.sig.kind }
+  get kind () :Kind { return this.tree.body.sig(false).kind }
   constructor (readonly sym :Symbol, readonly tree :DefTree) { super() }
   equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
   join (that :Type) :Type {
@@ -264,7 +264,7 @@ export class Def extends Type {
     else return this._joinFailure(that)
   }
   subsumes (that :Type) :boolean {
-    return (that instanceof Def && this.sym == that.sym) || this.tree.body.sig.subsumes(that)
+    return (that instanceof Def && this.sym == that.sym) || this.tree.body.sig(false).subsumes(that)
   }
   toString () { return `${this.sym.name}`}
 }
@@ -297,7 +297,7 @@ export class Sum extends Type {
 
 export function kindApply (fun :Kind, arg :Kind) :Kind {
   if (!(fun instanceof KArrow)) return new Error(
-    `Cannot apply type arg (kind: ${arg}) to non-arrow kind ${fun}`)
+      `Cannot apply type arg (kind: ${arg}) to non-arrow kind ${fun}`)
   else if (arg !== star) return new Error(
     `Cannot apply type arrow (${fun}) to non-star kind ${arg}`)
   else return fun.res
@@ -325,8 +325,11 @@ export function funApply (fun :Type, arg :Type) :Type {
     // and regeneralize... (TODO)
     return arrowApply(ufun, arg)
   }
-  else if (!(fun instanceof Arrow)) return new Error(
+  else if (!(fun instanceof Arrow)) {
+    console.warn(`Cannot apply type arg (kind: ${arg}) to non-arrow kind ${fun}`)
+    return new Error(
     `Cannot apply arg (type: ${arg}) to non-fun: ${fun}`)
+  }
   else return arrowApply(fun, arg)
 }
 

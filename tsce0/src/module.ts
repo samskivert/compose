@@ -270,7 +270,7 @@ export class Module implements S.Index {
 export class ModuleSym extends S.Symbol {
   constructor (readonly mod :Module, name :Name) { super("module", "none", 0, name) }
   get scope () :S.Scope { return this.mod.scope }
-  get type () :TP.Type { return TP.hole } // TODO: special module type? none type?
+  type (recursive :boolean) :TP.Type { return TP.hole } // TODO: special module type? none type?
   get owner () :S.Symbol { return this }
   get index () :S.Index { return this.mod }
   toString () { return `msym#${this.mod.name}` }
@@ -280,7 +280,7 @@ export class DefSym extends S.Symbol {
   constructor (readonly mod :Module, kind :S.Kind, flavor :S.Flavor, id :number, name :Name) {
     super(kind, flavor, id, name)
   }
-  get type () :TP.Type { return this.mod.tree(this).sig }
+  type (recursive :boolean) :TP.Type { return this.mod.tree(this).sig(recursive) }
   get owner () :S.Symbol { return this.mod.sym }
   get index () :S.Index { return this.mod }
   get displayName () :string { return this.name || "?" }

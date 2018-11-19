@@ -282,6 +282,19 @@ export class DefStore implements K.Source {
         console.log(`No path associated with span.`)
       }
     },
+  }, {
+    id: "log-node",
+    descrip: "Debug log node",
+    chord: "S-M-KeyL",
+    isEdit :() => true,
+    action: kp => {
+      const span = this.selectedSpan
+      if (span instanceof M.TreeSpan) {
+        console.dir(span.tree)
+      } else {
+        console.log(`No node associated with span.`)
+      }
+    },
   }]
 
   willDispatch (kp :K.KeyPress, mp :K.Mapping) :boolean {
