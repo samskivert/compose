@@ -271,7 +271,7 @@ export class DefStore implements K.Source {
     },
   }, {
     id: "show-path",
-    descrip: "Show the path to the node under the cursor",
+    descrip: "Show node path",
     chord: "S-M-KeyP",
     isEdit :() => true,
     action: kp => {
