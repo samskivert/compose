@@ -884,10 +884,10 @@ class TermExprSpan extends SymRuleSpan {
       map(sym => new TermSymbolCompletion(sym))
 
     // if the text starts with a tree-stub generator, include that option as well
-    if (text.length > 1 && "let".startsWith(text)) comps.unshift(letCompletion)
-    if (text.length > 1 && "fun".startsWith(text)) comps.unshift(funCompletion)
-    if (text.length > 1 && "case".startsWith(text)) comps.unshift(caseCompletion)
-    if (text === "if") comps.unshift(ifCompletion)
+    if ("let".startsWith(text)) comps.push(letCompletion)
+    if ("fun".startsWith(text)) comps.push(funCompletion)
+    if ("case".startsWith(text)) comps.push(caseCompletion)
+    if ("if".startsWith(text)) comps.push(ifCompletion)
     return comps
   }
 
