@@ -48,9 +48,15 @@ export abstract class Type {
   get arity () :number { return 0 }
   abstract subsumes (that :Type) :boolean
   abstract equals (that :Type) :boolean
+  check (proto :Type) :Type {
+    const checked = this.join(proto)
+    if (checked.isError) return new Error(`Expected ${proto} but have ${this}`)
+    return this
+  }
   join (that :Type) :Type {
     if (this.equals(that)) return this
     else if (that instanceof Hole) return this
+    else if (that instanceof Error) return this
     else if (that instanceof Def) return that.join(this)
     else return this._joinFailure(that)
   }
@@ -82,7 +88,7 @@ export class Error extends Type {
   constructor (readonly msg :string, readonly kind :Kind = star) { super() }
   get isError () :boolean { return true }
   equals (that :Type) :boolean { return false }
-  join (that :Type) :Type { return this }
+  join (that :Type) :Type { return that }
   subsumes (that :Type) :boolean { return false }
   toString () { return `!!${this.msg}!!` }
 }
@@ -155,6 +161,7 @@ export class Arrow extends Type {
       super.join(that)
   }
   subsumes (that :Type) :boolean {
+    // TODO: technically potentially need to skolemize here, etc
     if (that instanceof Arrow) {
       return this.arg.subsumes(that.arg) && that.res.subsumes(this.res)
     }
@@ -258,6 +265,7 @@ export class Def extends Type {
   get kind () :Kind { return this.tree.body.sig(false).kind }
   constructor (readonly sym :Symbol, readonly tree :DefTree) { super() }
   equals (that :Type) :boolean { return that instanceof Def && this.sym === that.sym }
+  check (proto :Type) :Type { return this }
   join (that :Type) :Type {
     if (this.subsumes(that)) return this
     else if (that instanceof Hole) return this
@@ -295,7 +303,7 @@ export class Sum extends Type {
 // -- | Interface Name Params Methods
 // -- | Method Name Type
 
-export function kindApply (fun :Kind, arg :Kind) :Kind {
+function kindApply (fun :Kind, arg :Kind) :Kind {
   if (!(fun instanceof KArrow)) return new Error(
       `Cannot apply type arg (kind: ${arg}) to non-arrow kind ${fun}`)
   else if (arg !== star) return new Error(
@@ -303,13 +311,26 @@ export function kindApply (fun :Kind, arg :Kind) :Kind {
   else return fun.res
 }
 
-export function unifyApply (uleft :Type, uright :Type, aleft :Type) :Type {
+function unifyApply (uleft :Type, uright :Type, aleft :Type) :Type {
   const mappings = new Map()
   const errors :string[] = []
   uleft.unify(uright, mappings, errors)
   // TODO: should we report all unification errors?
   if (errors.length > 0) return new Error(errors[0])
   return aleft.map(mappings)
+}
+
+function arrowApply (fun :Arrow, arg :Type) :Type {
+  // if arg is generalized...
+  if (arg instanceof Abs) {
+    const skarg = arg.skolemize(new Map())
+    const uarg = unifyApply(skarg, fun.arg, skarg)
+    // TODO: regeneralize?
+    return arrowApply(fun, uarg)
+  }
+  else if (!fun.arg.subsumes(arg)) return new Error(
+    `Cannot apply fun of type ${fun} to arg of type ${arg}`)
+  else return fun.res
 }
 
 export function funApply (fun :Type, arg :Type) :Type {
@@ -333,19 +354,6 @@ export function funApply (fun :Type, arg :Type) :Type {
   else return arrowApply(fun, arg)
 }
 
-export function arrowApply (fun :Arrow, arg :Type) :Type {
-  // if arg is generalized...
-  if (arg instanceof Abs) {
-    const skarg = arg.skolemize(new Map())
-    const uarg = unifyApply(skarg, fun.res, skarg)
-    // TODO: regeneralize?
-    return arrowApply(fun, uarg)
-  }
-  else if (!fun.arg.subsumes(arg)) return new Error(
-    `Cannot apply fun of type ${fun} to arg of type ${arg}`)
-  else return fun.res
-}
-
 export function patUnapply (type :Type) :Type {
   if (!(type instanceof Arrow)) return new Error(`Cannot unapply non-arrow type ${type}`)
   else if (type.res instanceof Arrow) return new Arrow(type.arg, patUnapply(type.res))
@@ -358,7 +366,7 @@ export function patLastArg (type :Type) :Type {
   else return type.res
 }
 
-export function patFlipArrow (type :Type) :Type {
+function patFlipArrow (type :Type) :Type {
   function flip (from :Type, to :Type) :Type {
     if (from instanceof Arrow) return flip(from.res, new Arrow(from.arg, to))
     else return new Arrow(from, to)

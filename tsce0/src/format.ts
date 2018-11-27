@@ -48,6 +48,8 @@ class Acc {
     this.depth += 1
     const start = this.lineWidth, {editing} = this.opts
 
+    this.maybeAppendError(path, tree)
+
     if (tree instanceof T.EmptyTree) {
       // nothing (TODO?)
 
@@ -225,6 +227,13 @@ class Acc {
     return this
   }
 
+  maybeAppendError (path :T.Path, tree :T.Tree) {
+    const treeErr = tree.check()
+    if (treeErr) {
+      this.appendSpan(new ErrorSpan(this.root, path, tree, treeErr))
+    }
+  }
+
   appendPatTree (path :T.Path, tree :T.PatTree) {
     if (tree instanceof T.PHoleTree) {
       this.appendSymSpan(new PatSpan(this.root, path, tree, new S.TermHoleSym()))
@@ -287,6 +296,7 @@ class Acc {
       this.appendKeySpan(" → ")
       this.appendTree(bodyPath.x("type"), body.type)
       this.appendKeySpan(" = ")
+      this.maybeAppendError(bodyPath, body)
       this.newLine()
       this.appendSubTree(bodyPath.x("expr"), body.expr)
     } else {
@@ -652,6 +662,14 @@ function findBody (tree :T.Tree, path :T.Path) :T.Path {
   else return path
 }
 
+class ErrorSpan extends M.TreeSpan {
+  constructor (readonly root :T.DefTree, readonly path :T.Path,
+               readonly tree :T.Tree, readonly sig :TP.Type) { super() }
+  get styles () { return ["error"] }
+  get sourceText () { return "!" }
+  get tooltip () { return this.sig.toString() }
+}
+
 abstract class RuleSpan extends M.TreeSpan {
 
   abstract get keyRules () :KeyRule[]
@@ -689,10 +707,6 @@ abstract class RuleSpan extends M.TreeSpan {
 
 abstract class SymRuleSpan extends RuleSpan {
   abstract get sym () :S.Symbol
-  get tooltip () :string {
-    const symType = this.sym.type(false)
-    return this.sym.kind === "type" ? symType.kind.toString() : symType.toString()
-  }
   get styles () { return [symStyle(this.sym)] }
   get sourceText () { return this.sym.name }
   get displayText () { return this.sym.displayName || "?" }
@@ -713,6 +727,11 @@ class TypeDefSpan extends SymRuleSpan {
   get sym () :S.Symbol { return this.tree.sym }
   get keyRules () { return typeKeyRules }
   get editPlaceHolder () { return "<name>" }
+
+  get tooltip () :string {
+    const symType = this.sym.type(false)
+    return this.sym.kind === "type" ? symType.kind.toString() : symType.toString()
+  }
 
   getCompletions (text :string) :M.Completion[] { return [] } // TODO
   protected createDefaultComp (text :string) { return new NameCompletion(text) }
@@ -750,6 +769,11 @@ class TypeExprSpan extends SymRuleSpan {
 
   get keyRules () { return typeExprKeyRules }
   get editPlaceHolder () { return "<type>" }
+
+  get tooltip () :string {
+    const symType = this.sym.type(false)
+    return this.sym.kind === "type" ? symType.kind.toString() : symType.toString()
+  }
 
   getCompletions (text :string) :M.Completion[] {
     return this.scope.getCompletions(sym => sym.kind === "type", text).
