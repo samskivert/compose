@@ -426,10 +426,17 @@ export class PAppTree extends PatTree {
   arg :PatTree = emptyPatTree
   get branchIds () :string[] { return ["fun", "arg"] }
   protected computeSig (recursive :boolean) :TP.Type {
-    return TP.patUnapply(this.fun.sig(recursive)) }
+    const funSig = this.fun.sig(recursive)
+    if (funSig instanceof TP.Arrow) return funSig.res
+    else return new TP.Error(`Can't unapply non-function`)
+  }
   protected childPrototype (id :string) :TP.Type|void {
-    if (id === "fun") return this.prototype
-    if (id === "arg") return TP.patLastArg(this.fun.sig())
+    if (id === "fun") return new TP.Arrow(TP.hole, this.prototype)
+    if (id === "arg") {
+      const funSig = this.fun.sig()
+      if (funSig instanceof TP.Arrow) return funSig.arg
+      else return new TP.Error(`Can't unapply non-function`)
+    }
   }
   addSymbols (syms :S.Symbol[]) {
     if (this.fun instanceof PatTree) this.fun.addSymbols(syms)

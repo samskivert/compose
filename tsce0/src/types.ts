@@ -67,7 +67,8 @@ export abstract class Type {
   map (vars :Map<Skolem, Type>) :Type { return this }
   unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {
     // TODO: obvs throwing error here is not a viable error reporting strategy
-    if (this.constructor != that.constructor) errors.push(`Cannot unify ${this} with ${that}`)
+    if (this.constructor != that.constructor && !(that instanceof Hole)) errors.push(
+      `Cannot unify ${this} with ${that}`)
   }
 }
 
@@ -78,6 +79,8 @@ export class Hole extends Type {
   }
   subsumes (that :Type) :boolean { return false }
   join (that :Type) :Type { return that }
+  // hole unifies with anything
+  unify (that :Type, csts :Map<Skolem, Type>, errors :string[]) :void {}
   // TODO: correct?
   // subsumes (that :Type) :boolean { return true }
   toString () { return `Hole` }
@@ -311,10 +314,13 @@ function kindApply (fun :Kind, arg :Kind) :Kind {
   else return fun.res
 }
 
-function unifyApply (uleft :Type, uright :Type, aleft :Type) :Type {
+function unifyApply (uleft :Type, uright :Type, aleft :Type, debug = false) :Type {
   const mappings = new Map()
   const errors :string[] = []
   uleft.unify(uright, mappings, errors)
+  if (debug) {
+    console.log(`unifyApply ${uleft} <> ${uright}: ${Array.from(mappings.entries())}`)
+  }
   // TODO: should we report all unification errors?
   if (errors.length > 0) return new Error(errors[0])
   return aleft.map(mappings)
@@ -354,36 +360,15 @@ export function funApply (fun :Type, arg :Type) :Type {
   else return arrowApply(fun, arg)
 }
 
-export function patUnapply (type :Type) :Type {
-  if (!(type instanceof Arrow)) return new Error(`Cannot unapply non-arrow type ${type}`)
-  else if (type.res instanceof Arrow) return new Arrow(type.arg, patUnapply(type.res))
-  else return type.arg
-}
-
-export function patLastArg (type :Type) :Type {
-  if (!(type instanceof Arrow)) return new Error(`Cannot get last arg of non-arrow type ${type}`)
-  else if (type.res instanceof Arrow) return patLastArg(type.res)
-  else return type.res
-}
-
-function patFlipArrow (type :Type) :Type {
-  function flip (from :Type, to :Type) :Type {
-    if (from instanceof Arrow) return flip(from.res, new Arrow(from.arg, to))
-    else return new Arrow(from, to)
-  }
-  if (type instanceof Arrow) return flip(type.res, type.arg)
-  else return type
-}
-
 export function patUnify (ctorType :Type, prototype :Type) :Type {
   if (ctorType instanceof Abs) {
-    const skCtor = patFlipArrow(ctorType.skolemize(new Map()))
-    // console.log(`patUnify ${ctorType} => ${patFlipArrow(skCtor)}`)
-    const uCtor = unifyApply(skCtor instanceof Arrow ? skCtor.arg : skCtor, prototype, skCtor)
+    const skCtor = ctorType.skolemize(new Map())
+    // console.log(`patUnify ${ctorType} => ${skCtor}`)
+    const uCtor = unifyApply(skCtor, prototype, skCtor)
     // TODO: regeneralize?
     return uCtor
   } else {
-    return ctorType
+    return ctorType.join(prototype)
   }
 }
 
