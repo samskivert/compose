@@ -76,7 +76,7 @@ class Acc {
       this.appendSymSpan(new TypeDefSpan(this.root, path.x("sym"), tree))
       this.depth -= 1
       this.appendTree(path.x("prod"), tree.prod)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
 
     } else if (tree instanceof T.THoleTree) {
       this.appendSymSpan(new TypeExprSpan(this.root, path, tree, new S.TypeHoleSym()))
@@ -104,7 +104,7 @@ class Acc {
       this.appendSepSpan(" ")
       this.appendTree(path.x("arg"), tree.arg)
       // this.appendSepSpan("]")
-      this.appendAnnot(start, tree.sig().kind)
+      this.appendAnnot(start, tree.displaySig.kind)
 
     } else if (tree instanceof T.FieldTree) {
       this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
@@ -146,7 +146,7 @@ class Acc {
       if (wantParens) this.appendSepSpan("(")
       this.appendTree(path.x("arg"), tree.arg)
       if (wantParens) this.appendSepSpan(")")
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
       if (editing) this.appendSepSpan(")")
 
     } else if (tree instanceof T.InAppTree) {
@@ -157,7 +157,7 @@ class Acc {
       if (wantParens) this.appendSepSpan(")")
       this.appendSepSpan(" ")
       this.appendTree(path.x("fun"), tree.fun)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
       // if (editing) this.appendSepSpan(")")
 
     } else if (tree instanceof T.LetTree) {
@@ -166,7 +166,7 @@ class Acc {
       this.appendAnnType(path.x("type"), tree.type)
       this.appendKeySpan(" = ")
       this.appendTree(path.x("body"), tree.body)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
       this.newLine()
       this.appendKeySpan("in ")
       this.appendTree(path.x("expr"), tree.expr)
@@ -176,7 +176,7 @@ class Acc {
       this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
       this.appendSepSpan(" ")
       this.appendTree(path.x("body"), tree.body)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
       this.newLine()
       this.appendTree(path.x("expr"), tree.expr)
 
@@ -198,13 +198,13 @@ class Acc {
       this.appendTree(path.x("texp"), tree.texp)
       this.appendKeySpan(" else ")
       this.appendTree(path.x("fexp"), tree.fexp)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
 
     } else if (tree instanceof T.MatchTree) {
       this.appendKeySpan("case ")
       this.appendTree(path.x("scrut"), tree.scrut)
       this.appendKeySpan(" of")
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
       for (let ii = 0; ii < tree.cases.length; ii += 1) {
         this.newLine()
         this.appendSubTree(path.x(`${ii}`), tree.cases[ii])
@@ -214,7 +214,7 @@ class Acc {
       this.appendTree(path.x("pat"), tree.pat)
       this.appendKeySpan(" → ")
       this.appendTree(path.x("body"), tree.body)
-      this.appendAnnot(start, tree.sig())
+      this.appendAnnot(start, tree.displaySig)
 
     } else if (tree instanceof T.PrimTree) {
       this.appendSpan(new M.TextSpan("<internal>"))
@@ -228,9 +228,10 @@ class Acc {
   }
 
   maybeAppendError (path :T.Path, tree :T.Tree) {
-    const treeErr = tree.check()
-    if (treeErr) {
-      this.appendSpan(new ErrorSpan(this.root, path, tree, treeErr))
+    // const treeErr = tree.check()
+    const treeSig = tree.displaySig
+    if (treeSig instanceof TP.Error) {
+      this.appendSpan(new ErrorSpan(this.root, path, tree, treeSig))
     }
   }
 
@@ -355,7 +356,7 @@ class Acc {
   appendSymSpan (span :SymRuleSpan) {
     const start = this.lineWidth, {path, sym, tree} = span
     this.appendSpan(span, path)
-    this.appendAnnot(start, sym.kind === "term" ? tree.sig() : tree.sig().kind)
+    this.appendAnnot(start, sym.kind === "term" ? tree.displaySig : tree.displaySig.kind)
   }
 
   appendPreExprSpan (text :string, path :T.Path, tree :T.Tree) {
@@ -440,7 +441,7 @@ class NameCompletion extends M.Completion {
 abstract class SymbolCompletion extends M.Completion {
   constructor (readonly item :S.Symbol) { super() }
   get name () :Name { return this.item.name }
-  get type () :TP.Type { return this.item.type(false) }
+  get type () :TP.Type { return this.item.type(TP.hole, false) }
   display () :M.Line { return formatCompletion(this.item.name, this.item.kind, this.type) }
   equals (that :M.Completion) :boolean {
     return that instanceof SymbolCompletion && this.item === that.item
@@ -569,7 +570,7 @@ const addInApp :KeyRule = {
   chord: "Space",
   pathPred: (root, path) => {
     const selTree = path.selectedTree(root)
-    return selTree.kind === "lit" || (selTree.kind === "ref" && !selTree.sig().isArrow)
+    return selTree.kind === "lit" || (selTree.kind === "ref" && !selTree.displaySig.isArrow)
   },
   apply: (root, path) => path.edit(te => te.spliceInApp()),
   focusOp: (root, path) => path.x("fun")
@@ -580,12 +581,12 @@ const addFunArgs :KeyRule = {
   chord: "Space",
   pathPred: (root, path) => (!path.endsWith(root, "inapp", "fun") &&
                              // TODO: also check that fun does not already have needed app nodes
-                             path.selectedTree(root).sig().isArrow),
+                             path.selectedTree(root).displaySig.isArrow),
   apply: (root, path) => {
     const selTree = path.selectedTree(root)
     // otherwise we're sticking a fun somewhere new, so add holes for all args
     const edits = []
-    const args = selTree.sig().arity
+    const args = selTree.displaySig.arity
     for (let ii = 0; ii < args; ii += 1) {
       edits.push(path.edit(te => te.spliceApp()))
     }
@@ -667,7 +668,7 @@ class ErrorSpan extends M.TreeSpan {
                readonly tree :T.Tree, readonly sig :TP.Type) { super() }
   get styles () { return ["error"] }
   get sourceText () { return "!" }
-  get tooltip () { return this.sig.toString() }
+  get tooltip () { return `${this.tree}: ${this.sig}` }
 }
 
 abstract class RuleSpan extends M.TreeSpan {
@@ -729,7 +730,7 @@ class TypeDefSpan extends SymRuleSpan {
   get editPlaceHolder () { return "<name>" }
 
   get tooltip () :string {
-    const symType = this.sym.type(false)
+    const symType = this.tree.displaySig
     return this.sym.kind === "type" ? symType.kind.toString() : symType.toString()
   }
 
@@ -771,7 +772,7 @@ class TypeExprSpan extends SymRuleSpan {
   get editPlaceHolder () { return "<type>" }
 
   get tooltip () :string {
-    const symType = this.sym.type(false)
+    const symType = this.tree.displaySig
     return this.sym.kind === "type" ? symType.kind.toString() : symType.toString()
   }
 
@@ -903,7 +904,8 @@ class TermExprSpan extends SymRuleSpan {
     console.log(`getCompletions '${text}' :: ${selType} (via ${sel})`)
     const pred = (sym :S.Symbol) => {
       // if (sym.kind === "term") console.log(` check comp ${sym} :: ${sym.type} :: ${sym.type.constructor.name} :: ${sym.type.join(selType)}`)
-      return (sym.kind === "term") && !sym.type(false).join(selType).isError
+      // TODO: we want terms that yield our target type
+      return (sym.kind === "term") && !sym.type(TP.hole, false).join(selType).isError
     }
     const comps :M.Completion[] = this.scope.getCompletions(pred, text).
       map(sym => new TermSymbolCompletion(sym))
@@ -945,7 +947,7 @@ const patKeyRules :KeyRule[] = [
 class PatDtorCompletion extends SymbolCompletion {
   edit (path :T.Path) {
     const edits = [path.edit(te => te.setPDtor(this.item))]
-    let dtorType = this.item.type(false).skolemize(new Map())
+    let dtorType = this.item.type(TP.hole, false).skolemize(new Map())
     while (dtorType instanceof TP.Arrow) {
       edits.push(path.edit(te => te.splicePApp()))
       dtorType = dtorType.res
@@ -972,7 +974,7 @@ class PatSpan extends SymRuleSpan {
     // otherwise find a symbol that completes the text & matches the desired type
     const proto = this.tree.prototype
     const pred = (sym :S.Symbol) => (sym.kind === "term" && sym.flavor === "ctor" &&
-                                     TP.patApplies(sym.type(false), proto))
+                                     TP.patApplies(sym.type(TP.hole, false), proto))
     const comps :M.Completion[] = this.scope.getCompletions(pred, text).
       map(sym => new PatDtorCompletion(sym))
 

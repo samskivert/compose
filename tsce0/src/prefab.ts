@@ -33,7 +33,7 @@ primMod.addTypeDef("Int", IntID).
 primMod.addTypeDef("String", StringID).
   setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
 
-const natType = natTree.sym.type(false)
+const natType = natTree.sym.type(TP.hole, false)
 const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
 primMod.addFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
 primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))

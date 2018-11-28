@@ -103,7 +103,7 @@ export abstract class TreeSpan extends EditableSpan {
     return false
   }
 
-  get tooltip () :string { return `${this.tree.sig()} (< ${this.tree.prototype})` }
+  get tooltip () :string { return `${this.tree.displaySig} (< ${this.tree.prototype})` }
 
   insertHole (dir :Dir) :EditAction|void {
     const {root, path} = this
