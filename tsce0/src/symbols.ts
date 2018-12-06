@@ -36,7 +36,7 @@ export abstract class Symbol {
   get displayName () :string { return this.name }
 
   abstract get owner () :Symbol
-  abstract type (prototype :Type, recursive :boolean) :Type
+  abstract get type () :Type
 
   /** Returns the root of this symbol's ownership chain. For most symbols this will be a module
     * symbol, but some symbols can have esoteric owners (like missing syms, holes, and consts). */
@@ -66,7 +66,7 @@ export abstract class Symbol {
 export class MissingSym extends Symbol {
   constructor (kind :Kind, name :Name) { super(kind, "none", 0, name) }
   get displayName () :string { return `<missing: ${name}>` }
-  type (prototype :Type, recursive :boolean) { return hole }
+  get type () { return hole }
   get owner () :Symbol { return this }
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
@@ -74,7 +74,7 @@ export class MissingSym extends Symbol {
 export class TermHoleSym extends Symbol {
   constructor () { super("term", "none", 0, "") }
   get displayName () :string { return "?" }
-  type (prototype :Type, recursive :boolean) { return hole }
+  get type () { return hole }
   get owner () { return this } // TODO: proper owner?
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
@@ -82,21 +82,21 @@ export class TermHoleSym extends Symbol {
 export class TypeHoleSym extends Symbol {
   constructor () { super("type", "none", 0, "") }
   get displayName () :string { return "?" }
-  type (prototype :Type, recursive :boolean) { return hole }
+  get type () { return hole }
   get owner () { return this } // TODO: proper owner?
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TermConstSym extends Symbol {
   constructor (readonly cnst :Constant) { super("term", "cnst", 0, cnst.value) }
-  type (prototype :Type, recursive :boolean) { return new Const(this.cnst) }
+  get type () { return new Const(this.cnst) }
   get owner () { return this } // TODO: none?
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 
 export class TypeConstSym extends Symbol {
   constructor (readonly cnst :Constant) { super("type", "cnst", 0, cnst.value) }
-  type (prototype :Type, recursive :boolean) { return new Const(this.cnst) }
+  get type () { return new Const(this.cnst) }
   get owner () { return this } // TODO: none?
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
@@ -132,7 +132,7 @@ export const emptyScope :Scope = new EmptyScope()
 
 class EmptySym extends Symbol {
   get owner () :Symbol { return this }
-  type (prototype :Type, recursive :boolean) :Type { return hole }
+  get type () :Type { return hole }
   get index () :Index { throw new Error(`Cannot index through ${this}`) }
 }
 export const emptySym :Symbol = new EmptySym("term", "none", 0, "<empty>")

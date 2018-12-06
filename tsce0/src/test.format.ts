@@ -20,7 +20,7 @@ it("formats things", () => {
   if (testTree instanceof T.DefTree) {
     console.log(testTree.debugShow().join("\n"))
     const {elem} = F.format(testMod, testTree, new T.Path())
-    console.dir(elem)
+    // console.dir(elem)
     console.log(elem.debugShow().join("\n"))
   } else {
     console.log(`Invalid test sym? ${testSym} / ${testTree}`)

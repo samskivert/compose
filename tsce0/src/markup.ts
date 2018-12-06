@@ -103,7 +103,7 @@ export abstract class TreeSpan extends EditableSpan {
     return false
   }
 
-  get tooltip () :string { return `${this.tree.displaySig} (< ${this.tree.prototype})` }
+  get tooltip () :string { return `${this.tree.treeType}` }
 
   insertHole (dir :Dir) :EditAction|void {
     const {root, path} = this
@@ -282,6 +282,7 @@ export class Line extends Elem {
 
   _debugShow (indent :string, buf :string[]) {
     buf.push(indent + this.spans.map(span => span.displayText).join(""))
+    this.annots.forEach(as => buf.push(indent + as.map(a => a.text).join("")))
   }
 }
 

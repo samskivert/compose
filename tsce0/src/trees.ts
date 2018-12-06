@@ -11,13 +11,10 @@ import * as TP from "./types"
 
 type Branch = Tree|S.Symbol|C.Constant
 
+type Inference = [TP.Type, TP.Context]
+
 let treeId = 0
 function nextTreeId () { treeId += 1 ; return treeId }
-
-// Computing prototype of typedef#21
-// trees.ts:47 Computing prototype of tref#26
-// trees.ts:47 Computing prototype of field#25
-// trees.ts:47 Computing prototype of prod#24
 
 export abstract class Tree {
   readonly id = nextTreeId()
@@ -27,7 +24,8 @@ export abstract class Tree {
   protected _parentId! :string
   protected _owner! :S.Symbol
   protected _scope! :S.Scope
-  private _computingSig = false
+
+  treeType :TP.Type = TP.hole
 
   get parent () :Tree|void { return this._parent }
   get parentId () :string { return this._parentId }
@@ -45,25 +43,56 @@ export abstract class Tree {
 
   get isHole () :boolean { return false }
 
-  get prototype () :TP.Type {
-    return this.parent && this.parent.childPrototype(TP.hole, this.parentId) || TP.hole
-  }
-  get displaySig () :TP.Type {
-    return this.sig(this.prototype)
+  /** Returns the ascribed type signature of this tree. */
+  get signature () :TP.Type {
+    return TP.hole
   }
 
-  sig (prototype :TP.Type, recursive :boolean = false) :TP.Type {
-    const selfRecursive = this._computingSig == true
-    this._computingSig = true
-    const sig = this.computeSig(prototype, recursive || selfRecursive)
-    this._computingSig = false
-    const check = this.parent && this.parent.checkChild(this.parentId)
-    return check ? sig.check(prototype) : sig
+  /** Checks that this tree has type `tpe` with input context `ctx`.
+    * @return the output context or an error. */
+  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
+    ctx.tracer.trace(`Tree.check ${this} :: ${tpe}`)
+    if (tpe instanceof TP.Abs) {
+      // ∀I :: (e, ∀α.A)
+      const checkCtx = ctx.extend(tpe.uv)
+      ctx.tracer.trace(`- ∀I (${this} <= ${tpe.body}) in ${checkCtx}`)
+      const checkedCtx = this.check(checkCtx, tpe.body) // Γ,α ⊢ e ⇐ A ⊣ ∆,α,Θ
+      if (typeof checkedCtx === 'string') return checkedCtx
+      this.applyContext(checkedCtx)
+      return checkedCtx.peel(tpe.uv) // ∆
+    } else {
+      // Sub :: (e, B)
+      let [expType, theta] = this.inferSave(ctx) // Γ ⊢ e ⇒ A ⊣ Θ
+      ctx.tracer.trace(`- Sub (${this} => ${expType}) ; [Θ]${expType} <: [Θ]${tpe} in ${theta}`)
+      return theta.subtype(expType.apply(theta), tpe.apply(theta)) // Θ ⊢ [Θ]A <: [Θ]B ⊣ ∆
+    }
   }
-  protected abstract computeSig (prototype :TP.Type, recursive :boolean) :TP.Type
 
-  // whether or not our child should check its type against its prototype
-  protected checkChild (id :string) { return false }
+  /** Infers a type for this tree with input context `ctx` and records its as the tree's signature.
+    * The recorded type is not yet applied to the context until inference is complete for the entire
+    * expression (which happens in `DefTree.infer`).
+    * @return the inferred type and the output context. */
+  inferSave (ctx :TP.Context) :Inference {
+    ctx.tracer.trace(`infer ${this}`)
+    const [tpe, delta] = this.infer(ctx)
+    this.treeType = tpe
+    ctx.tracer.trace(`> ${this} :: ${this.treeType} // ∆ = ${delta}`)
+    return [tpe, delta]
+  }
+
+  /** Performs inference for this type of tree. See `inferSave`. */
+  protected abstract infer (ctx :TP.Context) :Inference
+
+  /** Applies this tree's type to the supplied `ctx` (subbing existential vars for their solutions).
+    * @return the supplied `ctx`, unmodified. */
+  protected applyContext (ctx :TP.Context) {
+    for (let id of this.branchIds) {
+      const branch = this.branch(id)
+      if (branch instanceof Tree) branch.applyContext(ctx)
+    }
+    this.treeType = this.treeType.apply(ctx)
+    ctx.tracer.trace(`>> ${this} :: ${this.treeType}`)
+  }
 
   get branchIds () :string[] { return [] }
   branch (id :string) :Branch { return this[id] }
@@ -80,28 +109,6 @@ export abstract class Tree {
     if (id === "sym" && !(branch instanceof S.Symbol)) throw new Error(
       `Set 'sym' branch to non-symbol ${branch}!`)
     this[id] = branch
-  }
-
-  /** Returns the prototype (expected type) for child `id`, given a prototype for this tree. */
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void { return undefined }
-
-  protected childSig (prototype :TP.Type, id :string, recursive :boolean) :TP.Type {
-    const proto = this.childPrototype(prototype, id) || TP.hole
-    return this.treeAt(id).sig(proto, recursive)
-  }
-  // get prototype () :TP.Type {
-  //   const proto = this.parent && this.parent.childPrototype(this.parentId)
-  //   return proto || TP.hole
-  // }
-
-  // TODO: ugh...
-  sigQuants () :TypeVarTreeSym[] {
-    const acc :TypeVarTreeSym[] = []
-    this._sigQuants(acc)
-    return acc
-  }
-  protected _sigQuants (acc :TypeVarTreeSym[]) {
-    if (this.parent) this.parent._sigQuants(acc)
   }
 
   link (parent :Tree, parentId :string) {
@@ -233,8 +240,8 @@ class DefTreeScope extends S.Scope {
 export class EmptyTree extends Tree {
   get owner () :S.Symbol { return S.emptySym }
   get scope () :S.Scope { return S.emptyScope }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return TP.hole }
   link (parent :Tree, parentId :string) { /*NOOP!*/ }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] }
 }
 export const emptyTree = new EmptyTree()
 
@@ -244,56 +251,56 @@ export const emptyTree = new EmptyTree()
 
 export class THoleTree extends Tree {
   get isHole () :boolean { return true }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return TP.hole }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class TConstTree extends Tree {
-  constructor (public cnst :C.Constant) { super() }
   get branchIds () :string[] { return ["cnst"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Const(this.cnst) }
+  get signature () :TP.Type { return new TP.Const(this.cnst) }
+  constructor (public cnst :C.Constant) { super() }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class TRefTree extends Tree {
-  constructor (readonly sym :S.Symbol) { super() }
   get branchIds () :string[] { return ["sym"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.sym.type(prototype, recursive) }
+  get signature () :TP.Type { return this.sym.type }
+  constructor (readonly sym :S.Symbol) { super() }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class ArrowTree extends Tree {
   from :Tree = emptyTree
   to :Tree = emptyTree
   get branchIds () :string[] { return ["from", "to"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    const fromProto = TP.hole, toProto = TP.hole // TODO
-    return new TP.Arrow(this.from.sig(fromProto, recursive), this.to.sig(toProto, recursive)) }
+  get signature () :TP.Type { return new TP.Arrow(this.from.signature, this.to.signature) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class TAbsTree extends DefTree {
-  readonly sym :TypeVarTreeSym
+  readonly sym :TreeSym
   body :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new TypeVarTreeSym(this, id, name) }
   get branchIds () :string[] { return ["sym", "body"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Abs(this.sym, this.body.sig(TP.hole, recursive)) }
-  protected _sigQuants (acc :TypeVarTreeSym[]) { acc.unshift(this.sym) }
+  get signature () :TP.Abs { return new TP.Abs(this.sym, this.body.signature) }
+  constructor (id :number, name :Name) {
+    super() ; this.sym = new TreeSym(this, "type", "none", id, name, () => new TP.UVar(this.sym)) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
+  // protected _sigQuants (acc :TypeVarTreeSym[]) { acc.unshift(this.sym) }
 }
 
 export class TAppTree extends Tree {
   ctor :Tree = emptyTree
   arg :Tree = emptyTree
   get branchIds () :string[] { return ["ctor", "arg"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.App(this.ctor.sig(TP.hole, recursive), this.arg.sig(TP.hole, recursive)) }
+  get signature () :TP.Type { return new TP.App(this.ctor.signature, this.arg.signature) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class ProdTree extends Tree {
   fields :Tree[] = []
   get branchIds () :string[] { return this.fields.map((f, ii) => `${ii}`) }
+  get signature () :TP.Type { return new TP.Prod(this.fields.map(f => f.signature)) }
   branch (id :string) :Branch { return this.fields[parseInt(id)] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Prod(this.fields.map(f => (f as Tree).sig(TP.hole, recursive) as TP.Def)) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 
   /** Inserts a new field tree (with holes) at `idx`, giving it symbol id `id`.
     * Trailing fields are shifted down. */
@@ -331,6 +338,7 @@ export class ProdTree extends Tree {
 export class SumTree extends Tree {
   cases :Tree[] = []
   get branchIds () :string[] { return this.cases.map((c, ii) => `${ii}`) }
+  get signature () :TP.Type { return new TP.Prod(this.cases.map(c => c.signature)) }
   branch (id :string) :Branch { return this.cases[parseInt(id)] }
   protected storeBranch (id :string, branch :Branch) {
     this.cases[parseInt(id)] = branch as Tree }
@@ -338,51 +346,52 @@ export class SumTree extends Tree {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.cases.length // allow one past last field
   }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Sum(this.cases.map(c => (c as Tree).sig(TP.hole, recursive) as TP.Def)) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class FieldTree extends DefTree {
   readonly sym :TreeSym
   type :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new FieldTreeSym(this, id, name) }
   get branchIds () :string[] { return ["sym", "type"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.type.sig(TP.hole, recursive) }
+  get signature () :TP.Type { return this.type.signature }
+  constructor (id :number, name :Name) { super() ; this.sym = new TypeDefSym(this, id, name) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 export class CtorTree extends DefTree {
   readonly sym :TreeSym
   prod :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new CtorTreeSym(this, id, name) }
   get branchIds () :string[] { return ["sym", "prod"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    let defTree = this.parent
-    while (defTree && !(defTree instanceof TypeDefTree)) {
-      defTree = defTree.parent
-    }
-    if (!defTree) throw new Error(
-      `Constructor must be enclosed by 'type' tree (in: ${this})`)
-    function mkArrow (types :TP.Type[], pos :number, acc :TP.Type) :TP.Type {
-      const arrow = new TP.Arrow(types[pos], acc)
-      return (pos == 0) ? arrow : mkArrow(types, pos-1, arrow)
-    }
-    function mkAbs (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
-      const abs = new TP.Abs(quants[pos], acc)
-      return (pos == 0) ? abs : mkAbs(quants, pos-1, abs)
-    }
-    function mkApp (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
-      const app = new TP.App(acc, new TP.Var(quants[pos]))
-      return (pos == quants.length-1) ? app : mkApp(quants, pos+1, acc)
-    }
-    const prodFields = (this.prod.sig(TP.hole, recursive) as TP.Prod).fields
-    const quants = this.sigQuants()
-    let ctorType = defTree.sig(TP.hole, recursive)
-    if (quants.length > 0) ctorType = mkApp(quants, 0, ctorType)
-    if (prodFields.length > 0) ctorType = mkArrow(prodFields, prodFields.length-1, ctorType)
-    if (quants.length > 0) ctorType = mkAbs(quants, quants.length-1, ctorType)
-    return ctorType
-  }
+  // TODO: sort out this mess!
+  // get signature () :TP.Type {
+  //   let defTree = this.parent
+  //   while (defTree && !(defTree instanceof TypeDefTree)) {
+  //     defTree = defTree.parent
+  //   }
+  //   if (!defTree) throw new Error(
+  //     `Constructor must be enclosed by 'type' tree (in: ${this})`)
+  //   function mkArrow (types :TP.Type[], pos :number, acc :TP.Type) :TP.Type {
+  //     const arrow = new TP.Arrow(types[pos], acc)
+  //     return (pos == 0) ? arrow : mkArrow(types, pos-1, arrow)
+  //   }
+  //   function mkAbs (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
+  //     const abs = new TP.Abs(quants[pos], acc)
+  //     return (pos == 0) ? abs : mkAbs(quants, pos-1, abs)
+  //   }
+  //   function mkApp (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
+  //     const app = new TP.App(acc, new TP.Var(quants[pos]))
+  //     return (pos == quants.length-1) ? app : mkApp(quants, pos+1, acc)
+  //   }
+  //   const prodFields = (this.prod.sig(TP.hole, recursive) as TP.Prod).fields
+  //   const quants = this.sigQuants()
+  //   let ctorType = defTree.sig(TP.hole, recursive)
+  //   if (quants.length > 0) ctorType = mkApp(quants, 0, ctorType)
+  //   if (prodFields.length > 0) ctorType = mkArrow(prodFields, prodFields.length-1, ctorType)
+  //   if (quants.length > 0) ctorType = mkAbs(quants, quants.length-1, ctorType)
+  //   return ctorType
+  // }
+  constructor (id :number, name :Name) { super() ; this.sym = new TypeDefSym(this, id, name) }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
   link (parent :Tree, parentId :string) {
     super.link(parent, parentId)
     this.owner.index.insert(this.sym)
@@ -395,8 +404,10 @@ export class CtorTree extends DefTree {
 
 // TEMP: used internally to define primitive types and functions
 export class PrimTree extends Tree {
-  constructor (readonly primSig :TP.Type) { super() }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return this.primSig }
+  get signature () :TP.Type { return this.primType }
+  constructor (readonly primType :TP.Type) { super() }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return this.primSig }
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 // -------------
@@ -409,55 +420,61 @@ export abstract class PatTree extends Tree {
 
 export class PHoleTree extends PatTree {
   get branchIds () :string[] { return [] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return TP.hole }
   get isHole () :boolean { return true }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return TP.hole }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] }
 }
 
 export class PLitTree extends PatTree {
   constructor (public cnst :C.Constant) { super() }
   get branchIds () :string[] { return ["cnst"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Const(this.cnst) }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return new TP.Const(this.cnst) }
+  protected infer (ctx :TP.Context) :Inference {
+    return [new TP.Const(this.cnst), ctx] }
 }
 
 export class PBindTree extends PatTree implements SymTree {
   readonly sym :TreeSym
-  constructor (id :number, name :Name) {
-    super() ; this.sym = new TreeSym(this, "term", "none", id, name) }
   get branchIds () :string[] { return ["sym"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return prototype }
+  constructor (id :number, name :Name) {
+    super() ; this.sym = new TreeSym(this, "term", "none", id, name, () => TP.hole/*TODO*/) }
   addSymbols (syms :S.Symbol[]) { syms.push(this.sym) }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return prototype }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] } // TODO
 }
 
 export class PDtorTree extends PatTree {
-  constructor (readonly ctor :S.Symbol) { super() }
   get branchIds () :string[] { return ["ctor"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return TP.patUnify(this.ctor.type(prototype, recursive), prototype) }
+  constructor (readonly ctor :S.Symbol) { super() }
   lookup (name :Name) :S.Symbol|void { return undefined }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return TP.patUnify(this.ctor.type(prototype, recursive), prototype) }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] } // TODO
 }
 
 export class PAppTree extends PatTree {
   fun :PatTree = emptyPatTree
   arg :PatTree = emptyPatTree
   get branchIds () :string[] { return ["fun", "arg"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    const funSig = this.childSig(prototype, "fun", recursive)
-    if (funSig instanceof TP.Arrow) return funSig.res
-    else return new TP.Error(`Can't unapply non-function`)
-  }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    if (id === "fun") return new TP.Arrow(TP.hole, prototype)
-    if (id === "arg") {
-      const funSig = this.childSig(prototype, "fun", false)
-      if (funSig instanceof TP.Arrow) return funSig.arg
-      else return new TP.Error(`Can't unapply non-function`)
-    }
-  }
   addSymbols (syms :S.Symbol[]) {
     if (this.fun instanceof PatTree) this.fun.addSymbols(syms)
     if (this.arg instanceof PatTree) this.arg.addSymbols(syms)
   }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] } // TODO
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   const funSig = this.childSig(prototype, "fun", recursive)
+  //   if (funSig instanceof TP.Arrow) return funSig.res
+  //   else return new TP.Error(`Can't unapply non-function`)
+  // }
+  // protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
+  //   if (id === "fun") return new TP.Arrow(TP.hole, prototype)
+  //   if (id === "arg") {
+  //     const funSig = this.childSig(prototype, "fun", false)
+  //     if (funSig instanceof TP.Arrow) return funSig.arg
+  //     else return new TP.Error(`Can't unapply non-function`)
+  //   }
+  // }
 }
 
 const emptyPatTree = new PHoleTree()
@@ -466,62 +483,110 @@ const emptyPatTree = new PHoleTree()
 // Abstraction trees
 // -----------------
 
+// Let=> :: let x = body in expr
+function checkLet (ctx :TP.Context, sym :S.Symbol, body :Tree, expr :Tree) :Inference {
+  let [expType, theta] = body.inferSave(ctx)
+  let eC = TP.freshEVar("c")
+  let assump = new TP.NAssump(sym, expType)
+  // sym.tpe = expType // assign type to symbol, which is not separately entyped
+  let checkCtx = theta.extend(eC).extend(assump)
+  ctx.tracer.trace(`- Let=> (${expr} <= ${eC}) in ${checkCtx}`)
+  return TP.check(expr, checkCtx, eC, eC, rctx => rctx.peel(assump))
+}
+
 export class LetTree extends DefTree {
-  readonly sym :TreeSym
+  readonly sym :S.Symbol
   type :Tree = emptyTree
   body :Tree = emptyTree
   expr :Tree = emptyTree
+  get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
+
   constructor (id :number, name :Name) {
     super() ; this.sym = new LetTreeSym(this, t => (t as LetTree).body, "term", "none", id, name) }
-  get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.expr.sig(TP.hole, recursive) }
+
   setHoles () :this {
     return this.setBranch("body", new HoleTree())
                .setBranch("expr", new HoleTree())
   }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    if (id === "expr") return prototype
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return this.expr.sig(TP.hole, recursive) }
+  // protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
+  //   if (id === "expr") return prototype
+  // }
+
+  protected infer (ctx :TP.Context) :Inference {
+    return checkLet(ctx, this.sym, this.body, this.expr)
   }
 }
 
 export class LetFunTree extends DefTree {
-  readonly sym :TreeSym
+  readonly sym :S.Symbol
   body :Tree = emptyTree
   expr :Tree = emptyTree
+  get branchIds () :string[] { return ["sym", "body", "expr"] }
+
   constructor (id :number, name :Name) {
     super() ; this.sym = new LetTreeSym(this, t => (t as LetFunTree).body, "term", "func", id, name) }
-  get branchIds () :string[] { return ["sym", "body", "expr"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.expr.sig(TP.hole, recursive) }
+
   setHoles () :this {
     return this.setBranch("body", new HoleTree())
                .setBranch("expr", new HoleTree())
   }
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return this.expr.sig(TP.hole, recursive) }
+
+  protected infer (ctx :TP.Context) :Inference {
+    return checkLet(ctx, this.sym, this.body, this.expr)
+  }
 }
 
 export class AllTree extends DefTree {
-  readonly sym :TypeVarTreeSym
+  readonly sym :TreeSym
   body :Tree = emptyTree
-  constructor (id :number, name :Name) { super() ; this.sym = new TypeVarTreeSym(this, id, name) }
   get branchIds () :string[] { return ["sym", "body"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    // TODO: is there a sensible prototype to use for the body?
-    return new TP.Abs(this.sym, this.body.sig(TP.hole, recursive)) }
+  get signature () :TP.Type { return new TP.Abs(this.sym, this.body.signature) }
+  constructor (id :number, name :Name) {
+    super() ; this.sym = new TreeSym(this, "type", "none", id, name, () => new TP.UVar(this.sym)) }
+
+  protected infer (ctx :TP.Context) :Inference {
+    return this.body.inferSave(ctx)
+  }
 }
 
 export class AbsTree extends DefTree {
   readonly sym :VarTreeSym
   type :Tree = emptyTree
   body :Tree = emptyTree
-  constructor (id :number, name :Name) {
-    super() ; this.sym = new VarTreeSym(this, id, name, (t, p, r) => this.type.sig(p, r)) }
   get branchIds () :string[] { return ["sym", "type", "body"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    // TEMP: until we ascribe all fundefs
-    const bodySig = (!recursive || (this.body instanceof AbsTree)) ?
-      this.body.sig(TP.hole, recursive) : TP.hole
-    return new TP.Arrow(this.type.sig(TP.hole, recursive), bodySig) }
+  get signature () :TP.Type { return new TP.Arrow(this.type.signature, this.body.signature) }
+  constructor (id :number, name :Name) { super() ; this.sym = new VarTreeSym(this, id, name) }
+
+  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
+    if (tpe instanceof TP.Arrow) {
+      // exp.tpe = tpe  // lambda types are not always synthesized, so we also assign lambda AST
+      // arg.tpe = argT // nodes a type during checking, ditto for the lambda argument nodes
+      const argAssump = new TP.NAssump(this.sym, tpe.arg) // x:A
+      const checkCtx = ctx.extend(argAssump)
+      ctx.tracer.trace(`- ->I (${this.body} <= ${tpe.res}) in ${checkCtx}`)
+      const delta = TP.check(this.body, checkCtx, tpe.res, tpe.res,
+                             rctx => rctx.peel(argAssump))[1] // Γ,x:A ⊢ e ⇐ B ⊣ ∆,x:A,Θ
+      return delta // ∆
+    } else return super.check(ctx, tpe)
+  }
+
+  // ->I=> :: λx.e
+  protected infer (ctx :TP.Context) :Inference {
+    const eA = TP.freshEVar("a") // â
+    const eC = TP.freshEVar("c") // ĉ
+    const assump = new TP.NAssump(this.sym, eA) // x:â
+    this.sym.type = eA // propagate type to arg sym
+    const checkCtx = ctx.extend(eA).extend(eC).extend(assump) // Γ,â,ĉ,x:â
+    ctx.tracer.trace(`- ->I=> (${this.body} <= ${eC}) in ${checkCtx}`)
+    return TP.check(this.body, checkCtx, eC,
+                    new TP.Arrow(eA, eC), cctx => cctx.peel(assump)) // e ⇐ ĉ ⊣ ∆,x:â,Θ
+  }
 }
 
 // ----------------
@@ -529,79 +594,64 @@ export class AbsTree extends DefTree {
 // ----------------
 
 export class LitTree extends Tree {
-  constructor (readonly cnst :C.Constant) { super() }
   get branchIds () :string[] { return ["cnst"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Const(this.cnst) }
+  constructor (readonly cnst :C.Constant) { super() }
+
+  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
+    console.log(`lit check ${tpe}?`)
+    return super.check(ctx, tpe)
+  }
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return new TP.Const(this.cnst) }
+  protected infer (ctx :TP.Context) :Inference {
+    return [new TP.Const(this.cnst), ctx] }
 }
 
 export class RefTree extends Tree {
   constructor (readonly sym :S.Symbol) { super() }
   get branchIds () :string[] { return ["sym"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.sym.type(prototype, recursive) }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return this.sym.type(prototype, recursive) }
+
+  protected infer (ctx :TP.Context) :Inference {
+    // TODO: ref and xref (former comes from our context, latter has type that we use as is)
+    const tpe = ctx.assump(this.sym) || this.sym.type  // A ⊣ Γ
+    return [tpe, ctx]
+  }
 }
 
 export class AscTree extends Tree {
-  expr :Tree = emptyTree
   type :Tree = emptyTree
-  get branchIds () :string[] { return ["expr", "type"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    if (this.type === emptyTree && recursive) return TP.hole
-    const typeSig = this.type.sig(TP.hole, recursive)
-    return typeSig // return this.expr.sig(typeSig, recursive).check(typeSig)
-  }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    if (id === "expr") return this.type.sig(TP.hole)
+  expr :Tree = emptyTree
+  get branchIds () :string[] { return ["type", "expr"] }
+  get signature () :TP.Type { return this.type.signature }
+
+  protected infer (ctx :TP.Context) :Inference {
+    return this.expr.inferSave(ctx)
   }
 }
 
 export class HoleTree extends Tree {
   get isHole () :boolean { return true }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return prototype }
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return prototype }
+  protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] }
 }
 
 class BaseAppTree extends Tree {
   fun :Tree = emptyTree
   arg :Tree = emptyTree
 
-  protected appliedFunSig (prototype :TP.Type) :TP.Type {
-    const funProto = new TP.Arrow(TP.hole, prototype)
-    const funSig = this.fun.sig(funProto)
-    const skFunSig = funSig.skolemize(new Map())
-    if (skFunSig instanceof TP.Arrow) {
-      const argSig = this.arg.sig(skFunSig.arg)
-      return TP.unifyMap(skFunSig.arg, argSig, skFunSig)
-    } else {
-      console.warn(`${this} failed to apply fun sig ${skFunSig}`)
-      return skFunSig // TODO?
-    }
-  }
-
-  // TODO: use appliedFun result type (with any applicable foralls?)
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    const funSig = this.appliedFunSig(prototype)
-    if (funSig instanceof TP.Arrow) {
-      return TP.funApply(funSig, this.arg.sig(funSig.arg, recursive))
-    } else {
-      return new TP.Error(`Function has non-arrow type: ${funSig}`)
-    }
-  }
-
-  // protected checkChild (id :string) { return id === "arg" }
-
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    if (id === "arg") {
-      const funSig = this.appliedFunSig(prototype)
-      if (funSig instanceof TP.Arrow) return funSig.arg
-    } else if (id === "fun") {
-      if (this.arg.isHole) return new TP.Arrow(TP.hole, prototype)
-      // TODO: we need a more disciplined approach to tracking whether we're synthesizing or
-      // checking (to avoid infinite loops in type computation)
-      const funSig = this.appliedFunSig(prototype)
-      const argProto = (funSig instanceof TP.Arrow) ? funSig.arg : TP.hole
-      return new TP.Arrow(this.arg.sig(argProto), prototype)
-    }
+  protected infer (ctx :TP.Context) :Inference {
+    // ->E :: (e1 e2)
+    const [funType, theta] = this.fun.inferSave(ctx) // e1 ⇒ A ⊣ Θ
+    const reducedFun = funType.apply(theta) // [Θ]A
+    ctx.tracer.trace(`- ->E ${this.fun} => ${funType} ; ${reducedFun} ● ${this.arg} in ${theta}`)
+    const [resType, delta] = reducedFun.inferApp(this.arg, theta) // C ⊣ ∆
+    // TODO: I think this is handled by a recursive apply of the final context with all the
+    // solutions
+    // this.fun.sig = funType.apply(delta)
+    return [resType, delta]
   }
 }
 
@@ -618,20 +668,33 @@ export class IfTree extends Tree {
   texp :Tree = emptyTree
   fexp :Tree = emptyTree
   get branchIds () :string[] { return ["test", "texp", "fexp"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return TP.hole } // TODO
+
   setHoles () :this {
     return this.setBranch("test", new HoleTree())
                .setBranch("texp", new HoleTree())
                .setBranch("fexp", new HoleTree())
   }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    switch (id) {
-    case "test": return undefined // TODO: bool
-    case "texp":
-    case "fexp": return prototype
-    }
+
+  protected infer (ctx :TP.Context) :Inference {
+    // // If=> :: if test ifTrue else ifFalse
+    // case XIf(test, ifTrue, ifFalse) =>
+    //   check(test, TBool)
+    //   val (trueType, theta) = infer(ifTrue)
+    //   ctx.tracer.trace(s"- If=> ($ifTrue => $trueType) ; ($ifFalse <= $trueType) in $theta")
+    //   val delta = check(ifFalse, trueType)(theta)
+    //   (trueType, delta) // TODO: peel?
+    return [TP.hole, ctx]
   }
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return TP.hole } // TODO
+  // protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
+  //   switch (id) {
+  //   case "test": return undefined // TODO: bool
+  //   case "texp":
+  //   case "fexp": return prototype
+  //   }
+  // }
 }
 
 export class MatchTree extends Tree {
@@ -681,12 +744,18 @@ export class MatchTree extends Tree {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.cases.length // allow one past last field
   }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.cases.map(c => c.sig(prototype, recursive)).reduce((mt, ct) => mt.join(ct), TP.hole)
+
+  protected infer (ctx :TP.Context) :Inference {
+    // TODO
+    return [TP.hole, ctx]
   }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    if (id !== "scrut") return prototype
-  }
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return this.cases.map(c => c.sig(prototype, recursive)).reduce((mt, ct) => mt.join(ct), TP.hole)
+  // }
+  // protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
+  //   if (id !== "scrut") return prototype
+  // }
 }
 
 export class CaseTree extends Tree {
@@ -697,18 +766,25 @@ export class CaseTree extends Tree {
     return this.setBranch("pat", new PHoleTree())
                .setBranch("body", new HoleTree())
   }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.body.sig(prototype, recursive) }
-  protected checkChild (id :string) { return id === "body" }
+
   protected childScope (id :string) :S.Scope {
     return (id == "body") ? new CaseBodyScope(this) : this.scope
   }
-  protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
-    // the prototype for the pattern tree, is the type of the scrutinee
-    if (id === "pat") return (this.requireParent as MatchTree).scrut.sig(TP.hole)
-    // the prototype for the body is the prototype for the whole match expression
-    else if (id === "body") return prototype
+
+  protected infer (ctx :TP.Context) :Inference {
+    // TODO
+    return [TP.hole, ctx]
   }
+
+  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
+  //   return this.body.sig(prototype, recursive) }
+  // protected checkChild (id :string) { return id === "body" }
+  // protected childPrototype (prototype: TP.Type, id :string) :TP.Type|void {
+  //   // the prototype for the pattern tree, is the type of the scrutinee
+  //   if (id === "pat") return (this.requireParent as MatchTree).scrut.sig(TP.hole)
+  //   // the prototype for the body is the prototype for the whole match expression
+  //   else if (id === "body") return prototype
+  // }
 }
 
 class CaseBodyScope extends S.Scope {
@@ -739,22 +815,41 @@ class CaseBodyScope extends S.Scope {
 // Top-level def trees
 // -------------------
 
-export class FunDefTree extends DefTree {
+export class TopDefTree extends DefTree {
   body :Tree = emptyTree
-  constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
   get owner () :S.Symbol { return this.sym.owner }
   get branchIds () :string[] { return ["sym", "body"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.body.sig(prototype, recursive) }
-}
+  get signature () :TP.Type { return this.body.signature }
+  // we do some sneaky business here to allow the right kind of symbol to be created when
+  // unserializing top def trees; TODO: something less fragile
+  get kind () :string { return `${this.sym.kind}def` }
+  constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
 
-export class TypeDefTree extends DefTree {
-  body :Tree = emptyTree
-  constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
-  get owner () :S.Symbol { return this.sym.owner }
-  get branchIds () :string[] { return ["sym", "body"] }
-  protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return new TP.Def(this.sym, this) }
+  /** Infers and records a type for this definition and all its subtrees.
+    * @return the inferred type for this tree. */
+  inferType () :TP.Type {
+    const tracer = new TP.Tracer()
+    const ctx = new TP.Context(tracer)
+    const ann = this.signature
+    if (ann === TP.hole) {
+      const [tpe, delta] = this.body.inferSave(ctx)
+      this.treeType = tpe
+      this.applyContext(delta)
+    } else {
+      // TODO: ann.checkWellFormed
+      const [tpe, delta] = TP.check(this.body, ctx, ann, ann) // A ⊣ ∆
+      // TODO: do we still need to apply delta here? only forall trees auto-apply
+      this.treeType = tpe
+      this.applyContext(delta)
+    }
+    console.log(tracer.msgs.join("\n"))
+    return this.treeType
+  }
+
+  protected infer (ctx :TP.Context) :Inference {
+    // TODO
+    return this.body.inferSave(ctx)
+  }
 }
 
 // ---------------
@@ -1131,53 +1226,41 @@ export class TreeEditor {
 
 /** Symbols assigned to definition trees. Obtains ownership and type info from tree. */
 export class TreeSym extends S.Symbol {
-  constructor (readonly tree :Tree, kind :S.Kind, flavor :S.Flavor, id :number, name :Name) {
+  constructor (readonly tree :Tree, kind :S.Kind, flavor :S.Flavor, id :number, name :Name,
+               readonly typeFn :() => TP.Type = () => tree.treeType) {
     super(kind, flavor, id, name) }
   get owner () :S.Symbol { return this.tree.owner }
-  type (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.tree.sig(prototype, recursive) }
+  get type () :TP.Type { return this.typeFn() }
 }
 
 /** Symbols assigned to definition trees. Obtains ownership and type info from tree. */
 export class LetTreeSym extends S.Symbol {
-  constructor (readonly tree :Tree, readonly branch :(tree :Tree) => Tree,
-               kind :S.Kind, flavor :S.Flavor, id :number, name :Name) {
-    super(kind, flavor, id, name) }
+  constructor (readonly tree :Tree, readonly branch :(tree :Tree) => Tree, kind :S.Kind,
+               flavor :S.Flavor, id :number, name :Name) { super(kind, flavor, id, name) }
   get owner () :S.Symbol { return this.tree.owner }
-  type (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.branch(this.tree).sig(prototype, recursive) }
+  get type () :TP.Type { return this.branch(this.tree).treeType }
 }
 
 /** Symbols assigned to field definitions.
   * These must be explicitly marked non-lexical as they are not owned by the module symbol. */
-class FieldTreeSym extends TreeSym {
-  constructor (tree :FieldTree, id :number, name :Name) {
-    super(tree, "term", "none", id, name) }
-  get lexical () :boolean { return false }
-}
-
-/** Symbols assigned to constructor definitions.
-  * These must be explicitly marked non-lexical as they are not owned by the module symbol. */
-class CtorTreeSym extends TreeSym {
-  constructor (tree :CtorTree, id :number, name :Name) {
-    super(tree, "term", "ctor", id, name) }
+class TypeDefSym extends TreeSym {
+  constructor (tree :Tree, id :number, name :Name) {
+    super(tree, "term", "none", id, name, () => tree.signature) }
   get lexical () :boolean { return false }
 }
 
 /** Symbols assigned to var trees. */
-class VarTreeSym extends TreeSym {
-  constructor (tree :Tree, id :number, name :Name,
-               readonly typefn :(t :Tree, p :TP.Type, r :boolean) => TP.Type) {
-    super(tree, "term", "none", id, name) }
-  type (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.typefn(this.tree, prototype, recursive) }
+export class VarTreeSym extends S.Symbol {
+  type :TP.Type = TP.hole
+  constructor (readonly tree :Tree, id :number, name :Name) { super("term", "none", id, name) }
+  get owner () :S.Symbol { return this.tree.owner }
 }
 
-/** Symbols assigned to type var trees. */
-class TypeVarTreeSym extends TreeSym {
-  constructor (tree :Tree, id :number, name :Name) { super(tree, "type", "none", id, name) }
-  type (prototype :TP.Type, recursive :boolean) :TP.Var { return new TP.Var(this) }
-}
+// /** Symbols assigned to type var trees. */
+// class TypeVarTreeSym extends TreeSym {
+//   constructor (tree :Tree, id :number, name :Name) { super(tree, "type", "none", id, name) }
+//   get type () :TP.UVar { return new TP.UVar(this) }
+// }
 
 // ------------------
 // Tree serialization
@@ -1255,6 +1338,7 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
 
   } catch (error) {
     console.warn(`Failed to inflate tree: ${JSON.stringify(json)}`)
+    console.warn(error)
     return emptyTree // TODO: return appropriate kind of hole...
   }
 }
@@ -1288,4 +1372,58 @@ export function deflateTree (index :DeflateIndex, tree :Tree) :any {
   } else deflateBranches(json)
 
   return json
+}
+
+type TreeJson = Object
+type ConstJson = {tag :C.Tag, value :string}
+
+function mkTree (kind :string, json :TreeJson = {}) :TreeJson {
+  json["kind"] = kind
+  return json
+}
+
+export class TreeBuilder {
+  // def trees
+  mkTermDef (name :string, id :number, body :TreeJson) {
+    return mkTree("termdef", {sym: {name, id}, body}) }
+  mkTypeDef (name :string, id :number, body :TreeJson) {
+    return mkTree("typedef", {sym: {name, id}, body}) }
+  // type trees
+  mkTHole () { return mkTree("thole") }
+  mkTConst (cnst :ConstJson) { return mkTree("tconst", {cnst}) }
+  mkTRef (symId :string) { return mkTree("tref", {symId}) }
+  mkArrow (from :TreeJson, to :TreeJson) { return mkTree("arrow", {from, to}) }
+  mkTAbs (name :string, id :number, body :TreeJson) {
+    return mkTree("tabs", {sym: {name, id}, body}) }
+  mkTApp (ctor :TreeJson, arg :TreeJson) { return mkTree("tapp", {ctor, arg}) }
+  mkProd (fields :TreeJson[]) { return mkTree("prod", {fields}) }
+  mkSum (cases :TreeJson[]) { return mkTree("sum", {cases}) }
+  mkField (name :string, id :number, type :TreeJson) {
+    return mkTree("field", {sym: {name, id}, type}) }
+  mkCtor (name :string, id :number, prod :TreeJson) {
+    return mkTree("ctor", {sym: {name, id}, prod}) }
+  // pattern trees
+  mkPHole () { return mkTree("phole") }
+  mkPLit (cnst :ConstJson) { return mkTree("plit", {cnst}) }
+  mkPBind (name :string, id :number) { return mkTree("pbind", {sym: {name, id}}) }
+  mkPDtor (symId :string) { return mkTree("pdtor", {ctor: symId}) }
+  mkPApp (fun :TreeJson, arg :TreeJson) { return mkTree("papp", {fun, arg}) }
+  // abstraction trees
+  mkLet (name :string, id :number, type :TreeJson, body :TreeJson, expr :TreeJson) {
+    return mkTree("let", {sym: {name, id}, type, body, expr}) }
+  mkLetFun (name :string, id :number, body :TreeJson, expr :TreeJson) {
+    return mkTree("letfun", {sym: {name, id}, body, expr}) }
+  mkAll (name :string, id :number, body :TreeJson) { return mkTree("all", {sym: {name, id}, body}) }
+  mkAbs (name :string, id :number, type :TreeJson, body :TreeJson) {
+    return mkTree("abs", {sym: {name, id}, type, body}) }
+  // expression trees
+  mkHole () { return mkTree("hole") }
+  mkLit (cnst :ConstJson) { return mkTree("lit", {cnst}) }
+  mkRef (symId :string) { return mkTree("ref", {symId}) }
+  mkAsc (type :TreeJson, expr :TreeJson) { return mkTree("asc", {expr, type}) }
+  mkApp (fun :TreeJson, arg :TreeJson) { return mkTree("app", {fun, arg}) }
+  mkInApp (arg :TreeJson, fun :TreeJson) { return mkTree("inapp", {arg, fun}) }
+  // case     "if": return inflateBranches(new IfTree())
+  // case  "match": return inflateNBranches(inflateBranches(new MatchTree()), json.cases)
+  // case   "case": return inflateBranches(new CaseTree())
 }

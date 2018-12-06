@@ -33,7 +33,7 @@ primMod.addTypeDef("Int", IntID).
 primMod.addTypeDef("String", StringID).
   setBranch("body", new T.PrimTree(new TP.Scalar(C.Tag.String, 1)))
 
-const natType = natTree.sym.type(TP.hole, false)
+const natType = natTree.sym.type
 const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
 primMod.addFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
 primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
@@ -48,55 +48,53 @@ primProject.components.push(primLib)
 // Test trees
 // ----------
 
-function mkSymTree (kind :string, id :number, name :string, branchId :string, branch :any) :any {
-  const tree = {kind, sym: {id, name}}
-  tree[branchId] = branch
-  return tree
-}
-
 const testModUUID :UUID         = "92dadb28-cb38-11e8-a8d5-f2801f1b9fd1"
 const testLibUUID :UUID         = "92dae00a-cb38-11e8-a8d5-f2801f1b9fd1"
 export const testProjUUID :UUID = "fa722f12-a571-11e8-98d0-529269fb1459"
 const testProjSource = "internal://test"
 
-// type Box ∀A contents:A
-const boxJson = mkSymTree(
-  "typedef", 10, "Box", "body", mkSymTree(
-    "tabs", 1, "A", "body", mkSymTree(
-      "ctor", 20, "Box", "prod", {
-        kind: "prod",
-        fields: [mkSymTree("field", 21, "contents", "type", {kind: "tref", symId: "l1"})]
-      })))
+const tb = new T.TreeBuilder()
 
-// type Person name:String age:Nat
-const recordJson = mkSymTree("typedef", 11, "Person", "body", {
-  kind: "prod",
-  fields: [mkSymTree("field", 22, "name", "type", {kind: "tref", symId: "x2"}),
-           mkSymTree("field", 23, "age", "type", {kind: "tref", symId: "x1"})]
-})
+// type Box ∀A = Box contents:A
+const boxJson = tb.mkTypeDef(
+  "Box", 10, tb.mkTAbs(
+    "A", 1, tb.mkCtor(
+      "Box", 20, tb.mkProd(
+        [tb.mkField("contents", 21, tb.mkTRef("l1"))]
+      )
+    )
+  )
+)
+
+// type Person = Person name:String age:Nat
+const recordJson = tb.mkTypeDef(
+  "Person", 11, tb.mkProd([
+    tb.mkField("name", 22, tb.mkTRef("x2")),
+    tb.mkField("age", 23, tb.mkTRef("x1"))
+  ])
+)
 
 // type List ∀A =
-//   * Nil
-//   * Cons head:A tail:List A
-const listJson = mkSymTree(
-  "typedef", 12, "List", "body", mkSymTree(
-    "tabs", 1, "T", "body", {
-      kind: "sum",
-      cases: [mkSymTree("ctor", 24, "Nil", "prod", {kind: "prod", fields: []}),
-              mkSymTree("ctor", 25, "Cons", "prod", {
-        kind: "prod",
-        fields: [mkSymTree("field", 26, "head", "type", {kind: "tref", symId: "l1"}),
-                 mkSymTree("field", 27, "tail", "type", {
-          kind: "tapp", ctor: {kind: "tref", symId: "m12"}, arg: {kind: "tref", symId: "l1"}})]
-      })]
-    }))
+//   Nil
+//   Cons head:A tail:List A
+const listJson = tb.mkTypeDef(
+  "List", 12, tb.mkTAbs(
+    "T", 1, tb.mkSum([
+      tb.mkCtor("Nil", 24, tb.mkProd([])),
+      tb.mkCtor("Cons", 25, tb.mkProd([
+        tb.mkField("head", 26, tb.mkTRef("l1")),
+        tb.mkField("tail", 27, tb.mkTApp(tb.mkTRef("m12"), tb.mkTRef("l1")))
+      ]))
+    ])
+  )
+)
 
-export function seedTestProject (store :Store) {
+export function addTestProject (store :Store, defsJson :Object[]) {
   const testModJson = {
     uuid: testModUUID,
     name: "test",
     xrefs: {[primModUUID]: [NatID, 1, StringID, 2]},
-    defs: [boxJson, recordJson, listJson]
+    defs: defsJson
   }
   store.contains(testModUUID) || store.store(testModUUID, testModJson)
 
@@ -113,6 +111,10 @@ export function seedTestProject (store :Store) {
     }]
   }
   store.contains(testProjUUID) || store.store(testProjUUID, testProjJson)
+}
+
+export function seedTestProject (store :Store) {
+  addTestProject(store, [boxJson, recordJson, listJson])
 }
 
 // function mkListA (tb :TreeEditor) :Tree {

@@ -101,7 +101,7 @@ export class Module implements S.Index {
   @observable defs :DefSym[] = []
 
   private readonly index :Map<number, S.Symbol> = new Map()
-  private readonly trees :Map<number, T.DefTree> = new Map()
+  private readonly trees :Map<number, T.TopDefTree> = new Map()
   private readonly jsons :Map<number, DefJson> = new Map()
   private readonly xrefs :XRefs
   private maxSymId :number = 0
@@ -119,56 +119,61 @@ export class Module implements S.Index {
     return this.index.get(id)
   }
 
-  tree (sym :DefSym) :T.DefTree {
+  tree (sym :DefSym) :T.TopDefTree {
     const tree = this.trees.get(sym.id)
     if (tree) return tree
     const json = this.jsons.get(sym.id)
     if (json) {
       this.jsons.delete(sym.id)
-      return this.inflateDef(sym, json)
+      const tree = this.inflateDef(sym, json)
+      tree.inferType()
+      return tree
     }
     throw new Error(`Missing tree, id: ${sym.id}`)
   }
 
-  addFunDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
-    const sym = this.mkDefSym("fundef", id, name)
-    const tree = new T.FunDefTree(sym, this.scope)
+  addFunDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
+    const sym = this.mkDefSym("termdef", id, name)
+    const tree = new T.TopDefTree(sym, this.scope)
     tree.setBranch(
       "body", new T.AbsTree(1, "").setBranch(
         "body", new T.AscTree().
           setBranch("type", new T.THoleTree()).
           setBranch("expr", new T.HoleTree())))
+    tree.inferType()
     // focus: new T.Path("sym")
     this.trees.set(sym.id, tree)
     this.defs.push(sym)
     return tree
   }
 
-  addTypeDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+  addTypeDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
     const sym = this.mkDefSym("typedef", id, name)
-    const tree = new T.TypeDefTree(sym, this.scope)
+    const tree = new T.TopDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
     this.defs.push(sym)
     return tree
   }
 
-  addProdDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+  addProdDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
     const tree = this.addTypeDef(name, id)
     tree.setBranch(
       "body", new T.CtorTree(1, "").setBranch(
         "prod", new T.ProdTree().setBranch(
           "0", new T.FieldTree(2, "").setBranch(
             "type", new T.THoleTree()))))
+    tree.inferType()
     //   focus: new T.Path("sym")
     return tree
   }
 
-  addSumDef (name :Name, id :number = this.nextSymId()) :T.DefTree {
+  addSumDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
     const tree = this.addTypeDef(name, id)
     tree.setBranch(
       "body", new T.SumTree().setBranch(
         "0", new T.CtorTree(1, "").setBranch(
           "prod", new T.ProdTree())))
+    tree.inferType()
     //   focus: new T.Path("sym")
     return tree
   }
@@ -217,7 +222,7 @@ export class Module implements S.Index {
   private mkDefSym (kind :string, id :number, name :string) :DefSym {
     let sym :DefSym
     switch (kind) {
-    case  "fundef": sym = new DefSym(this, "term", "func", id, name) ; break
+    case "termdef": sym = new DefSym(this, "term", "func", id, name) ; break
     case "typedef": sym = new DefSym(this, "type", "none", id, name) ; break
     default: throw new Error(`Unknown def kind: '${kind}'`)
     }
@@ -225,13 +230,8 @@ export class Module implements S.Index {
     return sym
   }
 
-  private inflateDef (sym :DefSym, json :DefJson) :T.DefTree {
-    let tree :T.DefTree
-    switch (json.kind) {
-    case  "fundef": tree = new T.FunDefTree(sym, this.scope) ; break
-    case "typedef": tree = new T.TypeDefTree(sym, this.scope) ; break
-    default: throw new Error(`Unknown deftree kind: '${json.kind}'`)
-    }
+  private inflateDef (sym :DefSym, json :DefJson) :T.TopDefTree {
+    const tree = new T.TopDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
 
     const locals :Map<number, S.Symbol> = new Map()
@@ -271,7 +271,7 @@ export class ModuleSym extends S.Symbol {
   constructor (readonly mod :Module, name :Name) { super("module", "none", 0, name) }
   get scope () :S.Scope { return this.mod.scope }
   // TODO: special module type? none type?
-  type (proto :TP.Type, recursive :boolean) :TP.Type { return TP.hole }
+  get type () :TP.Type { return TP.hole }
   get owner () :S.Symbol { return this }
   get index () :S.Index { return this.mod }
   toString () { return `msym#${this.mod.name}` }
@@ -281,8 +281,7 @@ export class DefSym extends S.Symbol {
   constructor (readonly mod :Module, kind :S.Kind, flavor :S.Flavor, id :number, name :Name) {
     super(kind, flavor, id, name)
   }
-  type (prototype :TP.Type, recursive :boolean) :TP.Type {
-    return this.mod.tree(this).sig(prototype, recursive) }
+  get type () :TP.Type { return this.mod.tree(this).treeType }
   get owner () :S.Symbol { return this.mod.sym }
   get index () :S.Index { return this.mod }
   get displayName () :string { return this.name || "?" }

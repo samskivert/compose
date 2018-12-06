@@ -97,7 +97,7 @@ export class WorkspaceStore implements K.Source {
     }
     const pdata = this.store.load(uuid)
     if (pdata) {
-      console.dir(pdata)
+      // console.dir(pdata)
       const proj = P.inflateProject(pdata as P.ProjectJson, this.resolver)
       this.projects.push(proj)
       return proj
