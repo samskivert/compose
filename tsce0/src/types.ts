@@ -177,10 +177,10 @@ export class Context {
   /** Derives a subtyping relationship `tpeA <: tpeB` within this context.
     * @return the output context or a string describing an error. */
   subtype (tpeA :Type, tpeB :Type) :Context|string {
-    // TODO: handle ground types
-    // // <:Unit :: Γ ⊢ 1 <: 1 ⊣ Γ
-    // case (TUnit, TUnit) => ctx // Γ
-    // case (TBool, TBool) => ctx // Γ
+    // <:Unit :: Γ ⊢ 1 <: 1 ⊣ Γ
+    if (tpeA.equals(tpeB)) return this // Γ
+
+    // TODO: handle widening primitives? coercing sum cases to sum type?
 
     // <:Var :: Γ[α] ⊢ α <: α ⊣ Γ[α]
     if (tpeA instanceof UVar && tpeB instanceof UVar && tpeA.equals(tpeB)) return this // Γ
@@ -615,7 +615,8 @@ export class Prod extends Type {
   equals (that :Type) :boolean {
     return that instanceof Prod && this.operands.every((op, ii) => op.equals(that.operands[ii]))
   }
-  toString () { return `Prod${this.operands.length}` }
+  toString () { return this.operands.length === 0 ? "()" :
+    this.operands.map(op => op.toString()).join(" + ") }
 }
 
 export class Sum extends Type {
@@ -630,7 +631,23 @@ export class Sum extends Type {
   equals (that :Type) :boolean {
     return that instanceof Sum && this.cases.every((c, ii) => c.equals(that.cases[ii]))
   }
-  toString () { return `Sum${this.cases.length}` }
+  toString () { return this.cases.map(cs => cs.toString()).join(" | ") }
+}
+
+export class Nominal extends Type {
+  get kind () { return this.bodyFn().kind }
+
+  constructor (readonly sym :Symbol, readonly bodyFn :() => Type) { super() }
+
+  // TODO: hrm...
+  checkMalformed (ctx :Context) :string|void { return undefined }
+  containsFree (ev :EVar) :boolean { return false }
+
+  // subsumes (that :Type) :boolean { return false }
+  equals (that :Type) :boolean {
+    return that instanceof Nominal && this.sym === that.sym
+  }
+  toString () { return this.sym.name } // TODO: signature?
 }
 
 // -- | Array Type?

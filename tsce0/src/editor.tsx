@@ -44,7 +44,7 @@ class SpanSource implements K.Source {
 }
 
 export class DefStore implements K.Source {
-  @observable def!  :T.DefTree
+  @observable def!  :T.RootTree
   @observable elem! :M.Elem
   @observable showTypes :boolean = false
   @observable showTree  :boolean = false
@@ -71,7 +71,7 @@ export class DefStore implements K.Source {
 
   bound = false
 
-  constructor (readonly sym :MD.DefSym, def :T.DefTree,
+  constructor (readonly sym :MD.DefSym, def :T.RootTree,
                readonly keymap :K.Keymap,
                readonly selStore :IComputedValue<DefStore|void>,
                readonly mkActive :() => void) {
@@ -420,7 +420,7 @@ export class DefStore implements K.Source {
     }
   }
 
-  private setDef (def :T.DefTree, focus? :T.Path) {
+  private setDef (def :T.RootTree, focus? :T.Path) {
     console.log(`Set def ${def}, focus: ${focus}`)
     const opts = {showSigs: this.showTypes, editing: this.isActive}
     let {elem, path} = F.format(this.mod, def, focus, opts)

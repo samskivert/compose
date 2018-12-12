@@ -89,7 +89,7 @@ export class TextSpan extends Span {
 /** A span representing an AST node. */
 export abstract class TreeSpan extends EditableSpan {
 
-  abstract get root () :T.DefTree
+  abstract get root () :T.RootTree
   abstract get path () :T.Path
   abstract get tree () :T.Tree
 

@@ -101,7 +101,7 @@ export class Module implements S.Index {
   @observable defs :DefSym[] = []
 
   private readonly index :Map<number, S.Symbol> = new Map()
-  private readonly trees :Map<number, T.TopDefTree> = new Map()
+  private readonly trees :Map<number, T.RootTree> = new Map()
   private readonly jsons :Map<number, DefJson> = new Map()
   private readonly xrefs :XRefs
   private maxSymId :number = 0
@@ -119,61 +119,65 @@ export class Module implements S.Index {
     return this.index.get(id)
   }
 
-  tree (sym :DefSym) :T.TopDefTree {
+  tree (sym :DefSym) :T.RootTree {
     const tree = this.trees.get(sym.id)
     if (tree) return tree
     const json = this.jsons.get(sym.id)
     if (json) {
       this.jsons.delete(sym.id)
       const tree = this.inflateDef(sym, json)
-      tree.inferType()
+      // TODO: make this not suck
+      if (tree instanceof T.TopTermDefTree) tree.inferType()
       return tree
     }
     throw new Error(`Missing tree, id: ${sym.id}`)
   }
 
-  addFunDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
+  addTermDef (name :Name, id :number = this.nextSymId()) :T.TopTermDefTree {
     const sym = this.mkDefSym("termdef", id, name)
-    const tree = new T.TopDefTree(sym, this.scope)
-    tree.setBranch(
-      "body", new T.AbsTree(1, "").setBranch(
-        "body", new T.AscTree().
-          setBranch("type", new T.THoleTree()).
-          setBranch("expr", new T.HoleTree())))
-    tree.inferType()
+    const tree = new T.TopTermDefTree(sym, this.scope)
     // focus: new T.Path("sym")
     this.trees.set(sym.id, tree)
     this.defs.push(sym)
     return tree
   }
 
-  addTypeDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
+  addTypeDef (name :Name, id :number = this.nextSymId()) :T.TopTypeDefTree {
     const sym = this.mkDefSym("typedef", id, name)
-    const tree = new T.TopDefTree(sym, this.scope)
+    const tree = new T.TopTypeDefTree(sym, this.scope)
     this.trees.set(sym.id, tree)
     this.defs.push(sym)
     return tree
   }
 
-  addProdDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
+  addFunDef (name :Name, id :number = this.nextSymId()) :T.RootTree {
+    const tree = this.addTermDef(name, id)
+    tree.setBranch("type", new T.ArrowTree().
+                   setBranch("from", new T.THoleTree()).
+                   setBranch("to", new T.THoleTree()))
+    tree.setBranch("body", new T.AbsTree(1, "").
+                   setBranch("body", new T.HoleTree()))
+    // focus: new T.Path("sym")
+    return tree
+  }
+
+  addProdDef (name :Name, id :number = this.nextSymId()) :T.RootTree {
     const tree = this.addTypeDef(name, id)
     tree.setBranch(
       "body", new T.CtorTree(1, "").setBranch(
         "prod", new T.ProdTree().setBranch(
           "0", new T.FieldTree(2, "").setBranch(
             "type", new T.THoleTree()))))
-    tree.inferType()
     //   focus: new T.Path("sym")
     return tree
   }
 
-  addSumDef (name :Name, id :number = this.nextSymId()) :T.TopDefTree {
+  addSumDef (name :Name, id :number = this.nextSymId()) :T.RootTree {
     const tree = this.addTypeDef(name, id)
     tree.setBranch(
       "body", new T.SumTree().setBranch(
         "0", new T.CtorTree(1, "").setBranch(
           "prod", new T.ProdTree())))
-    tree.inferType()
     //   focus: new T.Path("sym")
     return tree
   }
@@ -185,6 +189,7 @@ export class Module implements S.Index {
     // case of types we should probably just decode the entire tree, but for terms we may want to
     // just duplicate the signature separately (via a type tree child of the 'termdef' node?)
     this.jsons.set(sym.id, json)
+    console.log(`indexDef: ${sym}`)
     this.defs.push(sym)
     return sym
   }
@@ -230,10 +235,7 @@ export class Module implements S.Index {
     return sym
   }
 
-  private inflateDef (sym :DefSym, json :DefJson) :T.TopDefTree {
-    const tree = new T.TopDefTree(sym, this.scope)
-    this.trees.set(sym.id, tree)
-
+  private inflateDef (sym :DefSym, json :DefJson) :T.RootTree {
     const locals :Map<number, S.Symbol> = new Map()
     const index = {
       add: (sym :S.Symbol) => {
@@ -258,10 +260,26 @@ export class Module implements S.Index {
     }
 
     try {
-      return tree.setBranch("body", T.inflateTree(index, json.body))
+      let tree :T.RootTree
+      switch (sym.kind) {
+      case "term":
+        tree = new T.TopTermDefTree(sym, this.scope)
+        this.trees.set(sym.id, tree)
+        tree.setBranch("type", T.inflateTree(index, json.type))
+        tree.setBranch("body", T.inflateTree(index, json.body))
+        break
+      case "type":
+        tree = new T.TopTypeDefTree(sym, this.scope)
+        this.trees.set(sym.id, tree)
+        tree.setBranch("body", T.inflateTree(index, json.body))
+        break
+      default:
+        throw new Error(`Unknown def sym kind: '${sym.kind}'`)
+      }
+      return tree
     } catch (error) {
       console.warn(`Failed to inflate tree for def: ${sym}`)
-      console.warn(JSON.stringify(json.body, undefined, " "))
+      console.warn(JSON.stringify(json, undefined, " "))
       throw error
     }
   }

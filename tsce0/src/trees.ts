@@ -25,8 +25,6 @@ export abstract class Tree {
   protected _owner! :S.Symbol
   protected _scope! :S.Scope
 
-  treeType :TP.Type = TP.hole
-
   get parent () :Tree|void { return this._parent }
   get parentId () :string { return this._parentId }
   get owner () :S.Symbol { return this._owner }
@@ -42,57 +40,7 @@ export abstract class Tree {
   }
 
   get isHole () :boolean { return false }
-
-  /** Returns the ascribed type signature of this tree. */
-  get signature () :TP.Type {
-    return TP.hole
-  }
-
-  /** Checks that this tree has type `tpe` with input context `ctx`.
-    * @return the output context or an error. */
-  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
-    ctx.tracer.trace(`Tree.check ${this} :: ${tpe}`)
-    if (tpe instanceof TP.Abs) {
-      // ∀I :: (e, ∀α.A)
-      const checkCtx = ctx.extend(tpe.uv)
-      ctx.tracer.trace(`- ∀I (${this} <= ${tpe.body}) in ${checkCtx}`)
-      const checkedCtx = this.check(checkCtx, tpe.body) // Γ,α ⊢ e ⇐ A ⊣ ∆,α,Θ
-      if (typeof checkedCtx === 'string') return checkedCtx
-      this.applyContext(checkedCtx)
-      return checkedCtx.peel(tpe.uv) // ∆
-    } else {
-      // Sub :: (e, B)
-      let [expType, theta] = this.inferSave(ctx) // Γ ⊢ e ⇒ A ⊣ Θ
-      ctx.tracer.trace(`- Sub (${this} => ${expType}) ; [Θ]${expType} <: [Θ]${tpe} in ${theta}`)
-      return theta.subtype(expType.apply(theta), tpe.apply(theta)) // Θ ⊢ [Θ]A <: [Θ]B ⊣ ∆
-    }
-  }
-
-  /** Infers a type for this tree with input context `ctx` and records its as the tree's signature.
-    * The recorded type is not yet applied to the context until inference is complete for the entire
-    * expression (which happens in `DefTree.infer`).
-    * @return the inferred type and the output context. */
-  inferSave (ctx :TP.Context) :Inference {
-    ctx.tracer.trace(`infer ${this}`)
-    const [tpe, delta] = this.infer(ctx)
-    this.treeType = tpe
-    ctx.tracer.trace(`> ${this} :: ${this.treeType} // ∆ = ${delta}`)
-    return [tpe, delta]
-  }
-
-  /** Performs inference for this type of tree. See `inferSave`. */
-  protected abstract infer (ctx :TP.Context) :Inference
-
-  /** Applies this tree's type to the supplied `ctx` (subbing existential vars for their solutions).
-    * @return the supplied `ctx`, unmodified. */
-  protected applyContext (ctx :TP.Context) {
-    for (let id of this.branchIds) {
-      const branch = this.branch(id)
-      if (branch instanceof Tree) branch.applyContext(ctx)
-    }
-    this.treeType = this.treeType.apply(ctx)
-    ctx.tracer.trace(`>> ${this} :: ${this.treeType}`)
-  }
+  abstract get treeType () :TP.Type
 
   get branchIds () :string[] { return [] }
   branch (id :string) :Branch { return this[id] }
@@ -175,6 +123,7 @@ export abstract class Tree {
              // `parent=${this.parent ? this.parent.kind : "<none>"} ` +
              `owner=${this.owner} ` +
              `scope=${this.scope}`)
+    buf.push(`${indent}:: ${this.treeType}`)
     for (let id of this.branchIds) {
       let branch = this.branch(id)
       if (branch instanceof Tree) {
@@ -198,15 +147,87 @@ export abstract class Tree {
   }
 }
 
+export abstract class TermTree extends Tree {
+
+  inferredType :TP.Type = TP.hole
+
+  get treeType () :TP.Type { return this.inferredType }
+
+  /** Checks that this tree has type `tpe` with input context `ctx`.
+    * @return the output context or an error. */
+  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
+    ctx.tracer.trace(`Tree.check ${this} :: ${tpe}`)
+    if (tpe instanceof TP.Abs) {
+      // ∀I :: (e, ∀α.A)
+      const checkCtx = ctx.extend(tpe.uv)
+      ctx.tracer.trace(`- ∀I (${this} <= ${tpe.body}) in ${checkCtx}`)
+      const checkedCtx = this.check(checkCtx, tpe.body) // Γ,α ⊢ e ⇐ A ⊣ ∆,α,Θ
+      if (typeof checkedCtx === 'string') return checkedCtx
+      this.applyContext(checkedCtx)
+      return checkedCtx.peel(tpe.uv) // ∆
+    } else {
+      // Sub :: (e, B)
+      let [expType, theta] = this.inferSave(ctx) // Γ ⊢ e ⇒ A ⊣ Θ
+      ctx.tracer.trace(`- Sub (${this} => ${expType}) ; [Θ]${expType} <: [Θ]${tpe} in ${theta}`)
+      return theta.subtype(expType.apply(theta), tpe.apply(theta)) // Θ ⊢ [Θ]A <: [Θ]B ⊣ ∆
+    }
+  }
+
+  /** Infers a type for this tree with input context `ctx` and records its as the tree's signature.
+    * The recorded type is not yet applied to the context until inference is complete for the entire
+    * expression (which happens in `DefTree.infer`).
+    * @return the inferred type and the output context. */
+  inferSave (ctx :TP.Context) :Inference {
+    ctx.tracer.trace(`infer ${this}`)
+    const [tpe, delta] = this.infer(ctx)
+    this.inferredType = tpe
+    ctx.tracer.trace(`> ${this} :: ${tpe} // ∆ = ${delta}`)
+    return [tpe, delta]
+  }
+
+  /** Performs inference for this type of tree. See `inferSave`. */
+  protected abstract infer (ctx :TP.Context) :Inference
+
+  /** Applies this tree's type to the supplied `ctx` (subbing existential vars for their solutions).
+    * @return the supplied `ctx`, unmodified. */
+  protected applyContext (ctx :TP.Context) {
+    for (let id of this.branchIds) {
+      const branch = this.branch(id)
+      if (branch instanceof TermTree) branch.applyContext(ctx)
+    }
+    this.inferredType = this.inferredType.apply(ctx)
+    ctx.tracer.trace(`>> ${this} :: ${this.inferredType}`)
+  }
+}
+
+export abstract class TypeTree extends Tree {
+
+  // TODO: just use treeType instead of signature?
+  get treeType () :TP.Type { return this.signature }
+
+  /** Returns the type described by this tree. */
+  get signature () :TP.Type { return TP.hole }
+}
+
 interface SymTree {
   readonly sym :S.Symbol
 }
 
-export abstract class DefTree extends Tree implements SymTree {
+export abstract class TermDefTree extends TermTree implements SymTree {
 
   abstract get sym () :S.Symbol
 
-  firstEditable () :Path { return new Path().firstEditable(this) }
+  protected didLink (parent :Tree, parentId :string) {
+    super.didLink(parent, parentId)
+    this._scope = new DefTreeScope(this.sym, this.scope)
+  }
+
+  childOwner (id :string) :S.Symbol { return this.sym }
+}
+
+export abstract class TypeDefTree extends TypeTree implements SymTree {
+
+  abstract get sym () :S.Symbol
 
   protected didLink (parent :Tree, parentId :string) {
     super.didLink(parent, parentId)
@@ -237,70 +258,71 @@ class DefTreeScope extends S.Scope {
   toString () :string { return `${this.sym},${this.parent}` }
 }
 
-export class EmptyTree extends Tree {
+export class EmptyTermTree extends TermTree {
   get owner () :S.Symbol { return S.emptySym }
   get scope () :S.Scope { return S.emptyScope }
   link (parent :Tree, parentId :string) { /*NOOP!*/ }
   protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] }
 }
-export const emptyTree = new EmptyTree()
+export const emptyTerm = new EmptyTermTree()
+
+export class EmptyTypeTree extends TypeTree {
+  get owner () :S.Symbol { return S.emptySym }
+  get scope () :S.Scope { return S.emptyScope }
+  get signature () :TP.Type { return TP.hole }
+  link (parent :Tree, parentId :string) { /*NOOP!*/ }
+}
+export const emptyType = new EmptyTypeTree()
 
 // ----------
 // Type trees
 // ----------
 
-export class THoleTree extends Tree {
+export class THoleTree extends TypeTree {
   get isHole () :boolean { return true }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class TConstTree extends Tree {
+export class TConstTree extends TypeTree {
   get branchIds () :string[] { return ["cnst"] }
   get signature () :TP.Type { return new TP.Const(this.cnst) }
   constructor (public cnst :C.Constant) { super() }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class TRefTree extends Tree {
+export class TRefTree extends TypeTree {
   get branchIds () :string[] { return ["sym"] }
   get signature () :TP.Type { return this.sym.type }
   constructor (readonly sym :S.Symbol) { super() }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class ArrowTree extends Tree {
-  from :Tree = emptyTree
-  to :Tree = emptyTree
+export class ArrowTree extends TypeTree {
+  from :TypeTree = emptyType
+  to :TypeTree = emptyType
   get branchIds () :string[] { return ["from", "to"] }
   get signature () :TP.Type { return new TP.Arrow(this.from.signature, this.to.signature) }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class TAbsTree extends DefTree {
+export class TAbsTree extends TypeDefTree {
   readonly sym :TreeSym
-  body :Tree = emptyTree
+  body :TypeTree = emptyType
   get branchIds () :string[] { return ["sym", "body"] }
   get signature () :TP.Abs { return new TP.Abs(this.sym, this.body.signature) }
   constructor (id :number, name :Name) {
     super() ; this.sym = new TreeSym(this, "type", "none", id, name, () => new TP.UVar(this.sym)) }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
   // protected _sigQuants (acc :TypeVarTreeSym[]) { acc.unshift(this.sym) }
 }
 
-export class TAppTree extends Tree {
-  ctor :Tree = emptyTree
-  arg :Tree = emptyTree
+export class TAppTree extends TypeTree {
+  ctor :TypeTree = emptyType
+  arg :TypeTree = emptyType
   get branchIds () :string[] { return ["ctor", "arg"] }
   get signature () :TP.Type { return new TP.App(this.ctor.signature, this.arg.signature) }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class ProdTree extends Tree {
-  fields :Tree[] = []
+export class ProdTree extends TypeTree {
+  fields :TypeTree[] = []
   get branchIds () :string[] { return this.fields.map((f, ii) => `${ii}`) }
   get signature () :TP.Type { return new TP.Prod(this.fields.map(f => f.signature)) }
   branch (id :string) :Branch { return this.fields[parseInt(id)] }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 
   /** Inserts a new field tree (with holes) at `idx`, giving it symbol id `id`.
     * Trailing fields are shifted down. */
@@ -328,70 +350,80 @@ export class ProdTree extends Tree {
   }
 
   protected storeBranch (id :string, branch :Branch) {
-    this.fields[parseInt(id)] = branch as Tree }
+    this.fields[parseInt(id)] = branch as TypeTree }
   protected isValidBranch (id :string) :boolean {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.fields.length // allow one past last field
   }
 }
 
-export class SumTree extends Tree {
-  cases :Tree[] = []
+export class SumTree extends TypeTree {
+  cases :TypeTree[] = []
   get branchIds () :string[] { return this.cases.map((c, ii) => `${ii}`) }
   get signature () :TP.Type { return new TP.Prod(this.cases.map(c => c.signature)) }
   branch (id :string) :Branch { return this.cases[parseInt(id)] }
   protected storeBranch (id :string, branch :Branch) {
-    this.cases[parseInt(id)] = branch as Tree }
+    this.cases[parseInt(id)] = branch as TypeTree }
   protected isValidBranch (id :string) :boolean {
     const idx = parseInt(id)
     return idx >= 0 && idx <= this.cases.length // allow one past last field
   }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class FieldTree extends DefTree {
+export class FieldTree extends TypeDefTree {
   readonly sym :TreeSym
-  type :Tree = emptyTree
+  type :TypeTree = emptyType
   get branchIds () :string[] { return ["sym", "type"] }
   get signature () :TP.Type { return this.type.signature }
   constructor (id :number, name :Name) { super() ; this.sym = new TypeDefSym(this, id, name) }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
-export class CtorTree extends DefTree {
+export class CtorTree extends TypeDefTree {
   readonly sym :TreeSym
-  prod :Tree = emptyTree
+  prod :TypeTree = emptyType
   get branchIds () :string[] { return ["sym", "prod"] }
-  // TODO: sort out this mess!
-  // get signature () :TP.Type {
-  //   let defTree = this.parent
-  //   while (defTree && !(defTree instanceof TypeDefTree)) {
-  //     defTree = defTree.parent
-  //   }
-  //   if (!defTree) throw new Error(
-  //     `Constructor must be enclosed by 'type' tree (in: ${this})`)
-  //   function mkArrow (types :TP.Type[], pos :number, acc :TP.Type) :TP.Type {
-  //     const arrow = new TP.Arrow(types[pos], acc)
-  //     return (pos == 0) ? arrow : mkArrow(types, pos-1, arrow)
-  //   }
-  //   function mkAbs (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
-  //     const abs = new TP.Abs(quants[pos], acc)
-  //     return (pos == 0) ? abs : mkAbs(quants, pos-1, abs)
-  //   }
-  //   function mkApp (quants :TypeVarTreeSym[], pos :number, acc :TP.Type) :TP.Type {
-  //     const app = new TP.App(acc, new TP.Var(quants[pos]))
-  //     return (pos == quants.length-1) ? app : mkApp(quants, pos+1, acc)
-  //   }
-  //   const prodFields = (this.prod.sig(TP.hole, recursive) as TP.Prod).fields
-  //   const quants = this.sigQuants()
-  //   let ctorType = defTree.sig(TP.hole, recursive)
-  //   if (quants.length > 0) ctorType = mkApp(quants, 0, ctorType)
-  //   if (prodFields.length > 0) ctorType = mkArrow(prodFields, prodFields.length-1, ctorType)
-  //   if (quants.length > 0) ctorType = mkAbs(quants, quants.length-1, ctorType)
-  //   return ctorType
-  // }
+
+  // TODO: this ad hoc but I can't find a disciplined description of the process of typing
+  // polymorphic data constructors anywhere... blah
+  get signature () :TP.Type {
+    // collect the quantifiers in our type declaration
+    let defTree = this.parent
+    let quants : S.Symbol[] = []
+    while (defTree && !(defTree instanceof TopTypeDefTree)) {
+      if (defTree instanceof TAbsTree) quants.unshift(defTree.sym)
+      defTree = defTree.parent
+    }
+    if (!defTree) throw new Error(
+      `Constructor must be enclosed by 'type' tree (in: ${this})`)
+
+    // to start, we constructor our top-level type
+    let ctorType = defTree.signature
+    // if our top-level type is quantified, we apply it to the collected quantifier vars
+    function mkApp (quants :S.Symbol[], pos :number, acc :TP.Type) :TP.Type {
+      const app = new TP.App(acc, new TP.UVar(quants[pos]))
+      return (pos == quants.length-1) ? app : mkApp(quants, pos+1, acc)
+    }
+    if (quants.length > 0) ctorType = mkApp(quants, 0, ctorType)
+    // now we abstract over our operands (creating a curried function from op to op etc. to our
+    // constructed type)
+    const prodOps = (this.prod.signature as TP.Prod).operands
+    function mkArrow (types :TP.Type[], pos :number, acc :TP.Type) :TP.Type {
+      const arrow = new TP.Arrow(types[pos], acc)
+      return (pos == 0) ? arrow : mkArrow(types, pos-1, arrow)
+    }
+    if (prodOps.length > 0) ctorType = mkArrow(prodOps, prodOps.length-1, ctorType)
+    // if our top-level type is quantified, the constructor function needs the same quantification
+    function mkAbs (quants :S.Symbol[], pos :number, acc :TP.Type) :TP.Type {
+      const abs = new TP.Abs(quants[pos], acc)
+      return (pos == 0) ? abs : mkAbs(quants, pos-1, abs)
+    }
+    if (quants.length > 0) ctorType = mkAbs(quants, quants.length-1, ctorType)
+    // and we're finally done
+    return ctorType
+  }
+
   constructor (id :number, name :Name) { super() ; this.sym = new TypeDefSym(this, id, name) }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
+
   link (parent :Tree, parentId :string) {
     super.link(parent, parentId)
     this.owner.index.insert(this.sym)
@@ -400,21 +432,21 @@ export class CtorTree extends DefTree {
     this.owner.index.remove(this.sym)
     super.willUnlink()
   }
+
+  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 // TEMP: used internally to define primitive types and functions
-export class PrimTree extends Tree {
+export class PrimTree extends TypeTree {
   get signature () :TP.Type { return this.primType }
   constructor (readonly primType :TP.Type) { super() }
-  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return this.primSig }
-  protected infer (ctx :TP.Context) :Inference { return [this.signature, ctx] }
 }
 
 // -------------
 // Pattern trees
 // -------------
 
-export abstract class PatTree extends Tree {
+export abstract class PatTree extends TermTree {
   addSymbols (syms :S.Symbol[]) {}
 }
 
@@ -484,7 +516,7 @@ const emptyPatTree = new PHoleTree()
 // -----------------
 
 // Let=> :: let x = body in expr
-function checkLet (ctx :TP.Context, sym :S.Symbol, body :Tree, expr :Tree) :Inference {
+function checkLet (ctx :TP.Context, sym :S.Symbol, body :TermTree, expr :TermTree) :Inference {
   let [expType, theta] = body.inferSave(ctx)
   let eC = TP.freshEVar("c")
   let assump = new TP.NAssump(sym, expType)
@@ -494,11 +526,11 @@ function checkLet (ctx :TP.Context, sym :S.Symbol, body :Tree, expr :Tree) :Infe
   return TP.check(expr, checkCtx, eC, eC, rctx => rctx.peel(assump))
 }
 
-export class LetTree extends DefTree {
+export class LetTree extends TermDefTree {
   readonly sym :S.Symbol
-  type :Tree = emptyTree
-  body :Tree = emptyTree
-  expr :Tree = emptyTree
+  type :TypeTree = emptyType
+  body :TermTree = emptyTerm
+  expr :TermTree = emptyTerm
   get branchIds () :string[] { return ["sym", "type", "body", "expr"] }
 
   constructor (id :number, name :Name) {
@@ -520,10 +552,10 @@ export class LetTree extends DefTree {
   }
 }
 
-export class LetFunTree extends DefTree {
+export class LetFunTree extends TermDefTree {
   readonly sym :S.Symbol
-  body :Tree = emptyTree
-  expr :Tree = emptyTree
+  body :TermTree = emptyTerm
+  expr :TermTree = emptyTerm
   get branchIds () :string[] { return ["sym", "body", "expr"] }
 
   constructor (id :number, name :Name) {
@@ -542,29 +574,31 @@ export class LetFunTree extends DefTree {
   }
 }
 
-export class AllTree extends DefTree {
-  readonly sym :TreeSym
-  body :Tree = emptyTree
-  get branchIds () :string[] { return ["sym", "body"] }
-  get signature () :TP.Type { return new TP.Abs(this.sym, this.body.signature) }
-  constructor (id :number, name :Name) {
-    super() ; this.sym = new TreeSym(this, "type", "none", id, name, () => new TP.UVar(this.sym)) }
+// export class AllTree extends DefTree {
+//   readonly sym :TreeSym
+//   body :Tree = emptyTerm
+//   get branchIds () :string[] { return ["sym", "body"] }
+//   get signature () :TP.Type { return new TP.Abs(this.sym, this.body.signature) }
+//   constructor (id :number, name :Name) {
+//     super() ; this.sym = new TreeSym(this, "type", "none", id, name, () => new TP.UVar(this.sym)) }
 
-  protected infer (ctx :TP.Context) :Inference {
-    return this.body.inferSave(ctx)
-  }
-}
+//   protected infer (ctx :TP.Context) :Inference {
+//     return this.body.inferSave(ctx)
+//   }
+// }
 
-export class AbsTree extends DefTree {
+export class AbsTree extends TermDefTree {
   readonly sym :VarTreeSym
-  type :Tree = emptyTree
-  body :Tree = emptyTree
-  get branchIds () :string[] { return ["sym", "type", "body"] }
-  get signature () :TP.Type { return new TP.Arrow(this.type.signature, this.body.signature) }
+  // type :Tree = emptyTerm
+  body :TermTree = emptyTerm
+  get branchIds () :string[] { return ["sym", /*"type",*/ "body"] }
+  // get signature () :TP.Type { return new TP.Arrow(this.type.signature, this.body.signature) }
   constructor (id :number, name :Name) { super() ; this.sym = new VarTreeSym(this, id, name) }
 
   check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
     if (tpe instanceof TP.Arrow) {
+      this.inferredType = tpe
+      this.sym.type = tpe.arg
       // exp.tpe = tpe  // lambda types are not always synthesized, so we also assign lambda AST
       // arg.tpe = argT // nodes a type during checking, ditto for the lambda argument nodes
       const argAssump = new TP.NAssump(this.sym, tpe.arg) // x:A
@@ -593,27 +627,15 @@ export class AbsTree extends DefTree {
 // Expression trees
 // ----------------
 
-export class LitTree extends Tree {
+export class LitTree extends TermTree {
   get branchIds () :string[] { return ["cnst"] }
   constructor (readonly cnst :C.Constant) { super() }
-
-  check (ctx :TP.Context, tpe :TP.Type) :TP.Context|string {
-    console.log(`lit check ${tpe}?`)
-    return super.check(ctx, tpe)
-  }
-
-  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-  //   return new TP.Const(this.cnst) }
-  protected infer (ctx :TP.Context) :Inference {
-    return [new TP.Const(this.cnst), ctx] }
+  protected infer (ctx :TP.Context) :Inference { return [new TP.Const(this.cnst), ctx] }
 }
 
-export class RefTree extends Tree {
+export class RefTree extends TermTree {
   constructor (readonly sym :S.Symbol) { super() }
   get branchIds () :string[] { return ["sym"] }
-  // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type {
-  //   return this.sym.type(prototype, recursive) }
-
   protected infer (ctx :TP.Context) :Inference {
     // TODO: ref and xref (former comes from our context, latter has type that we use as is)
     const tpe = ctx.assump(this.sym) || this.sym.type  // A ⊣ Γ
@@ -621,26 +643,26 @@ export class RefTree extends Tree {
   }
 }
 
-export class AscTree extends Tree {
-  type :Tree = emptyTree
-  expr :Tree = emptyTree
-  get branchIds () :string[] { return ["type", "expr"] }
-  get signature () :TP.Type { return this.type.signature }
+// export class AscTree extends Tree {
+//   type :Tree = emptyTerm
+//   expr :Tree = emptyTerm
+//   get branchIds () :string[] { return ["type", "expr"] }
+//   get signature () :TP.Type { return this.type.signature }
 
-  protected infer (ctx :TP.Context) :Inference {
-    return this.expr.inferSave(ctx)
-  }
-}
+//   protected infer (ctx :TP.Context) :Inference {
+//     return this.expr.inferSave(ctx)
+//   }
+// }
 
-export class HoleTree extends Tree {
+export class HoleTree extends TermTree {
   get isHole () :boolean { return true }
   // protected computeSig (prototype :TP.Type, recursive :boolean) :TP.Type { return prototype }
   protected infer (ctx :TP.Context) :Inference { return [TP.hole, ctx] }
 }
 
-class BaseAppTree extends Tree {
-  fun :Tree = emptyTree
-  arg :Tree = emptyTree
+class BaseAppTree extends TermTree {
+  fun :TermTree = emptyTerm
+  arg :TermTree = emptyTerm
 
   protected infer (ctx :TP.Context) :Inference {
     // ->E :: (e1 e2)
@@ -663,10 +685,10 @@ export class InAppTree extends BaseAppTree {
   get branchIds () :string[] { return ["arg", "fun"] }
 }
 
-export class IfTree extends Tree {
-  test :Tree = emptyTree
-  texp :Tree = emptyTree
-  fexp :Tree = emptyTree
+export class IfTree extends TermTree {
+  test :TermTree = emptyTerm
+  texp :TermTree = emptyTerm
+  fexp :TermTree = emptyTerm
   get branchIds () :string[] { return ["test", "texp", "fexp"] }
 
   setHoles () :this {
@@ -697,9 +719,9 @@ export class IfTree extends Tree {
   // }
 }
 
-export class MatchTree extends Tree {
-  scrut :Tree = emptyTree
-  cases :Tree[] = []
+export class MatchTree extends TermTree {
+  scrut :TermTree = emptyTerm
+  cases :TermTree[] = []
   get branchIds () :string[] { return ["scrut"].concat(this.cases.map((c, ii) => `${ii}`)) }
   branch (id :string) :Branch {
     if (id === "scrut") return this.scrut
@@ -736,8 +758,8 @@ export class MatchTree extends Tree {
   }
 
   protected storeBranch (id :string, branch :Branch) {
-    if (id === "scrut") this.scrut = branch as Tree
-    else this.cases[parseInt(id)] = branch as Tree
+    if (id === "scrut") this.scrut = branch as TermTree
+    else this.cases[parseInt(id)] = branch as TermTree
   }
   protected isValidBranch (id :string) :boolean {
     if (id === "scrut") return true
@@ -758,9 +780,9 @@ export class MatchTree extends Tree {
   // }
 }
 
-export class CaseTree extends Tree {
+export class CaseTree extends TermTree {
   pat :PatTree = emptyPatTree
-  body :Tree = emptyTree
+  body :TermTree = emptyTerm
   get branchIds () :string[] { return ["pat", "body"] }
   setHoles () :this {
     return this.setBranch("pat", new PHoleTree())
@@ -815,14 +837,18 @@ class CaseBodyScope extends S.Scope {
 // Top-level def trees
 // -------------------
 
-export class TopDefTree extends DefTree {
-  body :Tree = emptyTree
+export class TopTermDefTree extends TermDefTree {
+  type :TypeTree = emptyType
+  body :TermTree = emptyTerm
+
   get owner () :S.Symbol { return this.sym.owner }
-  get branchIds () :string[] { return ["sym", "body"] }
-  get signature () :TP.Type { return this.body.signature }
-  // we do some sneaky business here to allow the right kind of symbol to be created when
-  // unserializing top def trees; TODO: something less fragile
-  get kind () :string { return `${this.sym.kind}def` }
+  get branchIds () :string[] { return ["sym", "type", "body"] }
+  get kind () :string { return `termdef` }
+  get signature () :TP.Type { return this.type.signature }
+  get treeType () :TP.Type {
+    const sig = this.signature
+    return sig === TP.hole ? this.inferredType : sig }
+
   constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
 
   /** Infers and records a type for this definition and all its subtrees.
@@ -831,26 +857,46 @@ export class TopDefTree extends DefTree {
     const tracer = new TP.Tracer()
     const ctx = new TP.Context(tracer)
     const ann = this.signature
+    console.log(`${this} ${this.sym} // inferType :: ${ann} (${this.type})`)
     if (ann === TP.hole) {
       const [tpe, delta] = this.body.inferSave(ctx)
-      this.treeType = tpe
+      this.inferredType = tpe
       this.applyContext(delta)
     } else {
       // TODO: ann.checkWellFormed
       const [tpe, delta] = TP.check(this.body, ctx, ann, ann) // A ⊣ ∆
       // TODO: do we still need to apply delta here? only forall trees auto-apply
-      this.treeType = tpe
+      this.inferredType = tpe
       this.applyContext(delta)
     }
-    console.log(tracer.msgs.join("\n"))
-    return this.treeType
+    console.log(`${this} :: ${this.treeType}\n--\n` +
+                this.debugShow().join("\n") + "\n--\n" +
+                tracer.msgs.join("\n"))
+    return this.inferredType
   }
+
+  firstEditable () :Path { return new Path().firstEditable(this) }
 
   protected infer (ctx :TP.Context) :Inference {
     // TODO
     return this.body.inferSave(ctx)
   }
 }
+
+export class TopTypeDefTree extends TypeDefTree {
+  body :TypeTree = emptyType
+  get owner () :S.Symbol { return this.sym.owner }
+  get branchIds () :string[] { return ["sym", "body"] }
+  get kind () :string { return `typedef` }
+  // TODO: need this to be a lazy type that is unrolled so recursive stuff works
+  get signature () :TP.Type { return new TP.Nominal(this.sym, () => this.body.signature) }
+  constructor (readonly sym :S.Symbol, scope :S.Scope) { super() ; this._scope = scope }
+
+  firstEditable () :Path { return new Path().firstEditable(this) }
+}
+
+// export type DefTree = TermDefTree | TypeDefTree
+export type RootTree = TopTermDefTree | TopTypeDefTree
 
 // ---------------
 // Tree path model
@@ -884,28 +930,28 @@ export class Path {
   }
 
   /** Returns the branch selected by this path. */
-  selected (root :DefTree) :Branch {
+  selected (root :RootTree) :Branch {
     return this.ids.length == 0 ? root : this.selectionParent(root).branch(this.selectedId)
   }
   /** Returns the branch selected by this path as a `Tree`.
     * @throws Error if this path does not select a `Tree`. */
-  selectedTree (root :DefTree) :Tree {
+  selectedTree (root :RootTree) :Tree {
     const branch = this.selected(root)
     if (branch instanceof Tree) return branch
     else throw new Error(`Path does not select tree ${this}: (${branch})`)
   }
   /** Returns the `Tree` that contains the branch selected by this path.
     * @throws Error if this path is empty (i.e. selects the root tree). */
-  selectionParent (root :DefTree) :Tree {
+  selectionParent (root :RootTree) :Tree {
     if (this.ids.length == 0) throw new Error(`Path selects root, has no parent.`)
     return this.treeAt(root, this.length-2)
   }
   /** Returns the owner of the selected branch. */
-  selectionOwner (root :DefTree) :S.Symbol {
+  selectionOwner (root :RootTree) :S.Symbol {
     return this.selectionParent(root).childOwner(this.selectedId)
   }
   /** Returns true if the branch selected by this path is a "hole" tree. */
-  selectsHole (root :DefTree) :boolean {
+  selectsHole (root :RootTree) :boolean {
     const sel = this.selected(root)
     return sel instanceof Tree && sel.isHole
   }
@@ -913,13 +959,13 @@ export class Path {
   /** Returns the child id at offset `idx` (must be `0 <= idx < length`). */
   id (idx :number) :string { return this.ids[idx] }
   /** Returns the tree selected by the `idx`th component of this path. */
-  treeAt (root :DefTree, idx :number) :Tree {
+  treeAt (root :RootTree, idx :number) :Tree {
     let tree :Tree = root
     for (let ii = 0; ii <= idx; ii++) tree = tree.treeAt(this.id(ii))
     return tree
   }
   /** Returns the kind of the tree selected by the `idx`th component of this path. */
-  kindAt (root :DefTree, idx :number) :string { return this.treeAt(root, idx).kind }
+  kindAt (root :RootTree, idx :number) :string { return this.treeAt(root, idx).kind }
 
   /** Returns whether this path ends with the supplied path matching expression. Paths are matched
     * with sequences of alternating tree `kind` and branch `id` tokens. The last token is always a
@@ -930,7 +976,7 @@ export class Path {
     *
     * TODO: support some way to express matches that skip over intermediate tree nodes.
     */
-  endsWith (root :DefTree, ...comps :string[]) :boolean {
+  endsWith (root :RootTree, ...comps :string[]) :boolean {
     let cii = comps.length-1, pii = this.ids.length-1, checkId = true
     while (cii >= 0) {
       const comp = comps[cii]
@@ -958,7 +1004,7 @@ export class Path {
   pop () :Path { return new Path(...this.ids.slice(0, -1)) }
   /** If the path contains a node of `kind` then the path from the root to that node is returned,
     * otherwise `undefined` is returned. */
-  popTo (root :DefTree, kind :string) :Path|void {
+  popTo (root :RootTree, kind :string) :Path|void {
     let length = this.length-1
     let tree = this.selectionParent(root)
     while (tree.kind !== kind) {
@@ -979,7 +1025,7 @@ export class Path {
   }
 
   /** Returns the extension of this path that selects the first editable terminal. */
-  firstEditable (root :DefTree) :Path {
+  firstEditable (root :RootTree) :Path {
     let selected = this.selected(root)
     if (selected instanceof Tree) {
       let tree :Tree = selected
@@ -1018,7 +1064,7 @@ export class Path {
     return true
   }
 
-  mkString (root :DefTree) :string {
+  mkString (root :RootTree) :string {
     return `${root}` + this.ids.map(
       (id, idx) => idx == this.ids.length-1 ? `.${id}` : `.${id}/${this.kindAt(root, idx)}`
     ).join("")
@@ -1038,10 +1084,10 @@ export class Path {
   * Note that the current architecture mutates trees in place. The real compiler will not be so
   * cavalier. An edit can replace a tree wholesale if needed; it must retain the original tree for
   * its undo operation in that case. */
-export type TreeEdit = (root :DefTree) => {root :DefTree, undo :TreeEdit}
+export type TreeEdit = (root :RootTree) => {root :RootTree, undo :TreeEdit}
 
 /** A no-op tree edit. */
-export const noopEdit :TreeEdit = (root :DefTree) => ({root, undo: noopEdit})
+export const noopEdit :TreeEdit = (root :RootTree) => ({root, undo: noopEdit})
 
 export type EditFn = (te :TreeEditor) => TreeEdit
 
@@ -1180,16 +1226,16 @@ export class TreeEditor {
   setLet (name :Name) :TreeEdit { return this.setBranchFn(id => new LetTree(id, name).setHoles()) }
   setLetFun (name :Name) :TreeEdit {return this.setBranchFn(
     id => new LetFunTree(id, name).setHoles()) }
-  setAll (name :Name) :TreeEdit { return this.setBranchFn(id => new AllTree(id, name)) }
+  // setAll (name :Name) :TreeEdit { return this.setBranchFn(id => new AllTree(id, name)) }
   setAbs (name :Name) :TreeEdit { return this.setBranchFn(id => new AbsTree(id, name)) }
-  spliceAll () :TreeEdit { return this.spliceBranchFn(id => new AllTree(id, ""), "body") }
+  // spliceAll () :TreeEdit { return this.spliceBranchFn(id => new AllTree(id, ""), "body") }
   spliceAbs () :TreeEdit { return this.spliceBranchFn(id => new AbsTree(id, ""), "body") }
 
   // Expression terms
   setHole () :TreeEdit { return this.setBranch(new HoleTree()) }
   setLit (cnst :C.Constant) :TreeEdit { return this.setBranch(new LitTree(cnst)) }
   setRef (sym :S.Symbol) :TreeEdit { return this.setBranch(new RefTree(sym)) }
-  setAsc () :TreeEdit { return this.setBranch(new AscTree()) }
+  // setAsc () :TreeEdit { return this.setBranch(new AscTree()) }
   setApp () :TreeEdit { return this.setBranch(new AppTree()) }
   setInApp () :TreeEdit { return this.setBranch(new InAppTree()) }
   setIf () :TreeEdit { return this.setBranch(new IfTree().setHoles()) }
@@ -1244,7 +1290,7 @@ export class LetTreeSym extends S.Symbol {
 /** Symbols assigned to field definitions.
   * These must be explicitly marked non-lexical as they are not owned by the module symbol. */
 class TypeDefSym extends TreeSym {
-  constructor (tree :Tree, id :number, name :Name) {
+  constructor (tree :TypeTree, id :number, name :Name) {
     super(tree, "term", "none", id, name, () => tree.signature) }
   get lexical () :boolean { return false }
 }
@@ -1319,27 +1365,27 @@ export function inflateTree (index :InflateIndex, json :any) :Tree {
     // abstraction trees
     case    "let": return inflateBranches(setsym(new LetTree(json.sym.id, json.sym.name)))
     case "letfun": return inflateBranches(setsym(new LetFunTree(json.sym.id, json.sym.name)))
-    case    "all": return inflateBranches(setsym(new AllTree(json.sym.id, json.sym.name)))
+    // case    "all": return inflateBranches(setsym(new AllTree(json.sym.id, json.sym.name)))
     case    "abs": return inflateBranches(setsym(new AbsTree(json.sym.id, json.sym.name)))
     // expression trees
     case   "hole": return new HoleTree()
     case    "lit": return new LitTree(C.inflateConst(json.cnst))
     case    "ref": return new RefTree(reqsym(json.symId))
-    case    "asc": return inflateBranches(new AscTree())
+    // case    "asc": return inflateBranches(new AscTree())
     case    "app": return inflateBranches(new AppTree())
     case  "inapp": return inflateBranches(new InAppTree())
     case     "if": return inflateBranches(new IfTree())
     case  "match": return inflateNBranches(inflateBranches(new MatchTree()), json.cases)
     case   "case": return inflateBranches(new CaseTree())
     // oddball trees
-    case  "empty": return emptyTree
+    case  "empty": return emptyTerm
     default: throw new Error(`Unknown tree kind: '${json.kind}'`)
     }
 
   } catch (error) {
     console.warn(`Failed to inflate tree: ${JSON.stringify(json)}`)
     console.warn(error)
-    return emptyTree // TODO: return appropriate kind of hole...
+    return emptyTerm // TODO: return appropriate kind of hole...
   }
 }
 
@@ -1384,8 +1430,8 @@ function mkTree (kind :string, json :TreeJson = {}) :TreeJson {
 
 export class TreeBuilder {
   // def trees
-  mkTermDef (name :string, id :number, body :TreeJson) {
-    return mkTree("termdef", {sym: {name, id}, body}) }
+  mkTermDef (name :string, id :number, type :TreeJson, body :TreeJson) {
+    return mkTree("termdef", {sym: {name, id}, type, body}) }
   mkTypeDef (name :string, id :number, body :TreeJson) {
     return mkTree("typedef", {sym: {name, id}, body}) }
   // type trees
@@ -1413,14 +1459,13 @@ export class TreeBuilder {
     return mkTree("let", {sym: {name, id}, type, body, expr}) }
   mkLetFun (name :string, id :number, body :TreeJson, expr :TreeJson) {
     return mkTree("letfun", {sym: {name, id}, body, expr}) }
-  mkAll (name :string, id :number, body :TreeJson) { return mkTree("all", {sym: {name, id}, body}) }
-  mkAbs (name :string, id :number, type :TreeJson, body :TreeJson) {
-    return mkTree("abs", {sym: {name, id}, type, body}) }
+  // mkAll (name :string, id :number, body :TreeJson) { return mkTree("all", {sym: {name, id}, body}) }
+  mkAbs (name :string, id :number, body :TreeJson) { return mkTree("abs", {sym: {name, id}, body}) }
   // expression trees
   mkHole () { return mkTree("hole") }
   mkLit (cnst :ConstJson) { return mkTree("lit", {cnst}) }
   mkRef (symId :string) { return mkTree("ref", {symId}) }
-  mkAsc (type :TreeJson, expr :TreeJson) { return mkTree("asc", {expr, type}) }
+  // mkAsc (type :TreeJson, expr :TreeJson) { return mkTree("asc", {expr, type}) }
   mkApp (fun :TreeJson, arg :TreeJson) { return mkTree("app", {fun, arg}) }
   mkInApp (arg :TreeJson, fun :TreeJson) { return mkTree("inapp", {arg, fun}) }
   // case     "if": return inflateBranches(new IfTree())

@@ -182,7 +182,7 @@ export class Workspace extends React.Component<{store :WorkspaceStore}> {
     }
 
     const mod = store.newDefMod
-    let tree :T.DefTree|void = undefined
+    let tree :T.RootTree|void = undefined
     switch (ev.code) {
     case "KeyF": tree = mod.addFunDef("") ; break
     case "KeyS": tree = mod.addSumDef("") ; break

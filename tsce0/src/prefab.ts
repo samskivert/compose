@@ -35,8 +35,8 @@ primMod.addTypeDef("String", StringID).
 
 const natType = natTree.sym.type
 const natNatToNat = new TP.Arrow(natType, new TP.Arrow(natType, natType))
-primMod.addFunDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
-primMod.addFunDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
+primMod.addTermDef("+", PlusID).setBranch("body", new T.PrimTree(natNatToNat))
+primMod.addTermDef("-", MinusID).setBranch("body", new T.PrimTree(natNatToNat))
 
 const primLib = new P.Component(primLibUUID, P.Type.LIB, "prim", nullProjResolver)
 primLib.modules.push(primMod)
@@ -89,6 +89,12 @@ const listJson = tb.mkTypeDef(
   )
 )
 
+// id ∀A a:A -> A = a
+const idJson = tb.mkTermDef(
+  "id", 13,
+  tb.mkTAbs("A", 1, tb.mkArrow(tb.mkTRef("l1"), tb.mkTRef("l1"))),
+  tb.mkAbs("a", 2, tb.mkRef("l2")))
+
 export function addTestProject (store :Store, defsJson :Object[]) {
   const testModJson = {
     uuid: testModUUID,
@@ -113,8 +119,10 @@ export function addTestProject (store :Store, defsJson :Object[]) {
   store.contains(testProjUUID) || store.store(testProjUUID, testProjJson)
 }
 
+export const prefabDefs = [boxJson, recordJson, listJson, idJson]
+
 export function seedTestProject (store :Store) {
-  addTestProject(store, [boxJson, recordJson, listJson])
+  addTestProject(store, prefabDefs)
 }
 
 // function mkListA (tb :TreeEditor) :Tree {

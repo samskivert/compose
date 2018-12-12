@@ -17,7 +17,7 @@ const testSym = testMod.symById(10)
 const testTree = testSym && testMod.tree(testSym as M.DefSym)
 
 it("formats things", () => {
-  if (testTree instanceof T.DefTree) {
+  if (testTree !== undefined) {
     console.log(testTree.debugShow().join("\n"))
     const {elem} = F.format(testMod, testTree, new T.Path())
     // console.dir(elem)
