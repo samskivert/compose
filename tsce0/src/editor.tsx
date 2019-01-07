@@ -272,7 +272,7 @@ export class DefStore implements K.Source {
   }, {
     id: "show-path",
     descrip: "Show node path",
-    chord: "S-M-KeyP",
+    chord: "A-M-KeyP",
     isEdit :() => true,
     action: kp => {
       const span = this.selectedSpan
@@ -285,7 +285,7 @@ export class DefStore implements K.Source {
   }, {
     id: "log-node",
     descrip: "Debug log node",
-    chord: "S-M-KeyL",
+    chord: "A-M-KeyL",
     isEdit :() => true,
     action: kp => {
       const span = this.selectedSpan
