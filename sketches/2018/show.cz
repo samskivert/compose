@@ -1,0 +1,85 @@
+//
+// Sketch of the Show interface
+
+/// Generates string representations of data.
+interface Show[A] {
+  /// Generates a string representation of `value`.
+  fun show (value :A) :String
+}
+
+let digits = "0123456789"
+
+/// Returns the number of digits needed to represent `x` as a string.
+/// If `x` is negative, the returned value includes one digit for the `-` sign.
+fun digits (x :I32) :I32 = {
+  // we convert positive integers to negative to avoid failure when operating on -2^31;
+  // we cannot negate that value as the maximum signed integer is 2^31-1
+  let (d, tx) = if (x >= 0) (0, -x) else (1, x)
+  fun loop (cx :I32, i :I32) :I32 =
+    if (i == 10) d+10
+    else if (tx > cx) i + d
+    else loop(cx*10, i+1)
+  loop(-10, 1)
+}
+
+/// Writes the digits of `x` into `buffer` backwards (least significant digit first) starting
+/// at the index before `end` and proceding to lower indices from there. Bounds checks are not
+/// performed, so `buffer` must contain sufficient space to hold the digits. This is mainly used
+/// as a helper function for the `Show` implemetations for integral types.
+/// @return the final index position after writing (the lowest index).
+fun getDigits (x :I32, buffer :Buffer[Char], end :I32) :I32 {
+  let negative = x < 0
+  // we convert positive integers to negative to avoid failure when operating on -2^31;
+  // we cannot negate that value as the maximum signed integer is 2^31-1
+  var xx = if (negative) x else -x, pos = end
+  while (xx <= -10) {
+    let q = xx / 10, r = (q * 10) - xx
+    xx = q
+    pos -= 1
+    // note: this probably isn't the array update syntax I'm going to use, but all of this
+    // syntax is provisional anyway, so keep your bikeshed paint in the garage for now
+    buffer[pos] = digits.charAt(r)
+  }
+  // unroll the last iteration to handle 0 more easily
+  let q = xx / 10
+  let r = (q * 10) - xx
+  buffer[pos] = digits.charAt(r)
+  if (negative) {
+    pos-1
+    buffer[pos] = '-'
+  }
+  pos
+
+// or with a tail recursive (?) loop
+  let negative = x < 0
+  fun loop (xx :I32, pos :I32) :I32 = {
+    let q = xx / 10, r = (q * 10) - xx
+    buffer[pos] = digits.charAt(r)
+    if (xx <= -10) loop(q, pos-1)
+    else pos
+  }
+  // we convert positive integers to negative to avoid failure when operating on -2^31;
+  // we cannot negate that value as the maximum signed integer is 2^31-1
+  let pos = loop(if (negative) x else -x, end-1)
+  if (negative) { buffer[pos-1] = '-' ; pos-1 }
+  else pos
+}
+
+impl showI32 : Show[I32] {
+  fun show (v :I32) :String = {
+    let digits = digits(v)
+    let buffer = Buffer[Char](digits)
+    getDigits(v, buffer, digits)
+    digits // TODO: string should be a "sealed" (immutable) array of characters
+  }
+}
+
+impl showList[A:Show] : Show[List[A]] {
+  fun show (xs :List[A]) :String = if (xs == Nil) "Nil" else {
+    fun loop (buf :Buffer[Char], xs :List[A]) :Buffer[Char] = xs match {
+      case Nil = buf.append(")")
+      case xs  = loop(buf.append(show(xs.head)), xs.tail)
+    }
+    loop(Buffer[Char](16).append("List(")), xs)
+  }
+}

@@ -1,0 +1,65 @@
+// Note: this is all in c0 syntax, avert thine eyes
+
+//
+// Bits from Data.Foldable
+
+// Fold a data structure, accumulating values in some `Monoid`,
+// combining adjacent elements using the specified separator.
+fun intercalate [M:Monoid, F:Foldable] (sep :M, xs :F[M]) :M = {
+  fun loop ((init, acc), x) = if (init) (false, x) else (false, acc <> sep <> x)
+  fold(loop, (true, mempty), xs)
+}
+
+//
+// List data type and some common type class instances
+
+data List[A] = Nil | Cons (head :A, tail :List[A])
+
+impl ShowList[A:Show] : Show[List[A]] {
+  fun show (xs :List[A]) :String = xs match {
+    case Nil = "Nil"
+    case xs  = "(" <> (intercalate " : " (show <$> xs)) <> " : Nil)"
+  }
+}
+
+impl EqList[A:Eq] : Eq[List[A]] {
+  fun eq (as :List[A], bs :List[B]) :Bool = {
+    fun loop (as, bs, stop) = if (stop) false else (as, bs) match {
+      case (Nil,     Nil)             = true
+      case (Cons(a, at), Cons(b, bt)) = loop(at, bt, a == b)
+      case (_,       _)               = false
+    }
+    loop(as, bs, false)
+  }
+}
+
+impl OrdList[A:Ord] : Ord[List[A]] {
+  fun compare (as :List[A], bs :List[A]) :Ord = {
+    fun loop (as, bs) = (as, bs) match {
+      case (Nil, Nil) = EQ
+      case (Nil, _  ) = LT
+      case (_,   Nil) = GT
+      case (Cons(a, at), Cons(b, bt)) = compare(a, b) match {
+        case EQ = loop(at, bt)
+        case cv = cv
+      }
+    }
+    loop(as, bs)
+  }
+}
+
+impl FoldableList[A] : Foldable[List[A]] {
+  fun fold (f :(B, A) -> B, z :B, as :List[A]) :B = {
+    fun loop (acc, as) = as match {
+      case Nil = acc
+      case Cons(a, at) = loop(f(b, a), at)
+    }
+    loop(z, as)
+  }
+  fun foldRight (f :(A, B) -> B, as :List[A], z :B) :B = fold(flip(f), z, reverse(as))
+  fun foldMap [B:Monoid] (f :(A, B) -> B, as :List[A]) = fold((acc, a) => append(acc, f(a)), mempty, as)
+}
+
+impl SemigroupList[A] : Semigroup[List[A]] {
+  fun append (as :List[A], bs :List[A]) = foldRight(Cons, ys, xs)
+}

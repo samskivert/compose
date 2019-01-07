@@ -1,0 +1,185 @@
+//
+// A sketch of the reactive UI framework eventually offered by Compose
+// and how Todo MVC might be implemented in
+
+//
+// Reactive building blocks
+
+/// A stream of values (maybe Stream is a bad name since that traditionally means a lazily computed
+/// stream of values could do RSignal or REvent instead)
+data RStream[A]
+// * map, filter, etc.
+// * bind - bind listener or bind ‘output’ to some WVar
+
+/// A variable to which one can react (observe changes)
+data RVar[A]
+// * get (current value)
+// * map, filter, etc.
+// * bind
+
+/// A variable to which one can write (make changes)
+data WVar[A]
+// * update
+
+/// A variable that can be reacted and written to
+data RWVar[A]
+// * combined operations of RVar and WVar
+
+/// A reactive sequence
+data RSeq[A]
+data WSeq[A]
+data RWSeq[A]
+// * size as RVar int
+// * element @ index as RVar ‘a; also WVar ‘a? what if it’s removed?
+// * RSeq supports map, filter, etc.
+// * WSeq supports append, removeAt, removeWhere, seq-like mutations
+// * bind (‘value’ is entire Seq ‘a)
+
+/// A reactive map
+data RMap[K,V]
+data WMap[K,V]
+data RWMap[K,V]
+// * size as RVar int
+// * value @ key as {R|W|RWVar} opt ‘v
+// * keys as RSet ‘k, values as RBag ‘v?
+// * bind (‘value’ is entire Map ‘k ‘v)
+// * put, get, remove, removeWhere, etc.
+
+/// A reactive set
+data RSet[E]
+data WSet[E]
+data RWSet[E]
+// * size as RVar int
+// * contains ‘e as RVar bool
+// * add, remove, removeWhere, etc.
+
+//
+// DOM API
+
+data Elem = CheckBox checked : RWVar Bool
+          | Label text : WVar String
+          | Input text : RWVar String
+          | Div children : RWSeq Elem
+
+//
+// TodoMVC design
+
+/// Item Model
+type ItemId = I32
+data Item =
+  id : ItemId
+  text : RWVar String
+  completed : RWVar Bool
+
+fun !mkItem id : int text : string -> ItemModel =
+  ItemModel id (mkVar text) (mkVar false)
+
+/// Item View Model
+data ItemViewModel =
+  edits RWVar Opt String
+  delete RWStream Int
+
+/// Item Actions
+fun !edit text : String =
+  vm.edits = Some text
+fun !commitEdit  =
+  m.text = vm.edits.get
+  vm.edits = None
+fun !cancelEdit =
+  vm.edits = None
+fun !complete done : Bool =
+  m.completed = done
+fun !delete =
+  vm.deletes emit m.id
+
+/// Item UI
+fun !mkItemUI m : ItemModel deletes : RWStream ItemId -> Elem =
+  let vm = ItemViewModel (mkRWVar None) deletes
+  div [
+    checkbox [
+      selected <! m.completed
+      selected !> !complete ]
+    label [
+      visible <! vm.edits.isNone
+      text <! m.text
+      onDoubleClick !> sample m.text !> !edit ]
+    input [
+      visible <! vm.edits.isSome
+      text <! vm.edits orElse ""
+      text !> !edit
+      onEnter !> !commitEdit
+      onEsc !> !cancelEdit
+      onBlur !> ? ]
+    button [
+      text = “Delete”
+      onClick !> !delete ]]
+
+/// App Model
+data AppModel =
+  items : RWSeq ItemModel
+  nextItemId : RWVar ItemId
+
+/// App View Model
+data AppViewModel =
+  newItemText : RWVar String
+  deletes : RWStream ItemId
+  filter : RWVar Filter
+  shownItems : RSeq Item
+
+fun !mkAppViewModel m : AppModel =
+  let deletes = mkStream {ItemId}
+  deletes !> (id => m removeWhere (_.id == id))
+  let filter = mkVar All
+  let shouldShow filt todo = filt match
+    Any         = true
+    Incompleted = !todo.completed
+    Completed   = todo.completed
+  let shownItems = filter <#> shouldShow >>= filter m.items
+  AppViewModel mkVar("") deletes filter shownItems
+
+data Filter = All | Incomplete | Complete
+  deriving Enum // defines elements[Filter]
+
+fun name filt : Filter -> String = filt match
+  All = "All"
+  Incomplete = "Incomplete"
+  Complete = "Complete"
+
+/// App Actions
+fun !editNew text : String =
+  vm.newItemText = text
+fun !createNew =
+  m.items append newItem(m.nextItemId, vm.newItemText.get)
+  m.newItemText = ""
+  m.nextItemId = m.nextItemId + 1
+fun !cancelNew =
+  m.newItemText = ""
+fun !filter filter : Filter =
+  m.filter = filter
+fun !deleteCompleted =
+  m.items removeWhere _.completed
+
+/// App UI
+fun !mkAppUI m : AppModel =
+  mkAppUI vm (mkAppViewModel m)
+
+fun mkAppUI m : AppModel vm : AppViewModel =
+  let itemLI item = li [ mkItemUI item vm.deletes ]
+  let filterBtn f = button
+  / text = f.name
+  \ onClick !> !filter f
+  div
+  / input
+  | / text <! vm.newItemText
+  | | text !> editNew
+  | | onEnter !> createNew
+  | \ onEsc !> cancelNew
+  | ul
+  | < children <! vm.shownItems <#> itemLI
+  | div
+  | / text "Filter:"
+  | | <+ elements[Filter] <#> filterBtn +>
+  | | button
+  | | / text = "Clear Completed"
+  | | | visible <! m.items.exists(_.completed)
+  \ \ \ onClick !> !deleteCompleted

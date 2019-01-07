@@ -1,0 +1,7 @@
+
+/// Inductively defined linked list (a cons list for the lispers)
+data List[A] =
+  /// The empty list.
+  Nil |
+  /// The head of a list and its remainder.
+  Cons (head :A, tail :List[A])

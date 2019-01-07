@@ -1,0 +1,34 @@
+// 2018-04-26 - Counter
+//
+// A sketch of a simple HTML app that displays a list of "counter" components (initially empty) and
+// has a button to add a new counter component. Each counter component displays its index in the
+// list, the current value of the counter, and two buttons: one to increment the counter and one to
+// remove the counter component from the list.
+
+data Model (counters :RSeq[I32])
+
+fun counterView (counter :RVal[I32]) :View = button(
+  events={"click": _ => counter.update($1 + 1)}
+  children=[
+    text(counter.map(current => s"Counter = ${current}"))
+  ]
+)
+
+fun counterEntryView (counter :RVal[I32], counters :RSeq[I32]) :View = div(children=[
+  text(counters.indexOf*(counter).map(idx => s"$idx. "))
+  counterView(counter)
+  button(
+    events={"click": _ => counters.remove(counter) }
+    children=[text("Remove")]
+  )
+])
+
+fun addView (model :Model) :View = div(children=[
+  button(
+    events={"click": _ => model.counters.append(RVal(0))}
+    children=[text("Add")]
+  )
+  div(children=[model.counters.map(counterEntryView(_, counters))])
+])
+
+fun main (dom :DOM) :Bindings = ["app": addView(Model(RSeq()))]
