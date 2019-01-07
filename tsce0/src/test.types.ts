@@ -56,12 +56,13 @@ const falseJson = tb.mkLit({tag: C.Tag.Bool, value: "false"})
 it("types id", () => {
   const testMod = makeTestMod([
     // id ∀A a:A -> A = a
-    tb.mkTermDef("id", 10, tb.mkTAbs("A", 1, tb.mkArrow(tb.mkTRef("l1"), tb.mkTRef("l1"))),
-                 tb.mkAbs("a", 2, tb.mkRef("l2"))),
+    tb.mkTermDef("id", 10,
+                 tb.mkAll("A", 1, tb.mkAbs("a", 2, tb.mkTRef("l1"),
+                                           tb.mkAsc(tb.mkTRef("l1"), tb.mkRef("l2"))))),
     // id false
-    tb.mkTermDef("idAtFalse", 11, tb.mkTHole(), tb.mkApp(tb.mkRef("m10"), falseJson)),
+    tb.mkTermDef("idAtFalse", 11, tb.mkApp(tb.mkRef("m10"), falseJson)),
     // id id
-    tb.mkTermDef("idAtId", 12, tb.mkTHole(), tb.mkApp(tb.mkRef("m10"), tb.mkRef("m10"))),
+    tb.mkTermDef("idAtId", 12, tb.mkApp(tb.mkRef("m10"), tb.mkRef("m10"))),
   ])
   for (let defSym of testMod.defs) {
     const defTree = testMod.tree(defSym)

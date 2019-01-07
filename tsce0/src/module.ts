@@ -152,11 +152,11 @@ export class Module implements S.Index {
 
   addFunDef (name :Name, id :number = this.nextSymId()) :T.RootTree {
     const tree = this.addTermDef(name, id)
-    tree.setBranch("type", new T.ArrowTree().
-                   setBranch("from", new T.THoleTree()).
-                   setBranch("to", new T.THoleTree()))
-    tree.setBranch("body", new T.AbsTree(1, "").
-                   setBranch("body", new T.HoleTree()))
+    tree.setBranch(
+      "body", new T.AbsTree(1, "").setBranch(
+        "body", new T.AscTree().
+          setBranch("type", new T.THoleTree()).
+          setBranch("expr", new T.HoleTree())))
     // focus: new T.Path("sym")
     return tree
   }
@@ -265,7 +265,6 @@ export class Module implements S.Index {
       case "term":
         tree = new T.TopTermDefTree(sym, this.scope)
         this.trees.set(sym.id, tree)
-        tree.setBranch("type", T.inflateTree(index, json.type))
         tree.setBranch("body", T.inflateTree(index, json.body))
         break
       case "type":

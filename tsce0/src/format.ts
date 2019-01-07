@@ -30,6 +30,11 @@ class SigAnnot {
 
 const symStyle = (sym :S.Symbol) => sym.flavor === "none" ? sym.kind : sym.flavor
 
+// span {S, Showable S} classes:Array String → editor:EditFn? → text:S → Span = ...
+// pow {N, X, Num N, Int X} n:N → x:X → N = ...
+
+// type Sig = {path :T.Path, tree :T.Tree}
+
 class Acc {
   line :M.Span[] = []
   lineWidth = 0
@@ -59,12 +64,18 @@ class Acc {
         this.appendKeySpan("fun ")
         this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
         this.appendSepSpan(" ")
+        this.appendAbs(path.x("body"), tree.body, 0)
+      } else if (tree.body instanceof T.AllTree) {
+        this.appendKeySpan("fun ")
+        this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
+        this.appendSepSpan(" ")
+        this.appendAll(path.x("body"), tree.body, 0)
       } else {
         this.appendKeySpan("let ")
         this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
         this.appendSepSpan(" = ")
+        this.appendTree(path.x("body"), tree.body)
       }
-      this.appendTree(path.x("body"), tree.body)
 
     } else if (tree instanceof T.TopTypeDefTree) {
       if (this.depth == 0) this.appendKeySpan("type ")
@@ -187,13 +198,13 @@ class Acc {
       this.newLine()
       this.appendTree(path.x("expr"), tree.expr)
 
-    // } else if (tree instanceof T.AscTree) {
-    //   this.appendTree(path.x("expr"), tree.expr)
-    //   this.appendSepSpan(":")
-    //   this.appendTree(path.x("type"), tree.type)
+    } else if (tree instanceof T.AscTree) {
+      this.appendTree(path.x("expr"), tree.expr)
+      this.appendSepSpan(":")
+      this.appendTree(path.x("type"), tree.type)
 
-    // } else if (tree instanceof T.AllTree) {
-    //   this.appendAll(path, tree, 0)
+    } else if (tree instanceof T.AllTree) {
+      this.appendAll(path, tree, 0)
 
     } else if (tree instanceof T.AbsTree) {
       this.appendAbs(path, tree, 0)
@@ -296,40 +307,38 @@ class Acc {
   appendAbs (path :T.Path, tree :T.AbsTree, pos :number) {
     const bodyPath = path.x("body"), body = tree.body
     this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
-    // TODO: we need to get the type out of the def signature...
-    // this.appendAnnType(path.x("type"), tree.type)
+    this.appendAnnType(path.x("type"), tree.type)
     if (body instanceof T.AbsTree) {
       this.appendKeySpan(" → ")
       this.appendAbs(bodyPath, body, pos+1)
-    // TODO: ditto down here: get the type out of the def signature...
-    // } else if (body instanceof T.AscTree) {
-    //   this.appendKeySpan(" → ")
-    //   this.appendTree(bodyPath.x("type"), body.type)
-    //   this.appendKeySpan(" = ")
-    //   this.maybeAppendError(bodyPath, body)
-    //   this.newLine()
-    //   this.appendSubTree(bodyPath.x("expr"), body.expr)
+    } else if (body instanceof T.AscTree) {
+      this.appendKeySpan(" → ")
+      this.appendTree(bodyPath.x("type"), body.type)
+      this.appendKeySpan(" = ")
+      this.maybeAppendError(bodyPath, body)
+      this.newLine()
+      this.appendSubTree(bodyPath.x("expr"), body.expr)
     } else {
       this.appendKeySpan(" = ")
       this.appendSubTree(bodyPath, body)
     }
   }
 
-  // appendAll (path :T.Path, tree :T.AllTree, pos :number) {
-  //   const body = tree.body, bodyPath = path.x("body")
-  //   this.appendKeySpan("∀")
-  //   this.appendSymSpan(new TypeDefSpan(this.root, path.x("sym"), tree))
-  //   if (body instanceof T.AllTree) {
-  //     this.appendAll(bodyPath, body, pos+1)
-  //   } else if (body instanceof T.AbsTree) {
-  //     this.appendSepSpan(" ")
-  //     this.appendAbs(bodyPath, body, 0)
-  //   } else {
-  //     // TODO: this shouldn't really ever happen, we should complain?
-  //     this.appendKeySpan(" = ")
-  //     this.appendTree(bodyPath, body)
-  //   }
-  // }
+  appendAll (path :T.Path, tree :T.AllTree, pos :number) {
+    const body = tree.body, bodyPath = path.x("body")
+    this.appendKeySpan("∀")
+    this.appendSymSpan(new TermDefSpan(this.root, path.x("sym"), tree))
+    if (body instanceof T.AllTree) {
+      this.appendAll(bodyPath, body, pos+1)
+    } else if (body instanceof T.AbsTree) {
+      this.appendSepSpan(" ")
+      this.appendAbs(bodyPath, body, 0)
+    } else {
+      // TODO: this shouldn't really ever happen, we should complain?
+      this.appendKeySpan(" = ")
+      this.appendTree(bodyPath, body)
+    }
+  }
 
   appendTAbs (path :T.Path, tree :T.TAbsTree, pos :number) {
     const body = tree.body, bodyPath = path.x("body")
@@ -525,7 +534,7 @@ const addArgType :KeyRule = {
 
 const isEmptyAbs = (tree :T.Tree) => tree instanceof T.AbsTree && tree.sym.name === ""
 const isEmptyTAbs = (tree :T.Tree) => tree instanceof T.TAbsTree && tree.sym.name === ""
-// const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name === ""
+const isEmptyAll = (tree :T.Tree) => tree instanceof T.AllTree && tree.sym.name === ""
 
 const addAbs :KeyRule = {
   name: "addAbs",
@@ -552,18 +561,18 @@ const addTAbs :KeyRule = {
   focusOp: (root, path) => path.sib("body").x("sym")
 }
 
-// const addAll :KeyRule = {
-//   name: "addAll",
-//   chord: "S-Space",
-//   pathPred: (root, path) => (path.endsWith(root, "fundef", "sym") ||
-//                              path.endsWith(root, "letfun", "sym") ||
-//                              path.endsWith(root, "all", "sym")),
-//   apply: (root, path) => {
-//     const body = path.sib("body")
-//     return isEmptyAll(body.selectedTree(root)) ? T.noopEdit : body.edit(te => te.spliceAll())
-//   },
-//   focusOp: (root, path) => path.sib("body").x("sym")
-// }
+const addAll :KeyRule = {
+  name: "addAll",
+  chord: "S-Space",
+  pathPred: (root, path) => (path.endsWith(root, "termdef", "sym") ||
+                             path.endsWith(root, "letfun", "sym") ||
+                             path.endsWith(root, "all", "sym")),
+  apply: (root, path) => {
+    const body = path.sib("body")
+    return isEmptyAll(body.selectedTree(root)) ? T.noopEdit : body.edit(te => te.spliceAll())
+  },
+  focusOp: (root, path) => path.sib("body").x("sym")
+}
 
 const addInAppArg :KeyRule = {
   name: "addInAppArg",
@@ -723,7 +732,7 @@ abstract class SymRuleSpan extends RuleSpan {
 }
 
 const typeKeyRules :KeyRule[] = [
-  // addAll,
+  addAll,
   addAbs,
   addTAbs,
   addArgType,
@@ -732,7 +741,7 @@ const typeKeyRules :KeyRule[] = [
 
 class TypeDefSpan extends SymRuleSpan {
   constructor (readonly root :T.RootTree, readonly path :T.Path,
-               readonly tree :T.TypeDefTree) { super() }
+               readonly tree :T.TypeSymTree) { super() }
 
   get sym () :S.Symbol { return this.tree.sym }
   get keyRules () { return typeKeyRules }
@@ -748,7 +757,7 @@ class TypeDefSpan extends SymRuleSpan {
 }
 
 const termDefKeyRules :KeyRule[] = [
-  // addAll,
+  addAll,
   addAbs,
   addTAbs,
   addArgType,
@@ -758,7 +767,7 @@ const termDefKeyRules :KeyRule[] = [
 
 class TermDefSpan extends SymRuleSpan {
   constructor (readonly root :T.RootTree, readonly path :T.Path,
-               readonly tree :T.TermDefTree) { super() }
+               readonly tree :T.TermSymTree) { super() }
 
   get sym () :S.Symbol { return this.tree.sym }
   get keyRules () { return termDefKeyRules }
@@ -948,7 +957,7 @@ class PatBindCompletion extends M.Completion {
 
 const patKeyRules :KeyRule[] = [
   addArgType,
-  // addAll,
+  addAll,
   addAbs,
   addTAbs,
   eqToBody, // TODO: change arrow to =, eqToBody moves to expr?

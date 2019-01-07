@@ -92,8 +92,7 @@ const listJson = tb.mkTypeDef(
 // id ∀A a:A -> A = a
 const idJson = tb.mkTermDef(
   "id", 13,
-  tb.mkTAbs("A", 1, tb.mkArrow(tb.mkTRef("l1"), tb.mkTRef("l1"))),
-  tb.mkAbs("a", 2, tb.mkRef("l2")))
+  tb.mkAll("A", 1, tb.mkAbs("a", 2, tb.mkTRef("l1"), tb.mkAsc(tb.mkTRef("l1"), tb.mkRef("l2")))))
 
 export function addTestProject (store :Store, defsJson :Object[]) {
   const testModJson = {
@@ -119,7 +118,7 @@ export function addTestProject (store :Store, defsJson :Object[]) {
   store.contains(testProjUUID) || store.store(testProjUUID, testProjJson)
 }
 
-export const prefabDefs = [boxJson, recordJson, listJson, idJson]
+export const prefabDefs = [/* boxJson, recordJson, listJson,  */idJson]
 
 export function seedTestProject (store :Store) {
   addTestProject(store, prefabDefs)
