@@ -1,0 +1,36 @@
+package compose
+
+import scala.collection.mutable.Builder
+import java.util.HashMap
+
+object Scopes {
+  import Names._
+  import Symbols._
+
+  abstract class Scope {
+    def lookupTerm (name :Name) :Symbol = lookup(Kind.Term, name)
+    def lookupType (name :Name) :Symbol = lookup(Kind.Type, name)
+
+    def lookup (kind :Kind, name :Name) :Symbol
+
+    def getCompletions (pred :(sym :Symbol) => Boolean, prefix :String) = {
+      val syms = Seq.newBuilder[Symbol]
+      _addCompletions(pred, prefix.toLowerCase, syms)
+      syms.result()
+    }
+
+    def _addCompletions (pred :(sym :Symbol) => Boolean, prefix :String,
+                         syms :Builder[Symbol,Seq[Symbol]]) :Unit
+
+    protected def isCompletion (prefix :String, sym :Symbol) :Boolean =
+      !sym.isHole && sym.name.startsWithLower(prefix)
+  }
+
+  class EmptyScope extends Scope {
+    def lookup (kind :Kind, name :Name) :Symbol = new MissingSym(kind, name)
+    def _addCompletions (pred :(sym :Symbol) => Boolean, prefix :String,
+                         syms :Builder[Symbol,Seq[Symbol]]) = {}
+    def toString = "<empty">
+  }
+  val emptyScope :Scope = new EmptyScope()
+}
