@@ -251,7 +251,6 @@ object Trees {
 
   // top-level def trees
   case class TermDefTree (name :Name, body :TermTree) extends TermTree {
-
     /** Infers and records a type for this definition and all its subtrees.
       * @return the inferred type for this tree. */
     def inferType () :Type = {
@@ -279,6 +278,7 @@ object Trees {
 
     protected def infer (ctx :Context) = body.inferSave(ctx)
   }
+
   case class TypeDefTree (name :Name, body :TypeTree) extends TypeTree {
     def signature = body.signature
   }
