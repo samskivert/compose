@@ -89,6 +89,9 @@ const listJson = tb.mkTypeDef(
   )
 )
 
+// temp: avoid compiler complaining about unused defs
+export const foo = [boxJson, recordJson, listJson]
+
 // id ∀A a:A -> A = a
 const idJson = tb.mkTermDef(
   "id", 13,
