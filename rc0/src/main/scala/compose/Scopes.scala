@@ -7,10 +7,10 @@ object Scopes {
   import Symbols._
 
   abstract class Scope {
-    def lookupTerm (name :Name) :Symbol = lookup(Kind.Term, name)
-    def lookupType (name :Name) :Symbol = lookup(Kind.Type, name)
+    def lookupTerm (name :Name) :Symbol = lookup(Sort.Term, name)
+    def lookupType (name :Name) :Symbol = lookup(Sort.Type, name)
 
-    def lookup (kind :Kind, name :Name) :Symbol
+    def lookup (kind :Sort, name :Name) :Symbol
 
     // def getCompletions (pred :(sym :Symbol) => Boolean, prefix :String) = {
     //   val syms = Seq.newBuilder[Symbol]
@@ -26,7 +26,7 @@ object Scopes {
   }
 
   val emptyScope :Scope = new Scope {
-    def lookup (kind :Kind, name :Name) :Symbol = new MissingSym(kind, name)
+    def lookup (kind :Sort, name :Name) :Symbol = new MissingSym(kind, name)
     // def _addCompletions (pred :(sym :Symbol) => Boolean, prefix :String,
     //                      syms :Builder[Symbol,Seq[Symbol]]) = {}
     override def toString = "<empty>"

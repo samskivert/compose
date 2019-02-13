@@ -13,11 +13,11 @@ object Trees {
     def isHole = false
   }
 
-  sealed abstract class TypeTree extends Tree {
+  sealed trait TypeTree extends Tree {
     def treeType = signature
   }
 
-  sealed abstract class TermTree extends Tree {
+  sealed trait TermTree extends Tree {
 
     protected var inferredType :Type = Hole0 // TODO: Unknown or Unset?
     def treeType = inferredType
@@ -155,7 +155,7 @@ object Trees {
   // abstraction trees
   case class LetTree (name :Name, ann :TypeTree, body :TermTree,
                       expr :TermTree) extends TermSymTree {
-    val sym = new LexicalSym(name, this, Kind.Term)
+    val sym = new LexicalSym(name, this, Sort.Term)
     protected def infer (ctx :Context) = body.inferSave(ctx) flatMap { (expType, theta) =>
       val eC = freshEVar("c")
       val assump = new NAssump(sym, expType)
@@ -167,7 +167,7 @@ object Trees {
   }
 
   case class AbsTree (name :Name, ann :TypeTree, body :TermTree) extends TermSymTree {
-    val sym = new LexicalSym(name, this, Kind.Term)
+    val sym = new LexicalSym(name, this, Sort.Term)
     override def signature = Arrow(ann.signature, body.signature)
     override def check (ctx :Context, tpe :Type) :Either[String,Context] = tpe match {
       case Arrow(arg, res) =>
@@ -194,7 +194,7 @@ object Trees {
   }
 
   case class AllTree (name :Name, body :TermTree) extends TermTree with SymTree {
-    val sym = new LexicalSym(name, this, Kind.Type)
+    val sym = new LexicalSym(name, this, Sort.Type)
     val symType :UVar = UVar(sym)
     override def signature = Abs(symType, body.signature)
     protected def infer (ctx :Context) = body.inferSave(ctx)

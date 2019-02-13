@@ -3,8 +3,8 @@ package compose
 object Types {
   import Analysis._
   import Constants._
-  import Trees.TermTree
   import Symbols.Symbol
+  import Trees.TermTree
 
   // kinds
   abstract sealed class Kind

@@ -4,16 +4,16 @@ object Symbols {
   import Constants._
   import Names._
   import Scopes._
-  import Trees._
+  import Trees.SymTree
   import Types._
 
-  enum Kind { case Term, Type, Module }
+  enum Sort { case Term, Type, Module }
   enum Flavor { case None, Func, Ctor }
 
   abstract class Symbol (val name :Name) {
     /** Whether this symbol represents a term, type or module. */
-    def kind :Kind
-    /** Ad-hoc further refinement of this symbol's kind. */
+    def sort :Sort
+    /** Ad-hoc further refinement of this symbol's sort. */
     def flavor :Flavor
     /** The type of this symbol. */
     def tpe :Type
@@ -23,7 +23,7 @@ object Symbols {
     override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]
   }
 
-  class LexicalSym (name :Name, val tree :SymTree, val kind :Kind) extends Symbol(name) {
+  class LexicalSym (name :Name, val tree :SymTree, val sort :Sort) extends Symbol(name) {
     def flavor = Flavor.None
     def tpe = tree.symType
   }
@@ -35,7 +35,7 @@ object Symbols {
     def tpe = Hole0
   }
 
-  class MissingSym (val kind :Kind, name :Name) extends DetachedSym(name) {
+  class MissingSym (val sort :Sort, name :Name) extends DetachedSym(name) {
     def flavor = Flavor.None
   }
 
@@ -43,16 +43,16 @@ object Symbols {
     def flavor = Flavor.None
   }
   class TermHoleSym extends HoleSym {
-    def kind = Kind.Term
+    def sort = Sort.Term
   }
   class TypeHoleSym extends HoleSym {
-    def kind = Kind.Type
+    def sort = Sort.Type
   }
 
   /** A placeholder symbol used during parsing. It is replaced with a real symbol in the name
     * resolution pass. */
   class ParsedSym (name :Name) extends DetachedSym(name) {
-    def kind = Kind.Term
+    def sort = Sort.Term
     def flavor = Flavor.None
   }
 }

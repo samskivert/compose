@@ -8,6 +8,7 @@ import java.lang.{Character => JCharacter, StringBuilder => JStringBuilder}
 
 object Tokens {
   type Token = Int
+  private val names = Array.tabulate(TOKS)(ii => s"token:$ii")
 
   final val EMPTY = 0 ; enter(EMPTY, "empty")
   final val ERROR = 1 ; enter(ERROR, "error")
@@ -27,7 +28,6 @@ object Tokens {
 
   def tokname (token :Token) :String = names(token)
 
-  private val names = Array.tabulate(TOKS)(ii => s"token:$ii")
   private def enter (token :Token, name :String) :Unit = names(token) = name
 }
 
