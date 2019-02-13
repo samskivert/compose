@@ -255,7 +255,8 @@ export class Context {
       const [postCtx, preCtx] = splits
       const a1 = a.arg, a2 = a.res
       const eA1 = freshEVar("a₁"), eA2 = freshEVar("a₂")
-      const a1ctx = preCtx.extend(eA2).extend(eA1).extend(new NSol(eA, new Arrow(eA1, eA1))).concat(postCtx)
+      const a1ctx = preCtx.extend(eA2).extend(eA1).extend(new NSol(eA, new Arrow(eA1, eA2))).
+        concat(postCtx)
       this.tracer.trace(`- InstLArr(1) ${a1} :=< ${eA1} in ${a1ctx}`)
       const theta = a1ctx.instantiateR(a1, eA1) // Γ[â₂,â₁,â=â₁→â2] ⊢ A1 :=< â₁ ⊣ Θ
       if (typeof theta === 'string') return theta
@@ -303,7 +304,8 @@ export class Context {
       const [postCtx, preCtx] = splits
       const a1 = a.arg, a2 = a.res
       const eA1 = freshEVar("a₁"), eA2 = freshEVar("a₂")
-      const a1ctx = preCtx.extend(eA2).extend(eA1).extend(new NSol(eA, new Arrow(eA1, eA1))).concat(postCtx)
+      const a1ctx = preCtx.extend(eA2).extend(eA1).extend(new NSol(eA, new Arrow(eA1, eA2))).
+        concat(postCtx)
       this.tracer.trace(`- InstRArr(1) ${eA1} :=< ${a1} in ${a1ctx}`)
       const theta = a1ctx.instantiateL(eA1, a1) // Γ[â₂,â₁,â=â₁→â₂] ⊢ â₁ :=< A1 ⊣ Θ
       if (typeof theta === 'string') return theta
