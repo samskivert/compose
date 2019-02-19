@@ -99,6 +99,10 @@ object Trees {
   case class TConstTree (cnst :Constant) extends TypeTree {
     def signature = Const(cnst)
   }
+  // TODO: unbound ref tree gets turned into (bound) ref tree when?
+  case class UTRefTree (name :Name) extends TypeTree {
+    def signature = ??? // TODO: this should never be called
+  }
   case class TRefTree (sym :Symbol) extends TypeTree {
     def signature = ??? // TODO
   }
@@ -123,10 +127,6 @@ object Trees {
   // case class PrimTree (primType :Type) extends TypeTree
 
   // trees that define local symbols
-  sealed trait SymTree extends Tree {
-    def sym :Symbol
-    def symType :Type
-  }
   // abstract class PatSymTree extends PatTree with SymTree {
   //   protected var symType :Type = Hole0
   // }
@@ -153,19 +153,6 @@ object Trees {
   // }
 
   // abstraction trees
-  case class LetTree (name :Name, ann :TypeTree, body :TermTree,
-                      expr :TermTree) extends TermSymTree {
-    val sym = new LexicalSym(name, this, Sort.Term)
-    protected def infer (ctx :Context) = body.inferSave(ctx) flatMap { (expType, theta) =>
-      val eC = freshEVar("c")
-      val assump = new NAssump(sym, expType)
-      _symType = expType // assign type to symbol, which is not separately entyped
-      val checkCtx = theta.extend(eC).extend(assump)
-      ctx.tracer.trace(s"- Let=> ($expr <= $eC) in $checkCtx")
-      expr.check(checkCtx, eC) map { checkedCtx => (eC, checkedCtx.peel(assump)) }
-    }
-  }
-
   case class AbsTree (name :Name, ann :TypeTree, body :TermTree) extends TermSymTree {
     val sym = new LexicalSym(name, this, Sort.Term)
     override def signature = Arrow(ann.signature, body.signature)
@@ -200,9 +187,36 @@ object Trees {
     protected def infer (ctx :Context) = body.inferSave(ctx)
   }
 
+  case class Bind (name :Name, ann :TypeTree, body :TermTree) extends SymTree {
+    val sym = new LexicalSym(name, this, Sort.Term)
+    protected var _symType :Type = Hole0
+    def symType = _symType
+    def assignType (tpe :Type) = { _symType = tpe }
+  }
+
+  case class LetTree (bind :Bind, expr :TermTree) extends TermTree {
+    // TODO: if we have a type annotation, use that when typing the body
+    protected def infer (ctx :Context) = bind.body.inferSave(ctx) flatMap { (expType, theta) =>
+      bind.assignType(expType) // assign type to binding symbol
+      val eC = freshEVar("c")
+      val assump = new NAssump(bind.sym, expType)
+      val checkCtx = theta.extend(eC).extend(assump)
+      ctx.tracer.trace(s"- Let=> ($expr <= $eC) in $checkCtx")
+      expr.check(checkCtx, eC) map { checkedCtx => (eC, checkedCtx.peel(assump)) }
+    }
+  }
+
+  case class LetRecTree (binds :Seq[Bind], expr :TermTree) extends TermTree {
+    protected def infer (ctx :Context) = ???
+  }
+
   // expression trees
   case class LitTree (cnst :Constant) extends TermTree {
     protected def infer (ctx :Context) = Right((Const(cnst), ctx))
+  }
+  // TODO: unbound ref tree gets turned into (bound) ref tree when?
+  case class URefTree (name :Name) extends TermTree {
+    protected def infer (ctx :Context) = ??? // TODO: should never be called...
   }
   case class RefTree (sym :Symbol) extends TermTree {
     // TODO: ref and xref (former comes from our context, latter has type that we use as is)

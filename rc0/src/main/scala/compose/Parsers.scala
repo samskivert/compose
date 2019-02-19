@@ -4,310 +4,197 @@
 
 package compose
 
-import java.lang.{Character => JCharacter, StringBuilder => JStringBuilder}
-
-object Tokens {
-  type Token = Int
-  private val names = Array.tabulate(TOKS)(ii => s"token:$ii")
-
-  final val EMPTY = 0 ; enter(EMPTY, "empty")
-  final val ERROR = 1 ; enter(ERROR, "error")
-  final val EOF = 2   ; enter(EOF, "eof")
-  final val LIT = 3   ; enter(LIT, "literal")
-  final val WORD = 4  ; enter(WORD, "word")
-  final val OPER = 5  ; enter(OPER, "oper")
-
-  final val ARROW  = 10 ; enter(ARROW, "->")
-  final val EQUALS = 11 ; enter(EQUALS, "=")
-  final val COLON  = 12 ; enter(COLON, ":")
-  final val FORALL = 13 ; enter(FORALL, "∀")
-  final val LPAREN = 14 ; enter(LPAREN, "(")
-  final val RPAREN = 15 ; enter(RPAREN, ")")
-
-  final val TOKS = 32
-
-  def tokname (token :Token) :String = names(token)
-
-  private def enter (token :Token, name :String) :Unit = names(token) = name
-}
-
-object Lexers {
-  import Tokens._
-  import Constants._
-
-  final val LF = '\u000A'
-  final val FF = '\u000C'
-  final val CR = '\u000D'
-  final val SU = '\u001A'
-
-  final def isSpecial (c: Char) :Boolean = {
-    val chtp = JCharacter.getType(c)
-    chtp == JCharacter.MATH_SYMBOL.toInt || chtp == JCharacter.OTHER_SYMBOL.toInt
-  }
-  final def isDigit (ch :Char) = (ch >= '0' && ch <= '9')
-  final def isHexDigit (ch :Char) =
-    (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
-  final def isWhitespace (ch :Char) =
-    (ch <= ' ') && (ch == ' ' || ch == '\t' || ch == CR || ch == LF || ch == FF)
-
-  class CharReader (val buf :Array[Char]) {
-    var ch :Char = _
-    var charOffset :Int = 0
-    var lineStartOffset :Int = 0
-    nextChar()
-
-    def isAtEnd :Boolean = charOffset >= buf.length
-    def getc () :Char = { nextChar() ; ch }
-
-    def nextChar () :Unit = {
-      val idx = charOffset
-      charOffset = idx + 1
-      if (idx >= buf.length) {
-        ch = SU
-      } else {
-        val c = buf(idx)
-        ch = c
-        if (c < ' ') {
-          // skip over the CR in CRLF
-          if (ch == CR && charOffset < buf.length && buf(charOffset) == LF) {
-            charOffset += 1
-            ch = LF
-          }
-          // make a note of line starts
-          if (ch == LF || ch == FF) {
-            // lastLineStartOffset = lineStartOffset
-            lineStartOffset = charOffset
-          }
-        }
-      }
-    }
-
-    def peekChar (n :Int) :Char = {
-      val idx = charOffset+n
-      if (idx >= buf.length) SU
-      else buf(idx)
-    }
-  }
-
-  class Scanner (buf :Array[Char]) extends CharReader(buf) {
-    var token :Token = EMPTY
-    var tokenConst :Constant = Unit
-
-    def tokenText = litBuf.toString
-    private val litBuf = new JStringBuilder
-
-    def gett () :Token = { nextToken() ; token }
-
-    def nextToken () :Unit = {
-      while (isWhitespace(ch)) nextChar()
-      litBuf.setLength(0)
-      token = scanToken()
-    }
-
-    private def scanToken () :Token = {
-      println(s"scanToken '$ch'")
-      if (isDigit(ch)) scanNumber()
-      else if (JCharacter.isLetter(ch)) scanWord()
-      else if (ch == '(') scanOp(LPAREN)
-      else if (ch == ')') scanOp(RPAREN)
-      else if (ch == '=') scanOp(EQUALS)
-      else if (ch == ':') scanOp(COLON)
-      else if (ch == '∀') scanOp(COLON)
-      else if (ch == '→') scanOp(ARROW)
-      else if (ch == '-' && peekChar(0) == '>') scanOp(ARROW)
-      else if (ch == SU && isAtEnd) EOF
-      // TODO: comments
-      // TODO: strings
-      else scanOper()
-    }
-
-    private def scanOp (tok :Token) :Token = { nextChar() ; tok }
-
-    // numbers: 123, 0xFF, 1.4, 123e10, 1.4e-2
-    private def scanNumber () :Token = {
-      val p0 = peekChar(0) ; val p1 = peekChar(1)
-      if (ch == '0' && (p0 == 'x' || p0 == 'X') && isHexDigit(p1)) {
-        nextChar()
-        nextChar()
-        do {
-          litBuf.append(ch)
-          nextChar()
-        } while (isHexDigit(ch))
-        tokenConst = hex(tokenText)
-        LIT
-      } else {
-        var isFloat = false
-        var isFloatChar = false
-        do {
-          litBuf.append(ch)
-          nextChar()
-          isFloatChar = (ch == '.' || ch == 'e' || ch == 'E' || ch == '-')
-          if (isFloatChar) isFloat = true
-        } while (isFloatChar || isDigit(ch))
-        tokenConst = if (isFloat) float(tokenText) else int(tokenText)
-        LIT
-      }
-    }
-
-    private def scanWord () :Token = {
-      do {
-        litBuf.append(ch)
-        nextChar()
-      } while (JCharacter.isLetterOrDigit(ch))
-      if ("true".contentEquals(litBuf)) { tokenConst = True ; LIT }
-      else if ("false".contentEquals(litBuf)) { tokenConst = False ; LIT }
-      else WORD
-    }
-
-    private def scanOper () :Token = {
-      do {
-        litBuf.append(ch)
-        nextChar()
-      } while (!isWhitespace(ch) && !JCharacter.isLetterOrDigit(ch))
-      OPER
-    }
-  }
-}
-
-// Grammar:
-//
-// TermDef := "def" Ident Args = Expr
-// Args :=  ArgDef ("->" ArgDef)*
-// ArgDef := Ident ":" TypeRef
-//
-// TODO: TypeDef: prod, sum, alias, etc.
-//
-// TypeRef := Ident // TODO: tapp, etc.
-//
-// Expr := LetExpr | CaseExpr | TermExpr
-//
-// LetExpr := "let" LetBinds "in" Expr
-// LetBinds := LetBind (";" LetBind)*
-// LetBind := Ident OptArgs? = Expr
-// OptArgs :=  OptArgDef ("->" OptArgDef)*
-// OptArgDef := Ident (":" TypeRef)?
-//
-// TODO: CaseExpr
-//
-// TermExpr := DisjTerm
-// DisjTerm := ConjTerm ("||" ConjTerm)*
-// ConjTerm := RelTerm ("&&" RelTerm)*
-// RelTerm := EqTerm (RelOp EqTerm)*
-// RelOp := "<" | ">" | "<=" | ">="
-// TODO: bitwise ops?
-// EqTerm := AddTerm (EqOp AddTerm)*
-// EqOp := "==" | "!=" | "is"
-// AddTerm := MulTerm (AddOp MulTerm)*
-// AddOp = "+" | "-"
-// MulTerm := AppTerm (MulOp AppTerm)*
-// MulOp := "*" | "/" | "%"
-// AppTerm := PreTerm PreTerm*
-// PreTerm := PreOp? IndexTerm
-// PreOp := "+" | "-" | "!" // TODO: "~" if we add bitwise ops
-// IndexTerm := AtomTerm ("@" AtomTerm)*
-// AtomTerm := TermRef | Lit | ("(" Expr ")")
-// TermRef := Ident
-//
-// Ident and Lit are produced by the scanner.
+import org.parboiled.MatcherContext
+import org.parboiled.errors.{ErrorUtils, ParsingException}
+import org.parboiled.matchers.CustomMatcher
+import org.parboiled.scala._
 
 object Parsers {
-  import Tokens._
-  import Lexers._
   import Trees._
   import Names._
   import Symbols._
   import Constants._
 
-  class ParseException (msg :String) extends Exception(msg)
+  class Compose extends Parser {
+    import scala.language.implicitConversions
 
-  var AtomToks = Set(LIT, LPAREN, WORD)
-  val PreOp = Set("+", "-", "!") // TODO: "~" if we add bitwise ops
-  val MulOp = Set("*", "/", "%")
-  val AddOp = Set("+", "-")
-  val EqOp  = Set("==", "!=", "is") // TODO: make scanner treat `is` as an op?
-  val RelOp = Set("<", ">", "<=", ">=")
+    // redefine the default string-to-rule conversion to also match trailing whitespace if the
+    // string ends with a blank, this keeps the rules free from most whitespace matching clutter
+    override implicit def toRule (string: String) =
+      if (string.endsWith(" ")) str(string.trim) ~ WhiteSpace
+      else str(string)
 
-  class Parser (scanner :Scanner) {
-    def error (msg :String) = throw new ParseException(msg)
-    def expectTok (token :Token) = if (scanner.token != token) error(
-      s"Expected ${tokname(token)}; got ${tokname(scanner.token)}")
-    def consume () = scanner.nextToken()
+    // literals
+    def Digit = rule { "0" - "9" }
+    def HexDigit = rule { "0" - "9" | "a" - "f" | "A" - "F" }
+    def Digits = rule { oneOrMore(Digit) }
+    def Integer = rule { (("1" - "9") ~ Digits | Digit) }
+    def Frac = rule { "." ~ Digits }
+    def Exp = rule { ignoreCase("e") ~ optional(anyOf("+-")) ~ Digits }
 
-    def peekOp (op :String)       = scanner.token == OPER && scanner.tokenText == op
-    def peekOp (ops :Set[String]) = scanner.token == OPER && ops(scanner.tokenText)
+    def Unicode = rule { "u" ~ HexDigit ~ HexDigit ~ HexDigit ~ HexDigit }
+    def EscapedChar = rule { "\\" ~ (anyOf("\"\\/bfnrt") | Unicode) }
+    def NormalChar = rule { !anyOf("\"\\") ~ ANY }
+    def Character = rule { EscapedChar | NormalChar }
 
-    /// productions
-    def ident (tok :Token) = { expectTok(tok) ; try termName(scanner.tokenText) finally consume() }
-    def opRef () :TermTree = RefTree(new ParsedSym(ident(OPER)))
+    def WhiteSpace :Rule0 = rule { zeroOrMore(anyOf(" \n\r\t\f")) }
 
-    // AtomTerm := TermRef | Lit | ("(" Expr ")")
-    def atomTerm () :TermTree = scanner.token match {
-      case LIT    => try LitTree(scanner.tokenConst) finally consume()
-      case LPAREN => consume() ; val term = expr() ; expectTok(RPAREN) ; term
-      case WORD   => RefTree(new ParsedSym(ident(WORD)))
-      case tok    => error(s"Unexpected: ${tokname(tok)}; expected name, literal or (expr).")
+    def TrueLit = rule { "true " ~ push(True) }
+    def FalseLit = rule { "false " ~ push(False) }
+    def StringLit = rule { "\"" ~ zeroOrMore(Character) ~> string ~ "\" " }
+
+    def mkNumberLit (v :String) = if (v.contains(".") || v.contains("e")) float(v) else int(v)
+    def NumberLit = rule {
+      group(Integer ~ optional(Frac) ~ optional(Exp)) ~> mkNumberLit ~ WhiteSpace
     }
+
+    // identifiers
+    abstract class CharMatcher (label :String) extends CustomMatcher(label) {
+      override def isSingleCharMatcher = true
+      override def canMatchEmpty = false
+      override def isStarterChar (c :Char) = acceptChar(c)
+      override def getStarterChar = 'a'
+      override def `match`[V] (ctx :MatcherContext[V]) = {
+        if (!acceptChar(ctx.getCurrentChar())) false
+        else {
+          ctx.advanceIndex(1)
+          ctx.createNode()
+          return true
+        }
+      }
+      def acceptChar (c :Char) :Boolean
+    }
+    val JavaLetter :Rule0 = new CharMatcher("Letter") {
+      def acceptChar (c :Char) = java.lang.Character.isJavaIdentifierStart(c)
+    }
+    val JavaLetterOrDigit :Rule0 = new CharMatcher("LetterOrDigit") {
+      def acceptChar (c :Char) = java.lang.Character.isJavaIdentifierPart(c)
+    }
+    def RawIdent = rule { JavaLetter ~ zeroOrMore(JavaLetterOrDigit) }
+    def Ident = rule { RawIdent ~> termName ~ WhiteSpace }
+
+    // TODO: TypeDef: prod, sum, alias, etc.
+
+    /// Type Expressions
+
+    // TypeRef := Ident // TODO: tapp, etc.
+    def TypeRef = Ident ~~> UTRefTree
+
+    /// Term Expressions
+
+    // Lit := TrueLit | FalseLit | StringLit | NumberLit
+    def Lit = rule { ( TrueLit | FalseLit | StringLit | NumberLit ) ~~> LitTree }
+
+    // TermRef := Ident
+    def TermRef = Ident ~~> URefTree
+
+    // AtomTerm := Lit | TermRef | ("(" Expr ")")
+    def AtomTerm :Rule1[TermTree] = rule { ( Lit | TermRef | "(" ~ Expr ~ ")" ) }
 
     // IndexTerm := AtomTerm ("@" AtomTerm)*
-    def indexTerm () :TermTree = {
-      var term = atomTerm()
-      // we don't have an array indexing tree node yet
-      // while (peekOp("@")) term = IndexTree(term, atomTerm())
-      term
-    }
-    // PreTerm := PreOp? IndexTerm
-    def preTerm () :TermTree = if (!peekOp(PreOp)) indexTerm() else AppTree(opRef(), indexTerm())
-    // AppTerm := PreTerm PreTerm*
-    def appTerm () :TermTree = {
-      var term = preTerm()
-      // if the next production will be a preterm, apply it to our fun term
-      while (peekOp(PreOp) || AtomToks(scanner.token)) term = AppTree(term, preTerm())
-      term
-    }
+    def IndexTerm = AtomTerm // TODO: when we have array indexing
+
+    // AppTerm := IndexTerm IndexTerm*
+    def AppTerm = rule { oneOrMore(IndexTerm) ~~> (
+      terms => (terms.head /: terms.tail)((fn, arg) => AppTree(fn, arg))) }
+
+    // PreOp := "+" | "-" | "!" // TODO: "~" if we add bitwise ops
+    def PreOp = anyOf("+-!") ~> identity
+    // PreTerm := PreOp* AppTerm
+    def PreTerm = rule { zeroOrMore(PreOp) ~ AppTerm ~~> (
+      (preOp, term) => (term /: preOp.reverse)((tm, op) =>  AppTree(URefTree(termName(op)), tm))) }
+
+    def binOpApps (pre :TermTree, ops :List[(String, TermTree)]) = (pre /: ops)(
+      (tm, opTm) => AppTree(AppTree(URefTree(termName(opTm._1)), tm), opTm._2))
+
+    // MulOp := "*" | "/" | "%"
+    def MulOp = anyOf("*/%") ~> identity
     // MulTerm := AppTerm (MulOp AppTerm)*
-    def mulTerm () :TermTree = {
-      var term = appTerm()
-      while (peekOp(MulOp)) term = AppTree(AppTree(opRef(), term), appTerm())
-      term
-    }
+    def MulTerm = rule { PreTerm ~ zeroOrMore(MulOp ~ PreTerm) ~~> binOpApps}
+
+    // AddOp = "+" | "-"
+    def AddOp = anyOf("+-") ~> identity
     // AddTerm := MulTerm (AddOp MulTerm)*
-    def addTerm () :TermTree = {
-      var term = mulTerm()
-      while (peekOp(AddOp)) term = AppTree(AppTree(opRef(), term), mulTerm())
-      term
-    }
+    def AddTerm = rule { MulTerm ~ zeroOrMore(AddOp ~ MulTerm) ~~> binOpApps }
+
+    // EqOp := "==" | "!=" | "is"
+    def EqOp = ( "==" | "!=" | "is" ) ~> identity
     // EqTerm := AddTerm (EqOp AddTerm)*
-    def eqTerm () :TermTree = {
-      var term = addTerm()
-      while (peekOp(EqOp)) term = AppTree(AppTree(opRef(), term), addTerm())
-      term
-    }
+    def EqTerm = rule { AddTerm ~ zeroOrMore(EqOp ~ AddTerm) ~~> binOpApps }
+
+    // TODO: bitwise ops?
+
+    // RelOp := "<" | ">" | "<=" | ">="
+    def RelOp = ( "<=" | "<" | ">=" | ">" ) ~> identity
     // RelTerm := EqTerm (RelOp EqTerm)*
-    def relTerm () :TermTree = {
-      var term = eqTerm()
-      while (peekOp(RelOp)) term = AppTree(AppTree(opRef(), term), eqTerm())
-      term
-    }
+    def RelTerm = rule { EqTerm ~ zeroOrMore(RelOp ~ EqTerm) ~~> binOpApps }
+
     // ConjTerm := RelTerm ("&&" RelTerm)*
-    def conjTerm () :TermTree = {
-      var term = relTerm()
-      while (peekOp("&&")) term = AppTree(AppTree(opRef(), term), relTerm())
-      term
-    }
+    def ConjOp = ( "&&" ) ~> identity
+    def ConjTerm = rule { RelTerm ~ zeroOrMore(ConjOp ~ RelTerm) ~~> binOpApps }
+
     // DisjTerm := ConjTerm ("||" ConjTerm)*
-    def disjTerm () :TermTree = {
-      var term = conjTerm()
-      while (peekOp("||")) term = AppTree(AppTree(opRef(), term), conjTerm())
-      term
-    }
+    def DisjOp = ( "||" ) ~> identity
+    def DisjTerm = rule { ConjTerm ~ zeroOrMore(DisjOp ~ ConjTerm) ~~> binOpApps }
+
     // TermExpr := DisjTerm
-    def termExpr () :TermTree = disjTerm()
+    def TermExpr = DisjTerm
 
-    def letExpr () :TermTree = ???
-    def letBind () :TermTree = ???
-    def optArgs () :TermTree = ???
-    def optArgDef () :TermTree = ???
+    // let foo ∀A ⇒ Num A ⇒ x:A → y:Seq A → z:Bool → Bool = z
+    // let foo ∀A ∀B Num A x y z = z
+    // let foo x y z = z
 
-    def expr () :TermTree = ???
+    // let foo → Bool = false
+    // let foo:Bool = false
+    // let foo = false
+
+    // let foo x:Bool → Bool = false
+    // let foo x = false
+
+    // let foo x:Bool → y:Bool → Bool = false
+    // let foo x y = false
+
+    // OptTypeAnn := (":" TypeRef)?
+    def OptTypeAnn :Rule1[TypeTree] = optional(":" ~ TypeRef) ~~> (_ getOrElse THoleTree)
+
+    // LetArgDef := Ident OptTypeAnn
+    def LetArgDef = Ident ~ OptTypeAnn
+    // LetArgs :=  LetArgDef ("->" LetArgDef)*
+    def LetArgs = LetArgDef ~ zeroOrMore("-> " ~ LetArgDef) ~~> (
+      (arg0, ann0, rest) => (arg0, ann0) :: rest)
+    // LetBind := Ident LetArgs? = Expr
+    def LetBind = rule { Ident ~ optional(LetArgs) ~ "= " ~ Expr ~~> ((name, args, body) => {
+      // TODO: allow trailing `-> TypeAnn` to annotate the bind
+      Bind(name, THoleTree, (body /: (args getOrElse Nil))((tm, arg) => AbsTree(arg._1, arg._2, tm)))
+    })}
+    // LetBinds := LetBind (";" LetBind)*
+    def LetBinds = LetBind ~ zeroOrMore("; " ~ LetBind) ~~> ((b0, bs) => b0 :: bs)
+    // LetExpr := "let" LetBinds "in" Expr
+    def LetExpr = rule { "let " ~ LetBind ~ WhiteSpace ~ "in " ~ Expr ~~> LetTree }
+
+    // TODO: support multiple bindings in a single let (essentially letrec)
+    // LetExpr := "let" LetBinds "in" Expr
+    // def LetExpr = rule { "let" ~ LetBinds ~ "in" ~ Expr }
+
+    // TODO: CaseExpr
+
+    // Expr := LetExpr | CaseExpr | TermExpr
+    def Expr :Rule1[TermTree] = rule { WhiteSpace ~ ( LetExpr /*| CaseExpr*/ | TermExpr ) }
+
+    /// Top-level Definitions
+
+    // TermDef := "def" Ident Args = Expr
+    // Args :=  ArgDef ("->" ArgDef)*
+    // ArgDef := Ident ":" TypeRef
+
+    def parse (code :String) :Tree = {
+      val parsingResult = TracingParseRunner(Expr).run(code)
+      // val parsingResult = ReportingParseRunner(Expr).run(code)
+      parsingResult.result match {
+        case Some(tree) => tree
+        case None => throw new ParsingException(
+          "Invalid source:\n" + ErrorUtils.printParseErrors(parsingResult))
+      }
+    }
   }
 }

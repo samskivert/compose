@@ -4,7 +4,6 @@ object Symbols {
   import Constants._
   import Names._
   import Scopes._
-  import Trees.SymTree
   import Types._
 
   enum Sort { case Term, Type, Module }
@@ -23,6 +22,10 @@ object Symbols {
     override def equals (that: Any) = this eq that.asInstanceOf[AnyRef]
   }
 
+  trait SymTree {
+    def sym :Symbol
+    def symType :Type
+  }
   class LexicalSym (name :Name, val tree :SymTree, val sort :Sort) extends Symbol(name) {
     def flavor = Flavor.None
     def tpe = tree.symType
