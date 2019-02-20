@@ -70,7 +70,9 @@ object Parsers {
     val JavaLetterOrDigit :Rule0 = new CharMatcher("LetterOrDigit") {
       def acceptChar (c :Char) = java.lang.Character.isJavaIdentifierPart(c)
     }
-    def RawIdent = rule { JavaLetter ~ zeroOrMore(JavaLetterOrDigit) }
+
+    def Keyword = rule { ( "let" | "in" ) ~ !JavaLetterOrDigit }
+    def RawIdent = rule { !Keyword ~ JavaLetter ~ zeroOrMore(JavaLetterOrDigit) }
     def Ident = rule { RawIdent ~> termName ~ WhiteSpace }
 
     // TODO: TypeDef: prod, sum, alias, etc.
@@ -108,33 +110,33 @@ object Parsers {
       (tm, opTm) => AppTree(AppTree(URefTree(termName(opTm._1)), tm), opTm._2))
 
     // MulOp := "*" | "/" | "%"
-    def MulOp = anyOf("*/%") ~> identity
+    def MulOp = anyOf("*/%") ~> identity ~ WhiteSpace
     // MulTerm := AppTerm (MulOp AppTerm)*
     def MulTerm = rule { PreTerm ~ zeroOrMore(MulOp ~ PreTerm) ~~> binOpApps}
 
     // AddOp = "+" | "-"
-    def AddOp = anyOf("+-") ~> identity
+    def AddOp = anyOf("+-") ~> identity ~ WhiteSpace
     // AddTerm := MulTerm (AddOp MulTerm)*
     def AddTerm = rule { MulTerm ~ zeroOrMore(AddOp ~ MulTerm) ~~> binOpApps }
 
     // EqOp := "==" | "!=" | "is"
-    def EqOp = ( "==" | "!=" | "is" ) ~> identity
+    def EqOp = ( "==" | "!=" | "is" ) ~> identity ~ WhiteSpace
     // EqTerm := AddTerm (EqOp AddTerm)*
     def EqTerm = rule { AddTerm ~ zeroOrMore(EqOp ~ AddTerm) ~~> binOpApps }
 
     // TODO: bitwise ops?
 
     // RelOp := "<" | ">" | "<=" | ">="
-    def RelOp = ( "<=" | "<" | ">=" | ">" ) ~> identity
+    def RelOp = ( "<=" | "<" | ">=" | ">" ) ~> identity ~ WhiteSpace
     // RelTerm := EqTerm (RelOp EqTerm)*
     def RelTerm = rule { EqTerm ~ zeroOrMore(RelOp ~ EqTerm) ~~> binOpApps }
 
     // ConjTerm := RelTerm ("&&" RelTerm)*
-    def ConjOp = ( "&&" ) ~> identity
+    def ConjOp = ( "&&" ) ~> identity ~ WhiteSpace
     def ConjTerm = rule { RelTerm ~ zeroOrMore(ConjOp ~ RelTerm) ~~> binOpApps }
 
     // DisjTerm := ConjTerm ("||" ConjTerm)*
-    def DisjOp = ( "||" ) ~> identity
+    def DisjOp = ( "||" ) ~> identity ~ WhiteSpace
     def DisjTerm = rule { ConjTerm ~ zeroOrMore(DisjOp ~ ConjTerm) ~~> binOpApps }
 
     // TermExpr := DisjTerm
@@ -188,8 +190,8 @@ object Parsers {
     // ArgDef := Ident ":" TypeRef
 
     def parse (code :String) :Tree = {
-      val parsingResult = TracingParseRunner(Expr).run(code)
-      // val parsingResult = ReportingParseRunner(Expr).run(code)
+      // val parsingResult = TracingParseRunner(Expr).run(code)
+      val parsingResult = ReportingParseRunner(Expr).run(code)
       parsingResult.result match {
         case Some(tree) => tree
         case None => throw new ParsingException(
