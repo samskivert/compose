@@ -3,7 +3,7 @@ package compose
 import org.junit.Test
 import org.junit.Assert._
 
-class ParserTest {
+class ParsersTest {
   import Constants._
   import Names._
   import Parsers._
