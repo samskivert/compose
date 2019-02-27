@@ -126,7 +126,7 @@ object Types {
       reduced.inferApp(tree, appCtx) // C ⊣ ∆
     }
 
-    override def toString = s"`∀${uv.sym.name} $body"
+    override def toString = s"∀${uv.sym.name} ⇒ $body"
   }
 
   case class Arrow (arg :Type, res :Type) extends Type {

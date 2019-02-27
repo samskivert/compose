@@ -26,20 +26,40 @@ object Symbols {
     def sym :Symbol
     def symType :Type
   }
-  class LexicalSym (name :Name, val tree :SymTree, val sort :Sort) extends Symbol(name) {
+  class LexicalSym (name :Name, val sort :Sort) extends Symbol(name) {
+    private var _tree :SymTree = _
+    def tree :SymTree =
+      if (_tree != null) _tree
+      else throw new IllegalStateException(s"Requested tree of uninitialized lexical sym `$name`")
+    def setTree (tree :SymTree) :tree.type =
+      if (_tree == null) { _tree = tree ; tree }
+      else throw new IllegalStateException(s"Attempt to reinit lexical sym `$name`")
     def flavor = Flavor.None
     def tpe = tree.symType
+    def scope (parent :Scope) :Scope = sort match {
+      case Sort.Term => new LexicalTermScope(parent, this)
+      case Sort.Type => new LexicalTypeScope(parent, this)
+      case Sort.Module => throw new IllegalStateException(
+        s"Cannot make scope for module symbol `$name`")
+    }
+    override def toString = {
+      val pre = if (_tree == null) "$!" else "$"
+      s"$pre$name"
+    }
   }
+  def termSym (name :Name) = new LexicalSym(name, Sort.Term)
+  def typeSym (name :Name) = new LexicalSym(name, Sort.Type)
 
   // TODO: DefSym?
 
   abstract class DetachedSym (name :Name) extends Symbol(name) {
-    def id = 0
     def tpe = Hole0
+    override def toString = s"?$name"
   }
 
   class MissingSym (val sort :Sort, name :Name) extends DetachedSym(name) {
     def flavor = Flavor.None
+    override def toString = s"!$name"
   }
 
   abstract class HoleSym extends DetachedSym(NoName) {

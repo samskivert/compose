@@ -17,9 +17,9 @@ object Analysis {
   }
   // UVar and EVar are also notes
 
-  class Tracer {
+  class Tracer (trace :Boolean) {
     private val msgs = Seq.newBuilder[String]
-    def trace (msg :String) :Unit = msgs += msg
+    def trace (msg :String) :Unit = if (trace) msgs += msg
     def result = msgs.result()
   }
 
@@ -39,11 +39,11 @@ object Analysis {
     def peel (note :Note) :Context = {
       val nidx = notes.indexOf(note)
       if (nidx < 0) {
-        tracer.trace(s"-- peeled unknown note from context $note :: $notes")
+        // tracer.trace(s"-- peeled unknown note from context $note :: $notes")
         new Context(tracer, Nil)
       } else {
-        tracer.trace(s"-- peeled $notes > $note < ${notes.drop(nidx)}")
-        new Context(tracer, notes.drop(nidx))
+        // tracer.trace(s"-- peeled $notes to $note => ${notes.drop(nidx+1)}")
+        new Context(tracer, notes.drop(nidx+1))
       }
     }
 
@@ -53,7 +53,7 @@ object Analysis {
     def split (note :Note) :Option[(Context,Context)] = {
       val nidx = notes.indexOf(note)
       if (nidx < 0) return None
-      else Some(new Context(tracer, notes.take(nidx-1)) -> new Context(tracer, notes.drop(nidx)))
+      else Some(new Context(tracer, notes.take(nidx)) -> new Context(tracer, notes.drop(nidx+1)))
     }
 
     /** Looks up the assumption for `sym`. */
@@ -77,5 +77,5 @@ object Analysis {
     override def toString = notes.toString
   }
 
-  def newCtx :Context = new Context(new Tracer, Nil)
+  def newCtx (trace :Boolean) :Context = new Context(new Tracer(trace), Nil)
 }

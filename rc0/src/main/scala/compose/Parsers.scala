@@ -15,6 +15,8 @@ object Parsers {
   import Symbols._
   import Constants._
 
+  def parser :Compose = new Compose()
+
   class Compose extends Parser {
     import scala.language.implicitConversions
 
@@ -156,9 +158,13 @@ object Parsers {
     // let foo x:Bool → y:Bool → Bool = false
     // let foo x y = false
 
+    def mkAbs (args :List[(Name, TypeTree)], body :TermTree) = (args :\ body)(
+      (arg, tm) => AbsTree(termSym(arg._1), arg._2, tm))
+    def mkAll (args :List[Name], body :TermTree) = (args :\ body)(
+      (tp, tm) => AllTree(typeSym(tp), tm))
+
     // OptTypeAnn := (":" TypeRef)?
     def OptTypeAnn :Rule1[TypeTree] = optional(":" ~ TypeRef) ~~> (_ getOrElse THoleTree)
-
     // LetArgDef := Ident OptTypeAnn
     def LetArgDef = Ident ~ OptTypeAnn
     // LetArgs :=  LetArgDef ("->" LetArgDef)*
@@ -167,7 +173,8 @@ object Parsers {
     // LetBind := Ident LetArgs? = Expr
     def LetBind = rule { Ident ~ optional(LetArgs) ~ "= " ~ Expr ~~> ((name, args, body) => {
       // TODO: allow trailing `-> TypeAnn` to annotate the bind
-      Bind(name, THoleTree, (body /: (args getOrElse Nil))((tm, arg) => AbsTree(arg._1, arg._2, tm)))
+      Bind(termSym(name), THoleTree, (body /: (args getOrElse Nil))(
+        (tm, arg) => AbsTree(termSym(arg._1), arg._2, tm)))
     })}
     // LetBinds := LetBind (";" LetBind)*
     def LetBinds = LetBind ~ zeroOrMore("; " ~ LetBind) ~~> ((b0, bs) => b0 :: bs)
@@ -185,13 +192,27 @@ object Parsers {
 
     /// Top-level Definitions
 
-    // TermDef := "def" Ident Args = Expr
-    // Args :=  ArgDef ("->" ArgDef)*
-    // ArgDef := Ident ":" TypeRef
+    // def fst :: ∀A => ∀B => x:A -> y:B -> A = x
+    // def c :: Int = 30
 
-    def parse (code :String) :Tree = {
-      // val parsingResult = TracingParseRunner(Expr).run(code)
-      val parsingResult = ReportingParseRunner(Expr).run(code)
+    // TypeArg := "∀" Ident
+    def TypeArg = "∀" ~ Ident ~ "=> "
+    // Arg := Ident ":" TypeRef
+    def Arg = Ident ~ ":" ~ TypeRef ~ "-> "
+    // TermDef := "def" Ident "::" TypeArg* Arg* TypeRef = Expr
+    def TermDef = rule {
+      WhiteSpace ~ "def " ~ Ident ~ ":: " ~ zeroOrMore(TypeArg) ~ zeroOrMore(Arg) ~ TypeRef ~ "= " ~ Expr ~~> (
+        (name, targs, args, asc, body) => TermDefTree(
+          termSym(name), mkAll(targs, mkAbs(args, AscTree(asc, body))))) }
+
+    // TODO: Def = TermDef | TypeDef & have parseDef use Def
+
+    def parseExpr (code :String) = parse(Expr, code)
+    def parseDef (code :String) = parse(TermDef, code)
+
+    def parse [T <: Tree] (root :Rule1[T], code :String) :T = {
+      // val parsingResult = TracingParseRunner(root).run(code)
+      val parsingResult = ReportingParseRunner(root).run(code)
       parsingResult.result match {
         case Some(tree) => tree
         case None => throw new ParsingException(
