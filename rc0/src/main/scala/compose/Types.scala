@@ -3,7 +3,7 @@ package compose
 object Types {
   import Analysis._
   import Constants._
-  import Symbols.Symbol
+  import Symbols.Sym
   import Trees.TermTree
 
   // kinds
@@ -74,7 +74,7 @@ object Types {
     override def toString = cnst.value
   }
 
-  case class UVar (sym :Symbol) extends Type with Note {
+  case class UVar (sym :Sym) extends Type with Note {
     def kind = Star
     def containsFree (ev :EVar) = false
     def checkMalformed (ctx :Context) = if (ctx.contains(this)) None
@@ -157,8 +157,8 @@ object Types {
     override def toString = s"$ctor $arg"
   }
 
-  case class Scalar (tag :Char, size :Int) extends GroundType {
-    override def toString = s"Scalar:$tag$size"
+  case class Scalar (name :String, tag :Char, size :Int) extends GroundType {
+    override def toString = s"$name"
   }
 
   case class Prod (operands :Seq[Type]) extends Type {
@@ -177,7 +177,7 @@ object Types {
     override def toString = cases.mkString(" + ")
   }
 
-  case class Nominal (sym :Symbol, bodyFn :() => Type) extends Type {
+  case class Nominal (sym :Sym, bodyFn :() => Type) extends Type {
     def kind = bodyFn().kind
     // TODO: hrm...
     def checkMalformed (ctx :Context) = None

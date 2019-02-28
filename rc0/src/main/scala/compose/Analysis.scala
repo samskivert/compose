@@ -6,7 +6,7 @@ object Analysis {
 
   // type checking
   trait Note {}
-  case class NAssump (sym :Symbol, tpe :Type) extends Note {
+  case class NAssump (sym :Sym, tpe :Type) extends Note {
     override def toString = s"$sym~$tpe"
   }
   case class NSol (ev :EVar, tpe :Type) extends Note {
@@ -57,7 +57,7 @@ object Analysis {
     }
 
     /** Looks up the assumption for `sym`. */
-    def assump (sym :Symbol) :Option[Type] = (notes.collect {
+    def assump (sym :Sym) :Option[Type] = (notes.collect {
       case assump :NAssump if (assump.sym == sym) => assump
     }) match {
       case Nil          => None

@@ -9,7 +9,7 @@ object Symbols {
   enum Sort { case Term, Type, Module }
   enum Flavor { case None, Func, Ctor }
 
-  abstract class Symbol (val name :Name) {
+  abstract class Sym (val name :Name) {
     /** Whether this symbol represents a term, type or module. */
     def sort :Sort
     /** Ad-hoc further refinement of this symbol's sort. */
@@ -23,10 +23,10 @@ object Symbols {
   }
 
   trait SymTree {
-    def sym :Symbol
+    def sym :Sym
     def symType :Type
   }
-  class LexicalSym (name :Name, val sort :Sort) extends Symbol(name) {
+  class LexicalSym (name :Name, val sort :Sort) extends Sym(name) {
     private var _tree :SymTree = _
     def tree :SymTree =
       if (_tree != null) _tree
@@ -52,7 +52,7 @@ object Symbols {
 
   // TODO: DefSym?
 
-  abstract class DetachedSym (name :Name) extends Symbol(name) {
+  abstract class DetachedSym (name :Name) extends Sym(name) {
     def tpe = Hole0
     override def toString = s"?$name"
   }
