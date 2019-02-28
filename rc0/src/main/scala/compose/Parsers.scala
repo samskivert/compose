@@ -82,7 +82,7 @@ object Parsers {
     /// Type Expressions
 
     // TypeRef := Ident // TODO: tapp, etc.
-    def TypeRef = Ident ~~> UTRefTree
+    def TypeRef = Ident ~~> (name => UTRefTree(name.toTypeName))
 
     /// Term Expressions
 
@@ -159,9 +159,9 @@ object Parsers {
     // let foo x y = false
 
     def mkAbs (args :List[(Name, TypeTree)], body :TermTree) = (args :\ body)(
-      (arg, tm) => AbsTree(termSym(arg._1), arg._2, tm))
+      (arg, tm) => AbsTree(termSym(arg._1.toTermName), arg._2, tm))
     def mkAll (args :List[Name], body :TermTree) = (args :\ body)(
-      (tp, tm) => AllTree(typeSym(tp), tm))
+      (arg, tm) => AllTree(typeSym(arg.toTypeName), tm))
 
     // OptTypeAnn := (":" TypeRef)?
     def OptTypeAnn :Rule1[TypeTree] = optional(":" ~ TypeRef) ~~> (_ getOrElse THoleTree)
@@ -174,7 +174,7 @@ object Parsers {
     def LetBind = rule { Ident ~ optional(LetArgs) ~ "= " ~ Expr ~~> ((name, args, body) => {
       // TODO: allow trailing `-> TypeAnn` to annotate the bind
       Bind(termSym(name), THoleTree, (body /: (args getOrElse Nil))(
-        (tm, arg) => AbsTree(termSym(arg._1), arg._2, tm)))
+        (tm, arg) => AbsTree(termSym(arg._1.toTermName), arg._2, tm)))
     })}
     // LetBinds := LetBind (";" LetBind)*
     def LetBinds = LetBind ~ zeroOrMore("; " ~ LetBind) ~~> ((b0, bs) => b0 :: bs)

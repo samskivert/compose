@@ -47,8 +47,8 @@ object Symbols {
       s"$pre$name"
     }
   }
-  def termSym (name :Name) = new LexicalSym(name, Sort.Term)
-  def typeSym (name :Name) = new LexicalSym(name, Sort.Type)
+  def termSym (name :TermName) = new LexicalSym(name, Sort.Term)
+  def typeSym (name :TypeName) = new LexicalSym(name, Sort.Type)
 
   // TODO: DefSym?
 
@@ -70,12 +70,5 @@ object Symbols {
   }
   class TypeHoleSym extends HoleSym {
     def sort = Sort.Type
-  }
-
-  /** A placeholder symbol used during parsing. It is replaced with a real symbol in the name
-    * resolution pass. */
-  class ParsedSym (name :Name) extends DetachedSym(name) {
-    def sort = Sort.Term
-    def flavor = Flavor.None
   }
 }

@@ -154,7 +154,7 @@ object Trees {
     override def debugShowArgs = Seq(cnst)
     def resolve (scope :Scope) = this
   }
-  case class UTRefTree (name :Name) extends TypeTree {
+  case class UTRefTree (name :TypeName) extends TypeTree {
     def signature = ??? // should never be called
     def format = s"?$name"
     override def debugShowArgs = Seq(name)
@@ -190,14 +190,14 @@ object Trees {
     def resolve (scope :Scope) = ProdTree(cases.map(_.resolve(scope)))
     override def children = cases
   }
-  case class FieldTree (name :Name, tpe :TypeTree) extends TypeTree {
+  case class FieldTree (name :TermName, tpe :TypeTree) extends TypeTree {
     def signature = ???
     def format = s"$name:${tpe.format}"
     override def debugShowArgs = Seq(name)
     def resolve (scope :Scope) = FieldTree(name, tpe.resolve(scope))
     override def children = Seq(tpe)
   }
-  case class CtorTree (name :Name, prod :TypeTree) extends TypeTree {
+  case class CtorTree (name :TypeName, prod :TypeTree) extends TypeTree {
     def signature = ???
     def format = s"$name ${prod.format}"
     override def debugShowArgs = Seq(name)
@@ -322,7 +322,7 @@ object Trees {
     def resolve (scope :Scope) = this
     def infer (ctx :Context) = Right((Const(cnst), ctx))
   }
-  case class URefTree (name :Name) extends TermTree {
+  case class URefTree (name :TermName) extends TermTree {
     def format = s"?$name"
     override def debugShowArgs = Seq(name)
     def resolve (scope :Scope) = RefTree(scope.lookupTerm(name))
