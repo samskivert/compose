@@ -73,7 +73,7 @@ object Parsers {
       def acceptChar (c :Char) = java.lang.Character.isJavaIdentifierPart(c)
     }
 
-    def Keyword = rule { ( "let" | "in" ) ~ !JavaLetterOrDigit }
+    def Keyword = rule { ( "let" | "in" | "if" | "then" | "else" ) ~ !JavaLetterOrDigit }
     def RawIdent = rule { !Keyword ~ JavaLetter ~ zeroOrMore(JavaLetterOrDigit) }
     def Ident = rule { RawIdent ~> termName ~ WhiteSpace }
 
@@ -93,7 +93,7 @@ object Parsers {
     def TermRef = Ident ~~> URefTree
 
     // AtomTerm := Lit | TermRef | ("(" Expr ")")
-    def AtomTerm :Rule1[TermTree] = rule { ( Lit | TermRef | "(" ~ Expr ~ ")" ) }
+    def AtomTerm :Rule1[TermTree] = rule { ( Lit | TermRef | "(" ~ Expr ~ ") " ) }
 
     // IndexTerm := AtomTerm ("@" AtomTerm)*
     def IndexTerm = AtomTerm // TODO: when we have array indexing
@@ -185,10 +185,13 @@ object Parsers {
     // LetExpr := "let" LetBinds "in" Expr
     // def LetExpr = rule { "let" ~ LetBinds ~ "in" ~ Expr }
 
+    // IfExpr := "if" Expr "then" Expr "else" Expr
+    def IfExpr = rule { "if " ~ Expr ~ "then " ~ Expr ~ "else " ~ Expr ~~> IfTree }
+
     // TODO: CaseExpr
 
-    // Expr := LetExpr | CaseExpr | TermExpr
-    def Expr :Rule1[TermTree] = rule { WhiteSpace ~ ( LetExpr /*| CaseExpr*/ | TermExpr ) }
+    // Expr := LetExpr | CaseExpr | IfExpr | TermExpr
+    def Expr :Rule1[TermTree] = rule { WhiteSpace ~ ( LetExpr /*| CaseExpr*/ | IfExpr | TermExpr ) }
 
     /// Top-level Definitions
 
@@ -201,13 +204,13 @@ object Parsers {
     def Arg = Ident ~ ":" ~ TypeRef ~ "-> "
     // TermDef := "def" Ident "::" TypeArg* Arg* TypeRef = Expr
     def TermDef = rule {
-      WhiteSpace ~ "def " ~ Ident ~ ":: " ~ zeroOrMore(TypeArg) ~ zeroOrMore(Arg) ~ TypeRef ~ "= " ~ Expr ~~> (
-        (name, targs, args, asc, body) => TermDefTree(
-          termSym(name), mkAll(targs, mkAbs(args, AscTree(asc, body))))) }
+      WhiteSpace ~ "def " ~ Ident ~ ":: " ~ zeroOrMore(TypeArg) ~ zeroOrMore(Arg) ~ TypeRef ~ "= " ~
+      Expr ~ EOI ~~> ((name, targs, args, asc, body) => TermDefTree(
+        termSym(name), mkAll(targs, mkAbs(args, AscTree(asc, body))))) }
 
     // TODO: Def = TermDef | TypeDef & have parseDef use Def
 
-    def parseExpr (code :String) = parse(Expr, code)
+    def parseExpr (code :String) = parse(Expr ~ EOI, code)
     def parseDef (code :String) = parse(TermDef, code)
 
     def parse [T <: Tree] (root :Rule1[T], code :String) :T = {

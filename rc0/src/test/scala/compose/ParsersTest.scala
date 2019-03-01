@@ -53,6 +53,8 @@ class ParsersTest {
     assertEquals(app(app(ref("*"), intLit(3)), intLit(5)), p.parseExpr("3*5"))
     assertEquals(app(app(ref("-"), intLit(3)), ref("foo")), p.parseExpr("3-foo"))
     assertEquals(app(app(ref("/"), ref("foo")), intLit(5)), p.parseExpr("foo/5"))
+    assertEquals(app(app(ref("*"), app(app(ref("+"), intLit(2)), intLit(5))), intLit(3)),
+                 p.parseExpr("(2+5) * 3"))
   }
 
   @Test def testParseLets = {
@@ -64,5 +66,11 @@ class ParsersTest {
     assertEquals(LetTree(Bind(termSym("foo"), THoleTree, xPlus3),
                          app(ref("foo"),intLit(5))),
                  p.parseExpr("let foo x = x + 3 in foo 5"))
+  }
+
+  @Test def testParseIf = {
+    val p = parser
+    assertEquals(IfTree(LitTree(False), ref("foo"), LitTree(False)),
+                 p.parseExpr("if false then foo else false"))
   }
 }
