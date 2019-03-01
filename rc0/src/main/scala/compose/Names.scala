@@ -66,7 +66,7 @@ object Names {
   val ArrayName = typeName("Array")
 
   // hacky approach to having functions implement operators
-  val Synonyms :Map[Name, Name] = {
+  val TermSyns :Map[TermName, TermName] = {
     def syn (from :String, to :String) = (termName(from), termName(to))
     Map(syn("not",   "!"),
         syn("eq",    "=="),

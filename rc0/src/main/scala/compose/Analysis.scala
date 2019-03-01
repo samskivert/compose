@@ -57,12 +57,12 @@ object Analysis {
     }
 
     /** Looks up the assumption for `sym`. */
-    def assump (sym :Sym) :Option[Type] = (notes.collect {
+    def assump (sym :TermSym) :Option[Type] = (notes.collect {
       case assump :NAssump if (assump.sym == sym) => assump
     }) match {
       case Nil          => None
       case List(assump) => Some(assump.tpe)
-      case assumps      => Some(new Error(s"Multiple assumptions for '$sym': $assumps"))
+      case assumps      => Some(MultipleAssumps(sym, assumps))
     }
 
     /** Looks up the solution for `ev` in `ctx`. */
@@ -71,7 +71,7 @@ object Analysis {
     }) match {
       case Nil       => None
       case List(sol) => Some(sol.tpe)
-      case sols      => Some(new Error(s"Multiple solutions for '$ev': $sols"))
+      case sols      => Some(MultipleSols(ev, sols))
     }
 
     override def toString = notes.toString

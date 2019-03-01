@@ -6,7 +6,6 @@ object Trees {
   import Analysis._
   import Constants._
   import Names._
-  import Scopes._
   import Symbols._
   import Types._
 
@@ -24,18 +23,20 @@ object Trees {
     /** Peforms a pre-order fold over the tree (visits this node, then children). */
     def fold[Z] (z :Z)(f :(Z, Tree) => Z) :Z = (f(z, this) /: children)(f)
 
+    def children :Seq[Tree] = Seq()
+
     def debugPrint (out :PrintWriter, in :String) :Unit = {
       out.println(s"$in$debugShow :: $treeType")
-      children foreach { _.debugPrint(out, s"$in ") }
+      debugPrintChildren(out, s"$in ")
     }
-
-    def children :Seq[Tree] = Seq()
+    def debugPrintChildren (out :PrintWriter, in :String) :Unit =
+      children foreach { _.debugPrint(out, s"$in ") }
+    def debugShow :String = s"$debugName${debugShowArgs.mkString(" ", " ", "")}"
+    def debugShowArgs :Seq[Any] = Seq()
     def debugName :String = getClass.getName match {
       case name if (name startsWith "compose.Trees$") => name.substring(14)
       case name => name
     }
-    def debugShow :String = s"$debugName${debugShowArgs.mkString(" ", " ", "")}"
-    def debugShowArgs :Seq[Any] = Seq()
 
     override def toString = format
   }
@@ -55,12 +56,12 @@ object Trees {
     /** Checks that this tree has type `tpe` with input context `ctx` and records it as the tree's
       * type.
       * @return the output context or an error. */
-    def checkSave (ctx :Context, tpe :Type) :Either[String, Context] = {
+    def checkSave (ctx :Context, tpe :Type) :Either[Error, Context] = {
       ctx.tracer.trace(s"Tree.check $this :: $tpe")
       val res = check(ctx, tpe)
       res match {
         case Left(error) =>
-          assignedType = Error(error)
+          assignedType = error
           ctx.tracer.trace(s"< $this :: $error // ∆ = $ctx")
         case Right(delta) =>
           assignedType = tpe
@@ -69,7 +70,7 @@ object Trees {
       res
     }
 
-    def check (ctx :Context, tpe :Type) :Either[String, Context] = tpe match {
+    def check (ctx :Context, tpe :Type) :Either[Error, Context] = tpe match {
       case abs @ Abs(_, body) =>
         // ∀I :: (e, ∀α.A)
         val checkCtx = ctx.extend(abs.uv)
@@ -90,12 +91,12 @@ object Trees {
       * recorded type is not yet applied to the context until inference is complete for the entire
       * expression (which happens in `DefTree.infer`).
       * @return the inferred type and the output context. */
-    def inferSave (ctx :Context) :Either[String, (Type, Context)] = {
+    def inferSave (ctx :Context) :Either[Error, (Type, Context)] = {
       ctx.tracer.trace(s"infer $this")
       val res = infer(ctx)
       res match {
         case Left(error) =>
-          assignedType = Error(error)
+          assignedType = error
           ctx.tracer.trace(s"> $this :: $error // ∆ = $ctx")
         case Right((tpe, delta)) =>
           assignedType = tpe
@@ -104,7 +105,7 @@ object Trees {
       res
     }
 
-    def infer (ctx :Context) :Either[String, (Type, Context)]
+    def infer (ctx :Context) :Either[Error, (Type, Context)]
 
     /** Applies this tree's type to the supplied `ctx` (subbing existential vars for their
       * solutions).
@@ -160,8 +161,8 @@ object Trees {
     override def debugShowArgs = Seq(name)
     def resolve (scope :Scope) = TRefTree(scope.lookupType(name))
   }
-  case class TRefTree (sym :Sym) extends TypeTree {
-    def signature = sym.tpe
+  case class TRefTree (sym :TypeSym) extends TypeTree {
+    def signature = sym.sig
     def format = sym.toString
     override def debugShowArgs = Seq(sym)
     def resolve (scope :Scope) = this
@@ -210,7 +211,7 @@ object Trees {
   // abstract class PatSymTree extends PatTree with SymTree {
   //   protected var symType :Type = Hole0
   // }
-  abstract class TermSymTree extends TermTree with SymTree {
+  abstract class TermSymTree extends TermTree with Symbols.TermSymTree {
     protected var _symType :Type = Hole0
     def symType = _symType
   }
@@ -222,10 +223,10 @@ object Trees {
   // case class PLitTree (cnst :Constant) extends PatTree {
   //   def infer (ctx :Context) = ???
   // }
-  // case class PBindTree (sym :Sym) extends PatSymTree {
+  // case class PBindTree (sym :TermSym) extends PatSymTree {
   //   def infer (ctx :Context) = ???
   // }
-  // case class PDtorTree (ctor :Sym) extends PatTree {
+  // case class PDtorTree (ctor :TermSym) extends PatTree {
   //   def infer (ctx :Context) = ???
   // }
   // case class PAppTree (fun :PatTree, arg :PatTree) extends PatTree {
@@ -233,7 +234,7 @@ object Trees {
   // }
 
   // abstraction trees
-  case class AbsTree (sym :LexicalSym, ann :TypeTree, body :TermTree) extends TermSymTree {
+  case class AbsTree (sym :LexicalTermSym, ann :TypeTree, body :TermTree) extends TermSymTree {
     override def signature = Arrow(ann.signature, body.signature)
     def format = body match {
       case _ :AbsTree => s"$sym:${ann.format} → ${body.format}"
@@ -244,7 +245,7 @@ object Trees {
     def resolve (scope :Scope) = sym.setTree(
       AbsTree(sym, ann.resolve(scope), body.resolve(sym.scope(scope))))
     override def children = Seq(ann, body)
-    override def check (ctx :Context, tpe :Type) :Either[String,Context] = tpe match {
+    override def check (ctx :Context, tpe :Type) = tpe match {
       case Arrow(arg, res) =>
         assignedType = tpe // lambda types are not always synthesized, so we also assign abs
         _symType = arg      // trees a type during checking, ditto for the lambda arg sym
@@ -268,19 +269,18 @@ object Trees {
     }
   }
 
-  case class AllTree (sym :LexicalSym, body :TermTree) extends TermTree with SymTree {
-    def symType :UVar = UVar(sym)
-    override def signature = Abs(symType, body.signature)
+  case class AllTree (sym :LexicalTypeSym, body :TermTree) extends TermTree with TypeSymTree {
+    def symSig :UVar = UVar(sym)
+    override def signature = Abs(symSig, body.signature)
     def format = s"∀$sym => ${body.format}"
     override def debugShowArgs = Seq(sym)
     def resolve (scope :Scope) = sym.setTree(AllTree(sym, body.resolve(sym.scope(scope))))
     override def children = Seq(body)
-    override def check (ctx :Context, tpe :Type) :Either[String, Context] =
-      body.checkSave(ctx, tpe)
+    override def check (ctx :Context, tpe :Type) = body.checkSave(ctx, tpe)
     def infer (ctx :Context) = body.inferSave(ctx)
   }
 
-  case class Bind (sym :LexicalSym, ann :TypeTree, body :TermTree) extends SymTree {
+  case class Bind (sym :LexicalTermSym, ann :TypeTree, body :TermTree) extends Symbols.TermSymTree {
     protected var _symType :Type = Hole0
     def symType = _symType
     def assignType (tpe :Type) = { _symType = tpe }
@@ -297,6 +297,11 @@ object Trees {
       LetTree(nbind, expr.resolve(nbind.sym.scope(scope)))
     }
     override def children = Seq(expr)
+    override def debugPrintChildren (out :PrintWriter, in :String) :Unit = {
+      out.println(s"${in}Bind ${bind.sym} : ${bind.ann.format}")
+      bind.body.debugPrint(out, s"$in ")
+      super.debugPrintChildren(out, in)
+    }
     // TODO: if we have a type annotation, use that when typing the body
     def infer (ctx :Context) = bind.body.inferSave(ctx) flatMap { (expType, theta) =>
       bind.assignType(expType) // assign type to binding symbol
@@ -329,7 +334,7 @@ object Trees {
     def infer (ctx :Context) = ??? // should never be called...
   }
   // TODO: ref and xref? (former comes from our context, latter has type that we use as is)
-  case class RefTree (sym :Sym) extends TermTree {
+  case class RefTree (sym :TermSym) extends TermTree {
     def format = sym.toString
     override def debugShowArgs = Seq(sym)
     def resolve (scope :Scope) = this
@@ -340,8 +345,7 @@ object Trees {
     def format = s"(${body.format} : ${ann.format})"
     def resolve (scope :Scope) = AscTree(ann.resolve(scope), body.resolve(scope))
     override def children = Seq(ann, body)
-    override def check (ctx :Context, tpe :Type) :Either[String, Context] =
-      body.checkSave(ctx, tpe)
+    override def check (ctx :Context, tpe :Type) = body.checkSave(ctx, tpe)
     override def signature = ann.signature
     def infer (ctx :Context) = {
       val tpe = ann.signature
@@ -395,7 +399,8 @@ object Trees {
   // }
 
   // top-level def trees
-  case class TermDefTree (sym :LexicalSym, body :TermTree) extends TermTree with SymTree {
+  case class TermDefTree (sym :LexicalTermSym, body :TermTree) extends TermTree
+      with Symbols.TermSymTree {
     def symType = assignedType
     def format = body match {
       case AscTree(ann, body) => s"def ${sym} :: ${ann.format} = ${body.format}"
@@ -418,7 +423,7 @@ object Trees {
       // TODO: sig.checkWellFormed
       body.checkSave(ctx, sig) match {
         case Left(error) =>
-          assignedType = Error(error)
+          assignedType = error
         case Right(delta) =>  // A ⊣ ∆
           assignedType = sig
           // TODO: do we still need to apply delta here? only forall trees auto-apply
@@ -433,12 +438,13 @@ object Trees {
     def infer (ctx :Context) = body.inferSave(ctx)
   }
 
-  case class TypeDefTree (sym :LexicalSym, body :TypeTree) extends TypeTree with SymTree {
-    def symType = signature
+  case class TypeDefTree (sym :LexicalTypeSym, body :TypeTree) extends TypeTree with TypeSymTree {
+    def symSig = signature
     def signature = body.signature
     def format = s"type ${sym} = ${body.format}"
     override def debugShowArgs = Seq(sym)
-    def resolve (scope :Scope) = sym.setTree(TypeDefTree(sym, body.resolve(sym.scope(scope))))
+    def resolve (scope :Scope) :TypeDefTree =
+      sym.setTree(TypeDefTree(sym, body.resolve(sym.scope(scope))))
     override def children = Seq(body)
   }
 }

@@ -3,10 +3,12 @@ package compose
 object Types {
   import Analysis._
   import Constants._
-  import Symbols.Sym
+  import Symbols._
   import Trees.TermTree
 
-  // kinds
+  // -----
+  // Kinds
+
   abstract sealed class Kind
   case object Star extends Kind {
     override def toString = "*"
@@ -24,7 +26,9 @@ object Types {
     case _           => new KError(s"Cannot apply type arg (kind: $arg) to non-arrow kind $fun")
   }
 
-  // types
+  // -----
+  // Types
+
   sealed abstract class Type {
     def kind :Kind
     def arity = 0
@@ -49,8 +53,8 @@ object Types {
 
     /** Infers the type of an application of this type to `tree`.
       * @return the inferred type and the output context. */
-    def inferApp (tree :TermTree, ctx :Context) :Either[String, (Type, Context)] =
-      Left(s"Cannot apply term of type '$this' to '$tree'")
+    def inferApp (tree :TermTree, ctx :Context) :Either[Error, (Type, Context)] =
+      Left(ApplyFailure(this, tree))
   }
 
   abstract class GroundType extends Type {
@@ -65,16 +69,11 @@ object Types {
   }
   val Hole0 = Hole(Star)
 
-  case class Error (msg :String) extends GroundType {
-    override def isError = true
-    override def toString = s"!!$msg!!"
-  }
-
   case class Const (cnst :Constant) extends GroundType {
-    override def toString = cnst.value
+    override def toString = cnst.toString
   }
 
-  case class UVar (sym :Sym) extends Type with Note {
+  case class UVar (sym :TypeSym) extends Type with Note {
     def kind = Star
     def containsFree (ev :EVar) = false
     def checkMalformed (ctx :Context) = if (ctx.contains(this)) None
@@ -158,6 +157,7 @@ object Types {
   }
 
   case class Scalar (name :String, tag :Char, size :Int) extends GroundType {
+    def canContain (cnst :Constant) = cnst.tag == tag && (cnst.minWidth <= size)
     override def toString = s"$name"
   }
 
@@ -177,7 +177,7 @@ object Types {
     override def toString = cases.mkString(" + ")
   }
 
-  case class Nominal (sym :Sym, bodyFn :() => Type) extends Type {
+  case class Nominal (sym :TypeSym, bodyFn :() => Type) extends Type {
     def kind = bodyFn().kind
     // TODO: hrm...
     def checkMalformed (ctx :Context) = None
@@ -185,13 +185,46 @@ object Types {
     override def toString = sym.name.toString // TODO: signature?
   }
 
+  // -----------
+  // Error types
+
+  sealed abstract class Error extends GroundType {
+    override def isError = true
+  }
+
+  case class TypeMismatch (expected :Type, given :Type) extends Error {
+    override def toString = s"Expected '$expected', given: '$given'"
+  }
+  case class UnboundExistential (evar :EVar) extends Error {
+    override def toString = s"Unbound existential '$evar'"
+  }
+  case class InstantiationFailure (evar :EVar, target :Type) extends Error {
+    override def toString = s"Failed to instantiate '$evar' to '$target'"
+  }
+  case class SplitFailure (evar :EVar) extends Error {
+    override def toString = s"Unable to split context on $evar"
+  }
+  case class ApplyFailure (tpe :Type, tree :TermTree) extends Error {
+    override def toString = s"Cannot apply term of type '$tpe' to '$tree'"
+  }
+  case class MultipleAssumps (sym :TermSym, assumps :List[NAssump]) extends Error {
+    override def toString = s"Multiple assumptions for '$sym': $assumps"
+  }
+  case class MultipleSols (evar :EVar, sols :List[NSol]) extends Error {
+    override def toString = s"Multiple solutions for '$evar': $sols"
+  }
+
+  // ---------------------------
+  // Type checking and inference
+
   /** Derives a subtyping relationship `tpeA <: tpeB` within `ctx`.
     * @return the output context or a string describing an error. */
-  def subtype (ctx :Context, tpeA :Type, tpeB :Type) :Either[String, Context] = (tpeA, tpeB) match {
+  def subtype (ctx :Context, tpeA :Type, tpeB :Type) :Either[Error, Context] = (tpeA, tpeB) match {
     // <:Unit :: Γ ⊢ 1 <: 1 ⊣ Γ
     case (_, _) if (tpeA.equals(tpeB)) => Right(ctx) // Γ
 
-    // TODO: handle widening primitives? coercing sum cases to sum type?
+    // TODO: how to handle widening primitives? coercing sum cases to sum type?
+    case (cnst :Const, scal :Scalar) if (scal.canContain(cnst.cnst)) => Right(ctx)
 
     // <:Var :: Γ[α] ⊢ α <: α ⊣ Γ[α]
     case (uvA :UVar, uvB :UVar) if (uvA == uvB) => Right(ctx) // Γ
@@ -199,7 +232,7 @@ object Types {
     // <:Exvar :: Γ[â] ⊢ â <: â ⊣ Γ[â]
     case (evA :EVar, evB :EVar) if (evA == evB) =>
       if (ctx.contains(evA)) Right(ctx)
-      else Left(s"Unbound existential '$evA'") // Γ
+      else Left(UnboundExistential(evA)) // Γ
 
     // <:→ :: Γ ⊢ A1→A2 <: B1→B2 ⊣ ∆
     case (arA :Arrow, arB :Arrow) =>
@@ -232,12 +265,12 @@ object Types {
       ctx.tracer.trace(s"- <:InstR $tpeA :=< $evB")
       instantiateR(ctx, tpeA, evB) // Γ[â] ⊢ A <: â ⊣ ∆
 
-    case _ => Left(s"Type mismatch: expected '$tpeB', given: '$tpeA'")
+    case _ => Left(TypeMismatch(tpeB, tpeA))
   }
 
   /** Instantiates `eA` such that `eA <: a` in `ctx`.
     * @return the output context or a string describing an error. */
-  private def instantiateL (ctx :Context, eA :EVar, t :Type) :Either[String, Context] = t match {
+  private def instantiateL (ctx :Context, eA :EVar, t :Type) :Either[Error, Context] = t match {
     // InstLSolve :: Γ,â,Γ′ ⊢ â :=< τ ⊣ Γ,â=τ,Γ′
     case _ if (t.isMono && t.isWellFormed(ctx.peel(eA))) => // Γ ⊢ τ
       split(ctx, eA) map { (postCtx, preCtx) =>
@@ -272,12 +305,12 @@ object Types {
         deltaEtc => deltaEtc.peel(uB) // ∆
       }
 
-    case _ => Left(s"Failed to instantiate '$eA' to '$t'")
+    case _ => Left(InstantiationFailure(eA, t))
   }
 
-  /** Instantiates `eA` such that `a <: eA` in `ctx`.
+  /** Instantiates `eA` such that `t <: eA` in `ctx`.
     * @return the output context or a string describing an error. */
-  private def instantiateR (ctx :Context, t :Type, eA :EVar) :Either[String, Context] = t match {
+  private def instantiateR (ctx :Context, t :Type, eA :EVar) :Either[Error, Context] = t match {
     // InstRSolve :: Γ,â,Γ′ ⊢ τ :=< â ⊣ Γ,â=τ,Γ′
     case _ if (t.isMono && t.isWellFormed(ctx.peel(eA))) => // Γ ⊢ τ
       split(ctx, eA) map { (postCtx, preCtx) =>
@@ -315,12 +348,12 @@ object Types {
         deltaEtc => deltaEtc.peel(mC) // ∆
       }
 
-    case _ => Left(s"Failed to instantiate '$t' to '$eA'\n (context: $this)")
+    case _ => Left(InstantiationFailure(eA, t))
   }
 
-  private def split (ctx :Context, ev :EVar) :Either[String, (Context, Context)] =
+  private def split (ctx :Context, ev :EVar) :Either[Error, (Context, Context)] =
     ctx.split(ev) match {
-      case None       => Left(s"Unable to split context on $ev")
+      case None       => Left(SplitFailure(ev))
       case Some(ctxs) => Right(ctxs)
     }
 }
