@@ -24,7 +24,7 @@ object Constants {
   def char (value :String) = Constant(CharTag, value)
   def string (value :String) = Constant(StringTag, value)
 
-  case class Constant (tag :Int, value :String) {
+  case class Constant (tag :Char, value :String) {
     lazy val minWidth :Int = tag match {
       case BoolTag  => 1
       case IntTag   => intWidth(value)
