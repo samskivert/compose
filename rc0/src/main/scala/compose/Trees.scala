@@ -64,8 +64,8 @@ object Trees {
           assignedType = error
           ctx.tracer.trace(s"< $this :: $error // ∆ = $ctx")
         case Right(delta) =>
-          assignedType = tpe
-          ctx.tracer.trace(s"< $this :: $tpe // ∆ = $delta")
+          assignedType = tpe.apply(delta)
+          ctx.tracer.trace(s"< $this :: $assignedType // ∆ = $delta")
       }
       res
     }
@@ -99,8 +99,8 @@ object Trees {
           assignedType = error
           ctx.tracer.trace(s"> $this :: $error // ∆ = $ctx")
         case Right((tpe, delta)) =>
-          assignedType = tpe
-          ctx.tracer.trace(s"> $this :: $tpe // ∆ = $delta")
+          assignedType = tpe.apply(delta)
+          ctx.tracer.trace(s"> $this :: $assignedType // ∆ = $delta")
       }
       res
     }
@@ -111,10 +111,10 @@ object Trees {
       * solutions).
       * @return the supplied `ctx`, unmodified. */
     def applyContext (ctx :Context) :Unit = {
-      // for (let id of this.branchIds) {
-      //   const branch = this.branch(id)
-      //   if (branch instanceof TermTree) branch.applyContext(ctx)
-      // }
+      children foreach {
+        case term :TermTree => term.applyContext(ctx)
+        case _ => // skippy
+      }
       assignedType = assignedType.apply(ctx)
       ctx.tracer.trace(s">> $this :: $assignedType")
     }
@@ -298,7 +298,7 @@ object Trees {
     }
     override def children = Seq(expr)
     override def debugPrintChildren (out :PrintWriter, in :String) :Unit = {
-      out.println(s"${in}Bind ${bind.sym} : ${bind.ann.format}")
+      out.println(s"${in}Bind ${bind.sym} : ${bind.ann.format} :: ${bind.symType}")
       bind.body.debugPrint(out, s"$in ")
       super.debugPrintChildren(out, in)
     }
@@ -309,7 +309,9 @@ object Trees {
       val assump = new NAssump(bind.sym, expType)
       val checkCtx = theta.extend(eC).extend(assump)
       ctx.tracer.trace(s"- Let=> ($expr <= $eC) in $checkCtx")
-      expr.checkSave(checkCtx, eC) map { checkedCtx => (eC, checkedCtx.peel(assump)) }
+      expr.checkSave(checkCtx, eC) map { checkedCtx =>
+        (eC.apply(checkedCtx), checkedCtx.peel(assump))
+      }
     }
   }
 
@@ -338,8 +340,9 @@ object Trees {
     def format = sym.toString
     override def debugShowArgs = Seq(sym)
     def resolve (scope :Scope) = this
-    def infer (ctx :Context) = Right(
-      (ctx.assump(this.sym) getOrElse sym.tpe, ctx)) // A ⊣ Γ
+    def infer (ctx :Context) =
+      if (!sym.isDefined) Left(UnboundTerm(sym))
+      else Right((ctx.assump(this.sym) getOrElse sym.tpe, ctx)) // A ⊣ Γ
   }
   case class AscTree (ann :TypeTree, body :TermTree) extends TermTree {
     def format = s"(${body.format} : ${ann.format})"
@@ -380,15 +383,15 @@ object Trees {
     def resolve (scope :Scope) = IfTree(
       test.resolve(scope), texp.resolve(scope), fexp.resolve(scope))
     override def children = Seq(test, texp, fexp)
+    // If=> :: if test ifTrue else ifFalse
     def infer (ctx :Context) = {
-      // // If=> :: if test ifTrue else ifFalse
-      // case XIf(test, ifTrue, ifFalse) =>
-      //   check(test, TBool)
-      //   val (trueType, theta) = infer(ifTrue)
-      //   ctx.tracer.trace(s"- If=> ($ifTrue => $trueType) ; ($ifFalse <= $trueType) in $theta")
-      //   val delta = check(ifFalse, trueType)(theta)
-      //   (trueType, delta) // TODO: peel?
-      ???
+      test.check(ctx, Builtins.boolType)
+      texp.inferSave(ctx) flatMap { (trueType, theta) =>
+        ctx.tracer.trace(s"- If=> ($texp => $trueType) ; ($fexp <= $trueType) in $theta")
+        fexp.inferSave(theta) flatMap { (falseType, phi) =>
+          unify(trueType, falseType) map { utype => (utype, phi) }
+        }
+      }
     }
   }
   // case class MatchTree (scrut :TermTree, cases :Seq[CaseTree]) extends TermTree {
@@ -401,7 +404,7 @@ object Trees {
   // top-level def trees
   case class TermDefTree (sym :LexicalTermSym, body :TermTree) extends TermTree
       with Symbols.TermSymTree {
-    def symType = assignedType
+    def symType = body.signature // assignedType
     def format = body match {
       case AscTree(ann, body) => s"def ${sym} :: ${ann.format} = ${body.format}"
       case _                  => s"def ${sym} :: ${body.format}"

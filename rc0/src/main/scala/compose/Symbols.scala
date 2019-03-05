@@ -11,6 +11,8 @@ object Symbols {
   abstract class Sym {
     /** The name of this symbol. */
     def name :Name
+    /** Whether this symbol refers to a known definition. */
+    def isDefined = true
 
     override def toString = s"#$name"
     override def hashCode = System.identityHashCode(this)
@@ -76,12 +78,14 @@ object Symbols {
   class MissingTermSym (name :TermName) extends TermSym(name) {
     def flavor = Flavor.None
     def tpe = Hole0
+    override def isDefined = false
     override def toString = s"!$name"
   }
   def missingTerm (name :TermName) = new MissingTermSym(name)
 
   class MissingTypeSym (name :TypeName) extends TypeSym(name) {
     def sig = Hole0
+    override def isDefined = false
     override def toString = s"!$name"
   }
   def missingType (name :TypeName) = new MissingTypeSym(name)

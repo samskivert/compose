@@ -54,7 +54,7 @@ object Types {
     /** Infers the type of an application of this type to `tree`.
       * @return the inferred type and the output context. */
     def inferApp (tree :TermTree, ctx :Context) :Either[Error, (Type, Context)] =
-      Left(ApplyFailure(this, tree))
+      Left(ApplyNonFun(this, tree))
   }
 
   abstract class GroundType extends Type {
@@ -157,7 +157,8 @@ object Types {
   }
 
   case class Scalar (name :String, tag :Char, size :Int) extends GroundType {
-    def canContain (cnst :Constant) = cnst.tag == tag && (cnst.minWidth <= size)
+    def canContain (cnst :Constant) = (cnst.tag == tag) && (cnst.minWidth <= size)
+    def canContain (scal :Scalar) = (scal.tag == tag) && (scal.size <= size)
     override def toString = s"$name"
   }
 
@@ -204,8 +205,8 @@ object Types {
   case class SplitFailure (evar :EVar) extends Error {
     override def toString = s"Unable to split context on $evar"
   }
-  case class ApplyFailure (tpe :Type, tree :TermTree) extends Error {
-    override def toString = s"Cannot apply term of type '$tpe' to '$tree'"
+  case class ApplyNonFun (tpe :Type, tree :TermTree) extends Error {
+    override def toString = s"Cannot apply term '$tree' to expression with non-function type '$tpe'"
   }
   case class MultipleAssumps (sym :TermSym, assumps :List[NAssump]) extends Error {
     override def toString = s"Multiple assumptions for '$sym': $assumps"
@@ -213,9 +214,28 @@ object Types {
   case class MultipleSols (evar :EVar, sols :List[NSol]) extends Error {
     override def toString = s"Multiple solutions for '$evar': $sols"
   }
+  case class UnboundTerm (sym :TermSym) extends Error {
+    override def toString = s"Unknown term '$sym'"
+  }
+  case class UnifyFailure (tpeA :Type, tpeB :Type) extends Error {
+    override def toString = s"Unable to unify '$tpeA' with '$tpeB'"
+  }
 
   // ---------------------------
   // Type checking and inference
+
+  // TODO: should this produce a new context and be more like subtype?
+  def unify (tpeA :Type, tpeB :Type) :Either[Error, Type] = (tpeA, tpeB) match {
+    case (_, _) if (tpeA.equals(tpeB)) => Right(tpeA)
+
+    case (Const(cA), Const(cB)) if (cA.tag == cB.tag) =>
+      val width = math.max(cA.minWidth, cB.minWidth)
+      Right(Scalar(s"${cA.tag}$width", cA.tag, width))
+    case (cnst :Const, scal :Scalar) if (scal.canContain(cnst.cnst)) => Right(scal)
+    case (scal :Scalar, cnst :Const) if (scal.canContain(cnst.cnst)) => Right(scal)
+
+    case _ => Left(UnifyFailure(tpeA, tpeB))
+  }
 
   /** Derives a subtyping relationship `tpeA <: tpeB` within `ctx`.
     * @return the output context or a string describing an error. */
@@ -225,6 +245,7 @@ object Types {
 
     // TODO: how to handle widening primitives? coercing sum cases to sum type?
     case (cnst :Const, scal :Scalar) if (scal.canContain(cnst.cnst)) => Right(ctx)
+    case (scalA :Scalar, scalB :Scalar) if (scalB.canContain(scalA)) => Right(ctx)
 
     // <:Var :: Γ[α] ⊢ α <: α ⊣ Γ[α]
     case (uvA :UVar, uvB :UVar) if (uvA == uvB) => Right(ctx) // Γ
@@ -240,7 +261,7 @@ object Types {
         subtype(theta, arA.res.apply(theta), arB.res.apply(theta)) // Θ ⊢ [Θ]A2 <: [Θ]B2 ⊣ ∆
       }
 
-      // <:∀L :: Γ ⊢ ∀α.A <: B ⊣ ∆
+    // <:∀L :: Γ ⊢ ∀α.A <: B ⊣ ∆
     case (absA :Abs, _) =>
       val eA = freshEVar("a")
       val eAMark = NMark(eA)
@@ -249,18 +270,18 @@ object Types {
         deltaEtc => deltaEtc.peel(eAMark) // ∆
       }
 
-      // <:∀R :: Γ ⊢ A <: ∀α.B ⊣ ∆
+    // <:∀R :: Γ ⊢ A <: ∀α.B ⊣ ∆
     case (_, absB :Abs) =>
       subtype(ctx.extend(absB.uv), tpeA, absB.body) map { // Γ,α ⊢ A <: B ⊣ ∆,α,Θ
         deltaEtc => deltaEtc.peel(absB.uv) // ∆
       }
 
-      // <:InstantiateL :: Γ[â] ⊢ â <: A ⊣ ∆
+    // <:InstantiateL :: Γ[â] ⊢ â <: A ⊣ ∆
     case (evA :EVar, _) if (ctx.contains(evA) && !tpeB.containsFree(evA)) =>
       ctx.tracer.trace(s"- <:InstL $evA :=< $tpeB")
       instantiateL(ctx, evA, tpeB) // Γ[â] ⊢ â :=< A ⊣ ∆
 
-      // <:InstantiateR :: Γ[â] ⊢ A <: â ⊣ ∆
+    // <:InstantiateR :: Γ[â] ⊢ A <: â ⊣ ∆
     case (_, evB :EVar) if (ctx.contains(evB) && !tpeA.containsFree(evB)) =>
       ctx.tracer.trace(s"- <:InstR $tpeA :=< $evB")
       instantiateR(ctx, tpeA, evB) // Γ[â] ⊢ A <: â ⊣ ∆
