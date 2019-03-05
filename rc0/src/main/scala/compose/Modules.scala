@@ -23,14 +23,14 @@ object Modules {
       }
     }
 
-    def enter (tree :TermDefTree) :TermDefTree = {
+    def enter (tree :TermDefTree, trace :Boolean = false) :TermDefTree = {
       val rtree = tree.resolve(scope)
       terms.put(rtree.sym.name, rtree.sym)
       // if this function has a synonym (i.e. plus => `+`) enter it under the synonym as well
       val syn = TermSyns.get(rtree.sym.name)
       syn.map(sname => terms.put(sname, rtree.sym))
       // println(s"Entered ${rtree.sym.name} (syn: $syn): ${rtree.sym}")
-      val itype = rtree.assignType(false)
+      val itype = rtree.assignType(trace)
       rtree
     }
 
