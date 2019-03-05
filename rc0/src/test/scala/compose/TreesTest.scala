@@ -108,9 +108,7 @@ class TreesTest {
     val p = Parsers.parser
     val mod = testModule
     val src = """def foo :: x :Int -> Int =
-                   let bar = if x == 0 then 0
-                             else if x == 1 then 1
-                             else 2
+                   let bar = if x == 0 then 0 else if x == 1 then 1 else 2
                    in bar"""
     val foo = mod.enter(p.parseDef(src))
     // foo.debugPrint(new PrintWriter(System.out, true), "")
@@ -119,19 +117,27 @@ class TreesTest {
   }
 
   @Test def testUnifyFail = {
-    val src = """let bar = if x == 0 then 0
-                           else "bob"
+    val src = """let bar x = if x == 0 then 0 else "bob"
                  in bar"""
     val (tree, res) = typeExpr(src, false)
     assertEquals(Left(UnifyFailure(Const(int("0")), Const(string("bob")))), res)
+  }
+
+  @Test def testLet = {
+    val src = """let bar x = if x == 0 then 0 else 1
+                 in bar 5"""
+    val (tree, res) = typeExpr(src, false)
+    // tree.debugPrint(new PrintWriter(System.out, true), "")
+    assertNoErrors(tree)
+    assertEquals(Right("i8"), res.map(_.toString))
   }
 
   @Test def testRecursiveLet = {
     val src = """let bar x = if x == 0 then 0
                              else (bar (x-1)) + 1
                  in bar 5"""
-    val (tree, res) = typeExpr(src, true)
-    tree.debugPrint(new PrintWriter(System.out, true), "")
+    val (tree, res) = typeExpr(src, false)
+    // tree.debugPrint(new PrintWriter(System.out, true), "")
     assertNoErrors(tree)
     assertEquals(Right("Int"), res.map(_.toString))
   }

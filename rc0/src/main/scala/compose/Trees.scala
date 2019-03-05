@@ -239,7 +239,7 @@ object Trees {
     def format = body match {
       case _ :AbsTree => s"$sym:${ann.format} → ${body.format}"
       case a :AscTree => s"$sym:${ann.format} → ${a.ann.format} = ${a.body.format}"
-      case _          => s"$sym:${ann.format} = ${body.format}"
+      case _          => s"$sym:${ann.format} ⇒ ${body.format}"
     }
     override def debugShowArgs = Seq(sym)
     def resolve (scope :Scope) = sym.setTree(
@@ -303,14 +303,20 @@ object Trees {
       super.debugPrintChildren(out, in)
     }
     // TODO: if we have a type annotation, use that when typing the body
-    def infer (ctx :Context) = bind.body.inferSave(ctx) flatMap { (expType, theta) =>
-      bind.assignType(expType) // assign type to binding symbol
-      val eC = freshEVar("c")
-      val assump = new NAssump(bind.sym, expType)
-      val checkCtx = theta.extend(eC).extend(assump)
-      ctx.tracer.trace(s"- Let=> ($expr <= $eC) in $checkCtx")
-      expr.checkSave(checkCtx, eC) map { checkedCtx =>
-        (eC.apply(checkedCtx), checkedCtx.peel(assump))
+    def infer (ctx :Context) = {
+      val eB = freshEVar("b")
+      val assump = new NAssump(bind.sym, eB)
+      bind.body.checkSave(ctx.extend(eB).extend(assump), eB) flatMap { theta =>
+        val expType = eB.apply(theta)
+        ctx.tracer.trace(s"- Typed binding ${bind.format} :: $expType")
+        bind.assignType(expType) // assign type to binding symbol
+        val eC = freshEVar("c")
+        val assump = new NAssump(bind.sym, expType)
+        val checkCtx = theta.peel(assump).extend(eC).extend(assump)
+        ctx.tracer.trace(s"- Let=> ($expr <= $eC) in $checkCtx")
+        expr.checkSave(checkCtx, eC) map { checkedCtx =>
+          (eC.apply(checkedCtx), checkedCtx.peel(assump))
+        }
       }
     }
   }
@@ -385,11 +391,12 @@ object Trees {
     override def children = Seq(test, texp, fexp)
     // If=> :: if test ifTrue else ifFalse
     def infer (ctx :Context) = {
-      test.check(ctx, Builtins.boolType)
-      texp.inferSave(ctx) flatMap { (trueType, theta) =>
-        ctx.tracer.trace(s"- If=> ($texp => $trueType) ; ($fexp <= $trueType) in $theta")
-        fexp.inferSave(theta) flatMap { (falseType, phi) =>
-          unify(trueType, falseType) map { utype => (utype, phi) }
+      test.check(ctx, Builtins.boolType) flatMap { delta =>
+        texp.inferSave(delta) flatMap { (trueType, theta) =>
+          fexp.inferSave(theta) flatMap { (falseType, phi) =>
+            ctx.tracer.trace(s"- If=> ($texp => $trueType) ; ($fexp => $falseType) in $phi")
+            unify(trueType, falseType) map { utype => (utype, phi) }
+          }
         }
       }
     }
