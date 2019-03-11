@@ -5,8 +5,8 @@ object Analysis {
   import Symbols._
 
   // type checking
-  trait Note {}
-  case class NAssump (sym :Sym, tpe :Type) extends Note {
+  trait Note derives Eql {}
+  case class NAssump (sym :TermSym, tpe :Type) extends Note {
     override def toString = s"$sym~$tpe"
   }
   case class NSol (ev :EVar, tpe :Type) extends Note {

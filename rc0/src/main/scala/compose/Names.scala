@@ -4,7 +4,7 @@ import java.util.HashMap
 
 object Names {
 
-  abstract class Name {
+  abstract class Name derives Eql {
     def isTypeName :Boolean
     def isTermName :Boolean
     def toTypeName :TypeName

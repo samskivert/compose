@@ -9,7 +9,7 @@ object Types {
   // -----
   // Kinds
 
-  abstract sealed class Kind
+  abstract sealed class Kind derives Eql
   case object Star extends Kind {
     override def toString = "*"
   }
@@ -29,7 +29,7 @@ object Types {
   // -----
   // Types
 
-  sealed abstract class Type {
+  sealed abstract class Type derives Eql {
     def kind :Kind
     def arity = 0
     def isError = false
@@ -193,8 +193,8 @@ object Types {
     override def isError = true
   }
 
-  case class TypeMismatch (expected :Type, given :Type) extends Error {
-    override def toString = s"Expected '$expected', given: '$given'"
+  case class TypeMismatch (expected :Type, got :Type) extends Error {
+    override def toString = s"Expected '$expected', given: '$got'"
   }
   case class UnboundExistential (evar :EVar) extends Error {
     override def toString = s"Unbound existential '$evar'"

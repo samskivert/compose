@@ -8,7 +8,7 @@ object Symbols {
   //--------
   // Symbols
 
-  abstract class Sym {
+  sealed abstract class Sym derives Eql {
     /** The name of this symbol. */
     def name :Name
     /** Whether this symbol refers to a known definition. */

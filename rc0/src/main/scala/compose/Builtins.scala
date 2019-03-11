@@ -19,13 +19,15 @@ object Builtins {
   class BuiltinTypeSym (name :TypeName, val sig :Type) extends TypeSym(name)
   def scalarTypeSym (sig :Scalar) :TypeSym = new BuiltinTypeSym(typeName(sig.name), sig)
 
+  val foreignSym = new BuiltinTermSym(termName("foreign"), {
+    val aSym = new TypeSym(typeName("A")) {
+      def sig = UVar(this)
+    }
+    Abs(UVar(aSym), Arrow(stringType, UVar(aSym)))
+  })
+
   val termSyms = Seq(
-    new BuiltinTermSym(termName("foreign"), {
-      val aSym = new TypeSym(typeName("A")) {
-        def sig = UVar(this)
-      }
-      Abs(UVar(aSym), Arrow(stringType, UVar(aSym)))
-    }))
+    foreignSym)
 
   val typeSyms = Seq(
     scalarTypeSym(voidType),
