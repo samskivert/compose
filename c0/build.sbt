@@ -3,7 +3,7 @@ lazy val root = (project in file(".")).
     name := "c0",
     version := "0.1.0",
 
-    scalaVersion := "2.12.4",
+    scalaVersion := "2.12.7",
 
     scalacOptions += "-Ywarn-unused:params,-implicits",
 
