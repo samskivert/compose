@@ -51,7 +51,7 @@ object Lower {
   case class Is (expr :ExprTree, what :ExprTree) extends ExprTree
   case class And (left :ExprTree, right :ExprTree) extends ExprTree
   case class Lambda (dicts :Seq[Symbol], arg :Symbol, body :StmtTree) extends ExprTree
-  case class Apply (fun :ExprTree, dicts :Seq[ExprTree], args :Seq[ExprTree]) extends ExprTree
+  case class Call (fun :ExprTree, dicts :Seq[ExprTree], args :Seq[ExprTree]) extends ExprTree
   case class Construct (obj :Symbol, args :Seq[ExprTree]) extends ExprTree
   case class ForeignExpr (body :String) extends ExprTree
 
@@ -205,13 +205,13 @@ object Lower {
       val dicts = Seq[Symbol]() // TODO: dictionary args
       target.bind(Lambda(dicts, ctx.sym(sym), bodyStmt), bb)
 
-    case tree @ high.AppTree(fun, arg) =>
-      // TODO: recurse into app tree, lowering args and accumulating refs to the computed args;
-      // when we hit bottom, check to see if we've fully saturated the call; if so, generate a
-      // Call (renamed from Apply) node, otherwise generate a Lambda node which takes the
-      // remaining args and contains a call including the closed over args and the lambda args
+    case tree :high.AppTree =>
+      // uncurry any nested apps into the inner-most fun + arg list
+      val (fun, args) = tree.uncurry(Nil)
 
-      def aggCall (app :high.AppTree, args :List[ExprTree]) :(Symbol, List[ExprTree]) = ???
+      // TODO: generate a partial app lambda term: `foo a b` => `c => foo(a, b, c)`
+      if (fun.treeType.arity != args.length) fail(
+        s"TODO: support unsaturated calls ${fun} :: ${fun.treeType} @ ${args}")
 
       val funSym = fun match {
         case ident :high.RefTree =>
@@ -223,24 +223,26 @@ object Lower {
           argSym
       }
       def foreignCode = {
-        val farg = arg.asInstanceOf[high.LitTree]
+        assert(args.length == 1)
+        val farg = args.head.asInstanceOf[high.LitTree]
         assert(farg.cnst.tag == StringTag)
         farg.cnst.value
       }
-      if (funSym eq ctx.sym(Builtins.foreignSym)) {
-        target.bind(ForeignExpr(foreignCode), bb)
+
+      val callExpr = if (funSym eq ctx.sym(Builtins.foreignSym)) {
+        ForeignExpr(foreignCode)
       // } else if (funSym == ctx.sym(Prim.foreignBody)) {
       //   bb += ForeignBody(foreignCode)
       //   UnitExpr
       } else {
-
-        val funType = fun.treeType.asInstanceOf[Arrow]
+        // val funType = fun.treeType.asInstanceOf[Arrow]
         val funExpr = /*if (tree.impl == NoImpl)*/ IdentRef(funSym)
-                      // TODO: if the impl is static and the method unadapted, inline it
-                      /*else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))*/
+        // TODO: if the impl is static and the method unadapted, inline it
+        /*else Select(lowerImpl(tree.impl), ctx.sym(funType.sym))*/
         val implArgs = Seq() // tree.implArgs.map(lowerImpl)
-        target.bind(Apply(funExpr, implArgs, lowerHoist(Seq(arg), bb)), bb)
+        Call(funExpr, implArgs, lowerHoist(args, bb))
       }
+      target.bind(callExpr, bb)
 
     case high.IfTree(cond, ifTrue, ifFalse) =>
       val condExpr = lowerHoist(cond, bb)
@@ -497,6 +499,7 @@ object Lower {
   private def lowerFresh (expr :high.TermTree, bb :BlockBuilder)
                          (implicit ctx :Context) :ExprTree = expr match {
     case ident @ high.RefTree(sym) => IdentRef(ctx.sym(ident.sym))
+    // TODO: also keep constants inline?
     case expr => lowerTerm(expr, bb, bindFresh(expr.treeType, bb))
   }
 
@@ -542,7 +545,7 @@ object Lower {
     case Lambda(dicts, arg, body) =>
       if (!dicts.isEmpty) printSep(dicts, printSym, Square)
       printSym(arg) ; pr.print(" => ") ; printTree(body)
-    case Apply(fun, dicts, args) =>
+    case Call(fun, dicts, args) =>
       printTree(fun)
       if (!dicts.isEmpty) printSep(dicts, printTree, Square)
       printSep(args, printTree, Paren)

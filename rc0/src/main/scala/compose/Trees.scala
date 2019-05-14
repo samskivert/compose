@@ -383,6 +383,11 @@ object Trees {
         (resType, delta)
       }
     }
+    // helper for uncurrying apps
+    def uncurry (args :List[TermTree]) :(TermTree, List[TermTree]) = fun match {
+      case nfun :AppTree => nfun.uncurry(arg :: args)
+      case _             => (fun, arg :: args)
+    }
   }
   case class IfTree (test :TermTree, texp :TermTree, fexp :TermTree) extends TermTree {
     def format = s"if ${test.format} then ${texp.format} else ${fexp.format}"
