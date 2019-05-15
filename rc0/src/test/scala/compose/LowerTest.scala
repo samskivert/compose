@@ -23,7 +23,21 @@ class LowerTest {
                              else foo (x-1) y
                    in bar+1"""
     val foo = mod.enter(p.parseDef(src))
-    foo.debugPrint(new PrintWriter(System.out, true), "")
+    // foo.debugPrint(new PrintWriter(System.out, true), "")
+    assertNoErrors(foo)
+    val lfoo = lower(foo)
+    lfoo foreach Lower.print
+  }
+
+  @Test def testLowerFib = {
+    val p = Parsers.parser
+    val mod = testModule
+    val src = """def fib :: x:Int -> Int =
+                   if x == 0 then 0
+                   else if x == 1 then 1
+                   else fib (x-2) + fib (x-1)"""
+    val foo = mod.enter(p.parseDef(src))
+    // foo.debugPrint(new PrintWriter(System.out, true), "")
     assertNoErrors(foo)
     val lfoo = lower(foo)
     lfoo foreach Lower.print

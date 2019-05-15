@@ -7,11 +7,21 @@ object TestUtils {
   import Trees._
   import Types._
 
+  val TestDefs = Seq(
+    """def eq  :: x:Int -> y:Int -> Bool = foreign "x === y" """,
+    """def add :: x:Int -> y:Int -> Int  = foreign "x + y" """,
+    """def sub :: x:Int -> y:Int -> Int  = foreign "x - y" """,
+    """def mul :: x:Int -> y:Int -> Int  = foreign "x * y" """,
+    """def div :: x:Int -> y:Int -> Int  = foreign "x / y" """,
+    """def mod :: x:Int -> y:Int -> Int  = foreign "x % y" """,
+  )
+
   def treeErrors (tree :Tree) :List[Error] = tree.fold(List[Error]())(
     (errs, tree) => tree.treeType match {
       case err :Error => err :: errs
       case _ => errs
     })
+
   def assertNoErrors (tree :Tree) = {
     val errs = treeErrors(tree)
     errs foreach { err =>  println(s"Error: $err") }
@@ -21,12 +31,10 @@ object TestUtils {
   def testModule = {
     val p = Parsers.parser
     val mod = new Module
-    val inteq = mod.enter(p.parseDef("""def eq :: x:Int -> y:Int -> Bool = foreign "x === y" """))
-    assertNoErrors(inteq)
-    val add = mod.enter(p.parseDef("""def add :: x:Int -> y:Int -> Int = foreign "x + y" """))
-    assertNoErrors(add)
-    val sub = mod.enter(p.parseDef("""def sub :: x:Int -> y:Int -> Int = foreign "x - y" """))
-    assertNoErrors(sub)
+    for (dsrc <- TestDefs) {
+      val dtree = mod.enter(p.parseDef(dsrc))
+      assertNoErrors(dtree)
+    }
     mod
   }
 

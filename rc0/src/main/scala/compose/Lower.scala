@@ -88,8 +88,8 @@ object Lower {
   private class BlockBuilder {
     private var stmts = ArrayBuffer[StmtTree]()
     def toStmts () :Seq[StmtTree] = try stmts finally stmts = null
-    def build (label :Option[Int] = None) :StmtTree =
-      if (stmts.size == 1) stmts.head else Block(toStmts(), label)
+    def build (label :Option[Int] = None, forceBlock :Boolean = false) :StmtTree =
+      if (stmts.size == 1 && !forceBlock) stmts.head else Block(toStmts(), label)
     def += (stmt :StmtTree) :Unit = stmts += stmt
   }
 
@@ -200,7 +200,7 @@ object Lower {
       val bodyStmt = if (needsHoist(body)) {
         val bodyBB = new BlockBuilder()
         lowerTerm(body, bodyBB, bindReturn)
-        bodyBB.build()
+        bodyBB.build(None, true)
       } else ExprStmt(lowerTerm(body, bb, bindNone))
       val dicts = Seq[Symbol]() // TODO: dictionary args
       target.bind(Lambda(dicts, ctx.sym(sym), bodyStmt), bb)
@@ -314,6 +314,8 @@ object Lower {
     // case tree :high.LiteralPat => unreachable(tree)
     // case tree :high.DestructPat => unreachable(tree)
     // case tree :high.Case => unreachable(tree)
+
+    case tree :high.TermSymTree => fail("TODO")
   }
 
   // private def lowerImpl (tree :ImplTree)(implicit ctx :Context) :ExprTree = tree match {
