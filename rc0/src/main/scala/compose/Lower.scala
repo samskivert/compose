@@ -155,12 +155,6 @@ object Lower {
     case high.LetTree(bind, expr) =>
       lowerBind(bind, bb, target)
       lowerTerm(expr, bb, target)
-    // case high.VarDef(binds) =>
-    //   try {
-    //     ctx.mut = true
-    //     binds foreach { bind => lowerTerm(bind, bb, target) }
-    //     UnitExpr
-    //   } finally ctx.mut = false
 
     case high.LetRecTree(binds, expr) =>
       fail("TODO")
@@ -173,22 +167,11 @@ object Lower {
     case high.LitTree(const) =>
       // TODO: include expected type or manually represent implicit widening in lowered tree
       target.bind(Literal(const), bb)
-    // case high.ArrayLiteral(values) =>
-    //   ???
 
     case tree :high.URefTree =>
       unreachable(tree)
     case tree :high.RefTree =>
       target.bind(IdentRef(ctx.sym(tree.sym)), bb)
-
-    // case tree @ high.Select(expr, field) => target.bind(tree.sym.info match {
-    //   // TODO: whence the dictionary args
-    //   case arr :Arrow => Apply(IdentRef(ctx.sym(arr.sym)), Seq(), Seq(lowerHoist(expr, bb)))
-    //   case fld :Field => Select(lowerHoist(expr, bb), ctx.sym(fld.sym))
-    //   case tpe        => fail(s"Unexpected field type: $tpe (of $tree)")
-    // }, bb)
-    // case high.Index(expr, index) =>
-    //   target.bind(Index(lowerHoist(expr, bb), lowerHoist(index, bb)), bb)
 
     // TODO: LetRecTree, URefTree
     case high.AllTree(sym, body) =>
@@ -232,9 +215,6 @@ object Lower {
 
       val callExpr = if (funSym eq ctx.sym(Builtins.foreignSym)) {
         ForeignExpr(foreignCode)
-      // } else if (funSym == ctx.sym(Prim.foreignBody)) {
-      //   bb += ForeignBody(foreignCode)
-      //   UnitExpr
       } else {
         // val funType = fun.treeType.asInstanceOf[Arrow]
         val funExpr = /*if (tree.impl == NoImpl)*/ IdentRef(funSym)
@@ -254,213 +234,22 @@ object Lower {
       try lowerTerm(ifFalse, falseBB, target.enterBlock)
       finally bb += IfElse(condExpr, trueBB.build(), falseBB.build())
 
-    // case tree :high.Match => lowerMatch(tree, bb, target)
-
-    // case high.Cond(conds, elseResult) =>
-    //   def loop (bb :BlockBuilder, conds :Seq[high.Condition]) :ExprTree = {
-    //     val cond = conds.head
-    //     val condExpr = lowerHoist(cond.guard, bb)
-    //     val condBB = new BlockBuilder()
-    //     lowerTerm(cond.result, condBB, target.enterBlock)
-    //     val elseBB = new BlockBuilder()
-    //     try if (conds.size == 1) lowerTerm(elseResult, elseBB, target.enterBlock)
-    //         else loop(elseBB, conds.tail)
-    //     finally bb += IfElse(condExpr, condBB.build(), elseBB.build())
-    //   }
-    //   loop(bb, conds)
-
-    // case high.Generator(name, expr) => ???
-    // case high.Filter(expr) => ???
-    // case high.MonadComp(elem, clauses) => ???
-
     case high.TermDefTree(sym, body) =>
-      lowerTermDef(sym, body, bb)
-    // case high.DefExpr(df) =>
-    //   lowerDef(df, bb)
-
-    // case high.Block(exprs) =>
-    //   val nestBB = new BlockBuilder()
-    //   exprs.take(exprs.size-1) foreach { expr => lowerTerm(expr, nestBB, bindStmt) }
-    //   try lowerTerm(exprs.last, nestBB, target.enterBlock)
-    //   finally bb += nestBB.build()
-    // case tree @ high.Assign(ident, value) =>
-    //   lowerTerm(value, bb, bindTo(ctx.sym(tree.sym)))
-    // case high.While(cond, body) =>
-    //   // TODO: this is not correct; if a while's conditional expression contains a nested block,
-    //   // we need to either hoist it into a function or replicate it before the first loop entry
-    //   // and at the end of the loop
-    //   val whileBB = new BlockBuilder()
-    //   lowerTerm(body, whileBB, bindStmt)
-    //   bb += While(lowerHoist(cond, bb), whileBB.build())
-    //   UnitExpr
-    // case high.DoWhile(body, cond) =>
-    //   // TODO: this is also not correct; it's easier to make do/while support blocks in the
-    //   // condition expression, we just need to declare a variable outside the while body and then
-    //   // execute the condition at the end of the loop and assign the result to that var (note: if
-    //   // we ever get a `continue` statement this would have to change)
-    //   val whileBB = new BlockBuilder()
-    //   lowerTerm(body, whileBB, bindStmt)
-    //   bb += DoWhile(whileBB.build(), lowerHoist(cond, bb))
-    //   UnitExpr
-    // case high.For(gens, body) =>
-    //   ???
-
-    // // handled by ImplDef
-    // case tree :high.MethodBinding => unreachable(tree)
-    // // handled by Cond
-    // case tree :high.Condition => unreachable(tree)
-    // // handled by lowerMatch
-    // case tree :high.LetPat => unreachable(tree)
-    // case tree :high.IdentPat => unreachable(tree)
-    // case tree :high.LiteralPat => unreachable(tree)
-    // case tree :high.DestructPat => unreachable(tree)
-    // case tree :high.Case => unreachable(tree)
+      val termSym = ctx.sym(sym)
+      if (needsHoist(body)) {
+        // TODO: may need to express this as a "block with return value" if we end up needing to
+        // generate JS diffrently (i.e. define and call an anonymous nullary function)
+        bb += LetDef(ctx.sym(sym), false, None)
+        val initBB = new BlockBuilder()
+        lowerTerm(body, initBB, bindTo(termSym))
+        bb += initBB.build()
+      } else {
+        bb += LetDef(ctx.sym(sym), false, Some(lowerTerm(body, bb, bindNone)))
+      }
+      IdentRef(termSym)
 
     case tree :high.TermSymTree => fail("TODO")
   }
-
-  // private def lowerImpl (tree :ImplTree)(implicit ctx :Context) :ExprTree = tree match {
-  //   case ImplRef(sym) => IdentRef(ctx.sym(sym))
-  //   case ImplApply(impl, args) => Apply(IdentRef(ctx.sym(impl)), Seq(), args map lowerImpl)
-  //   case _ => unreachable(tree)
-  // }
-
-  private def lowerTermDef (sym :TermSym, body :high.TermTree, bb :BlockBuilder)
-                           (implicit ctx :Context) :ExprTree=  {
-    // case high.FunDef(docs, name, params, csts, args, result, body) =>
-    // val bodyBB = new BlockBuilder()
-    lowerTerm(body, bb, bindTo(ctx.sym(sym)))
-    // TODO: extract closed over values and pass them as arguments
-
-    // TODO: translate
-    // bb += FunDef(ctx.sym(sym), Seq()/*csts.map(_.sym).map(ctx.sym)*/,
-    //              Seq() /*args.map(_.sym).map(ctx.sym)*/, bodyBB.build())
-  }
-
-  // private def lowerDef (tree :high.DefTree, bb :BlockBuilder)
-  //                      (implicit ctx :Context) :ExprTree = {
-  //   def lowerRecord (tree :high.RecordDef) =
-  //     RecordDef(ctx.sym(tree.sym), tree.fields.map(_.sym).map(ctx.sym))
-  //   tree match {
-  //     case high.FunDef(docs, name, params, csts, args, result, body) =>
-  //       val bodyBB = new BlockBuilder()
-  //       lowerTerm(body, bodyBB, bindReturn)
-  //       // TODO: extract closed over values and pass them as arguments
-  //       bb += FunDef(ctx.sym(tree.sym), csts.map(_.sym).map(ctx.sym),
-  //                    args.map(_.sym).map(ctx.sym), bodyBB.build())
-  //     case tree :high.RecordDef =>
-  //       bb += lowerRecord(tree)
-  //     case high.UnionDef(docs, name, args, cases) =>
-  //       bb += UnionDef(ctx.sym(tree.sym), cases map lowerRecord)
-  //     case high.FaceDef(docs, name, params, parents, meths) =>
-  //       // TODO: extract default methods into standalone funs
-  //     case high.ImplDef(docs, name, params, csts, parent, binds) =>
-  //       val implSym = ctx.sym(tree.sym)
-  //       val Record(faceSym, _, fieldTypes) = tree.tpe
-  //       def ctorTree = Construct(
-  //         ctx.sym(faceSym),
-  //         fieldTypes.map(f => lowerMethod(binds.find(_.meth == f.name).get, f)))
-  //       // if the impl has no constraints, it's lowered into a dictionary value
-  //       if (csts.isEmpty) bb += LetDef(implSym, false, Some(ctorTree))
-  //       // otherwise it's lowered into a function from constraints to dictionary
-  //       else {
-  //         val bodyBB = new BlockBuilder()
-  //         bodyBB += Return(ctorTree)
-  //         bb += FunDef(implSym, csts.map(_.sym).map(ctx.sym), Seq(), bodyBB.build())
-  //       }
-  //     case _ => unreachable(tree)
-  //   }
-  //   UnitExpr
-  // }
-
-  // private def lowerMethod (bind :high.MethodBinding, field :Field)
-  //                         (implicit ctx :Context) :ExprTree = {
-  //   val boundFun = IdentRef(ctx.sym(bind.sym))
-  //   // if we require no dictionaries, lower directly to the bound fun
-  //   if (bind.impls.isEmpty) boundFun
-  //   // otherwise lower to a lambda which closes over the necessary dictionaries
-  //   else {
-  //     // pull arg names from the method fundef instead of using meaningless names
-  //     val Arrow(methSym, methParams, methCsts, methArgs, methResult) = field.tpe
-  //     val lambdaSyms = (methSym.funArgs.map(_.name) zip methArgs).
-  //       map(nt => new Symbol(nt._1, nt._2, true))
-  //     val dictArgs = bind.impls map lowerImpl
-  //     val lambdaArgs = lambdaSyms map IdentRef
-  //     Lambda(Seq(), lambdaSyms, ExprStmt(Apply(boundFun, dictArgs, lambdaArgs)))
-  //   }
-  // }
-
-  // private def lowerMatch (tree :high.Match, bb :BlockBuilder, target :BindTarget)
-  //                        (implicit ctx :Context) :ExprTree = {
-
-  //   // wrap the match in a labeled block, which we'll use to forward jump out of the match code
-  //   // after each match (the combination of tests, binds and guards prevents a simple translation
-  //   // to a chain of if/elses)
-  //   val matchLabel = ctx.freshLabel()
-  //   val matchBB = new BlockBuilder()
-  //   val matchExp = lowerFresh(tree.cond, matchBB)
-
-  //   def collectTests (disc :ExprTree, tree :high.TermTree) :Seq[ExprTree] = tree match {
-  //     case tree :high.LetPat => Seq()
-  //     // NOTE: the use of `is` here is a bit loosey goosey; pattern matching is a structural
-  //     // operation, so we don't want to use `eq`, but we need to be stricter about which built-in
-  //     // types are (mathematically) variants (Unit, Bool, In and Un) and which are not (Fn and
-  //     // String)
-  //     case tree @ high.IdentPat(ident) => Seq(Is(disc, IdentRef(ctx.sym(tree.sym))))
-  //     case high.LiteralPat(const) => Seq(Is(disc, Literal(const)))
-  //     case tree @ high.DestructPat(ctor, binds) =>
-  //       val recType = tree.tpe.asInstanceOf[Record]
-  //       Seq(Is(disc, IdentRef(ctx.sym(tree.sym)))) ++ (binds zip recType.fields).flatMap {
-  //         case (bind, field) => collectTests(Select(disc, ctx.sym(field.sym)), bind)
-  //       }
-  //     case _ => unreachable(tree)
-  //   }
-
-  //   def collectBinds (disc :ExprTree, tree :high.TermTree, bb :BlockBuilder) :Unit = tree match {
-  //     case tree @ high.LetPat(ident) =>
-  //       if (ident != IgnoreName) bb += LetDef(ctx.sym(tree.sym), false, Some(disc))
-  //     case tree :high.IdentPat => // no bindings
-  //     case tree :high.LiteralPat => // no bindings
-  //     case tree @ high.DestructPat(ctor, binds) =>
-  //       val recType = tree.tpe.asInstanceOf[Record]
-  //       (binds zip recType.fields).foreach {
-  //         case (bind, field) => collectBinds(Select(disc, ctx.sym(field.sym)), bind, bb)
-  //       }
-  //     case _ => unreachable(tree)
-  //   }
-
-  //   var fullyMatched = false
-  //   tree.cases foreach { cse =>
-  //     // TODO: if we're already fully matched, any subsequent cases will be ignored, so we could
-  //     // issue a warning; but we're not doing any other exhaustivity analysis in C0 so maybe we
-  //     // just won't bother; DFU!
-  //     val tests = collectTests(matchExp, cse.pattern)
-  //     val caseBB = new BlockBuilder()
-  //     collectBinds(matchExp, cse.pattern, caseBB)
-  //     cse.guard match {
-  //       case Some(guard) =>
-  //         val guardExp = lowerHoist(guard, caseBB)
-  //         val ifBB = new BlockBuilder()
-  //         lowerTerm(cse.result, ifBB, target)
-  //         // if we're returning the result, no need to break
-  //         if (target != bindReturn) ifBB += Break(matchLabel)
-  //         caseBB += If(guardExp, ifBB.build())
-  //       case None =>
-  //         if (tests.isEmpty) fullyMatched = true
-  //         lowerTerm(cse.result, caseBB, target)
-  //         // if we're returning the result, no need to break
-  //         if (target != bindReturn) caseBB += Break(matchLabel)
-  //     }
-  //     if (tests.isEmpty) matchBB += caseBB.build()
-  //     else matchBB += If(tests reduce And, caseBB.build())
-  //   }
-
-  //   if (!fullyMatched) matchBB += ExprStmt(Raise(Literal(string("match error"))))
-
-  //   // if we're returning our result, we don't need to label the block
-  //   bb += matchBB.build(if (target == bindReturn) None else Some(matchLabel))
-  //   UnitExpr
-  // }
 
   private abstract class BindTarget {
     def bind (expr :ExprTree, bb :BlockBuilder) :ExprTree
@@ -507,13 +296,10 @@ object Lower {
   }
 
   private def needsHoist (tree :high.TermTree) :Boolean = tree match {
-    // case high.OmittedBody => false
     case _ :high.LitTree => false
-    // case _ :high.ArrayLiteral => false
     case _ :high.RefTree => false
     case _ :high.AbsTree => false
-    // case high.Select(expr, field) => needsHoist(expr)
-    // case high.Index(expr, index) => needsHoist(expr) || needsHoist(index)
+    case high.AscTree(_, body)  => needsHoist(body)
     case high.AppTree(fun, arg) => needsHoist(fun) || needsHoist(arg)
     case _ => true
   }

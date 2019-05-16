@@ -43,7 +43,7 @@ class TreesTest {
 
   @Test def testBuiltins = {
     val p = Parsers.parser
-    val mod = new Module
+    val mod = tempModule
     val add = mod.enter(p.parseDef("""def add :: x:Int -> y:Int -> Int = foreign "x + y" """))
     assertNoErrors(add)
     // add.debugPrint(new PrintWriter(System.out, true), "")
@@ -52,7 +52,7 @@ class TreesTest {
 
   @Test def testModuleSyms = {
     val p = Parsers.parser
-    val mod = new Module
+    val mod = tempModule
     val add = mod.enter(p.parseDef("""def add :: x:Int -> y:Int -> Int = foreign "x + y" """))
     assertNoErrors(add)
     // add.debugPrint(new PrintWriter(System.out, true), "")
@@ -64,7 +64,7 @@ class TreesTest {
 
   @Test def testTypeError = {
     val p = Parsers.parser
-    val mod = new Module
+    val mod = tempModule
     val plus = mod.enter(p.parseDef("def plus :: x:String -> y:Int -> Int = x"))
     // plus.debugPrint(new PrintWriter(System.out, true), "")
     val errs = treeErrors(plus)

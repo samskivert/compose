@@ -39,6 +39,29 @@ class LowerTest {
     val foo = mod.enter(p.parseDef(src))
     // foo.debugPrint(new PrintWriter(System.out, true), "")
     assertNoErrors(foo)
+    lower(foo) foreach Lower.print
+  }
+
+  @Test def testLowerValue = {
+    val p = Parsers.parser
+    val mod = testModule
+    val src = """def bar :: Int = 1 + 2"""
+    val foo = mod.enter(p.parseDef(src))
+    // foo.debugPrint(new PrintWriter(System.out, true), "")
+    assertNoErrors(foo)
+    val lfoo = lower(foo)
+    lfoo foreach Lower.print
+  }
+
+  @Test def testLowerHoistedValue = {
+    val p = Parsers.parser
+    val mod = testModule
+    val src = """def bar :: Int =
+                   let foo x = if x == 0 then 0 else 1
+                   in if (1 == 2) then foo 2 else foo 1"""
+    val foo = mod.enter(p.parseDef(src))
+    // foo.debugPrint(new PrintWriter(System.out, true), "")
+    assertNoErrors(foo)
     val lfoo = lower(foo)
     lfoo foreach Lower.print
   }

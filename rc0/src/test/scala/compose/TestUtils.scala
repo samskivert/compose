@@ -30,7 +30,7 @@ object TestUtils {
 
   def testModule = {
     val p = Parsers.parser
-    val mod = new Module
+    val mod = tempModule
     for (dsrc <- TestDefs) {
       val dtree = mod.enter(p.parseDef(dsrc))
       assertNoErrors(dtree)
