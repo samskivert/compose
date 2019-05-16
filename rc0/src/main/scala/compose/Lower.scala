@@ -50,7 +50,7 @@ object Lower {
   case class Index (expr :ExprTree, index :ExprTree) extends ExprTree
   case class Is (expr :ExprTree, what :ExprTree) extends ExprTree
   case class And (left :ExprTree, right :ExprTree) extends ExprTree
-  case class Lambda (dicts :Seq[Symbol], arg :Symbol, body :StmtTree) extends ExprTree
+  case class Lambda (dicts :Seq[Symbol], args :Seq[Symbol], body :StmtTree) extends ExprTree
   case class Call (fun :ExprTree, dicts :Seq[ExprTree], args :Seq[ExprTree]) extends ExprTree
   case class Construct (obj :Symbol, args :Seq[ExprTree]) extends ExprTree
   case class ForeignExpr (body :String) extends ExprTree
@@ -196,14 +196,15 @@ object Lower {
     case high.AscTree(ann, body) =>
       lowerTerm(body, bb, target)
 
-    case high.AbsTree(sym, ann, body) =>
+    case tree :high.AbsTree =>
+      val (args, body) = tree.uncurry(Nil)
       val bodyStmt = if (needsHoist(body)) {
         val bodyBB = new BlockBuilder()
         lowerTerm(body, bodyBB, bindReturn)
         bodyBB.build(None, true)
       } else ExprStmt(lowerTerm(body, bb, bindNone))
       val dicts = Seq[Symbol]() // TODO: dictionary args
-      target.bind(Lambda(dicts, ctx.sym(sym), bodyStmt), bb)
+      target.bind(Lambda(dicts, args.map(arg => ctx.sym(arg.sym)), bodyStmt), bb)
 
     case tree :high.AppTree =>
       // uncurry any nested apps into the inner-most fun + arg list
@@ -544,9 +545,9 @@ object Lower {
       printTree(left) ; pr.print(" && ") ; printTree(right)
     case Index(array, index) =>
       printTree(array) ; pr.print("[") ; printTree(index) ; pr.print("]")
-    case Lambda(dicts, arg, body) =>
+    case Lambda(dicts, args, body) =>
       if (!dicts.isEmpty) printSep(dicts, printSym, Square)
-      printSym(arg) ; pr.print(" => ") ; printTree(body)
+      printSep(args, printSym, Paren) ; pr.print(" => ") ; printTree(body)
     case Call(fun, dicts, args) =>
       printTree(fun)
       if (!dicts.isEmpty) printSep(dicts, printTree, Square)

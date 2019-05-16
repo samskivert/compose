@@ -233,6 +233,8 @@ object Trees {
   //   def infer (ctx :Context) = ???
   // }
 
+  case class AbsArg (sym :LexicalTermSym, ann :TypeTree)
+
   // abstraction trees
   case class AbsTree (sym :LexicalTermSym, ann :TypeTree, body :TermTree) extends TermSymTree {
     override def signature = Arrow(ann.signature, body.signature)
@@ -266,6 +268,11 @@ object Trees {
       ctx.tracer.trace(s"- ->I=> ($body <= $eC) in $checkCtx")
       body.checkSave(checkCtx, eC) map {
         checkedCtx => (Arrow(eA, eC), checkedCtx.peel(assump)) } // e ⇐ ĉ ⊣ ∆,x:â,Θ
+    }
+    // helper for uncurrying abs
+    def uncurry (args :List[AbsArg]) :(Seq[AbsArg], TermTree) = body match {
+      case nabs :AbsTree => nabs.uncurry(AbsArg(sym, ann) :: args)
+      case _             => ((AbsArg(sym, ann) :: args).reverse, body)
     }
   }
 
